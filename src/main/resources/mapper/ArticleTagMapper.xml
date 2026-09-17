@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.easyjob.mapper.ArticleTagMapper">
+    
+    <!-- 根据标签名查询标签 -->
+    <select id="selectByTagName" resultType="com.easyjob.entity.ArticleTag">
+        SELECT tag_id, tag_name, use_count, create_time
+        FROM article_tag
+        WHERE tag_name = #{tagName}
+        LIMIT 1
+    </select>
+    
+    <!-- 搜索标签（用于联想） -->
+    <select id="searchTags" resultType="com.easyjob.vo.TagVO">
+        SELECT tag_id AS tagId, tag_name AS tagName, use_count AS useCount
+        FROM article_tag
+        WHERE tag_name LIKE CONCAT('%', #{keyword}, '%')
+        ORDER BY use_count DESC
+        LIMIT #{limit}
+    </select>
+    
+    <!-- 获取热门标签 -->
+    <select id="getHotTags" resultType="com.easyjob.vo.TagVO">
+        SELECT tag_id AS tagId, tag_name AS tagName, use_count AS useCount
+        FROM article_tag
+        WHERE use_count > 0
+        ORDER BY use_count DESC
+        LIMIT #{limit}
+    </select>
+    
+    <!-- 根据文章ID获取标签列表 -->
+    <select id="getTagsByArticleId" resultType="com.easyjob.vo.TagVO">
+        SELECT t.tag_id AS tagId, t.tag_name AS tagName, t.use_count AS useCount
+        FROM article_tag t
+        INNER JOIN article_tag_relation r ON t.tag_id = r.tag_id
+        WHERE r.article_id = #{articleId}
+        ORDER BY r.id ASC
+    </select>
+    
+    <!-- 增加标签使用次数 -->
+    <update id="increaseUseCount">
+        UPDATE article_tag
+        SET use_count = use_count + 1
+        WHERE tag_id = #{tagId}
+    </update>
+    
+    <!-- 减少标签使用次数 -->
+    <update id="decreaseUseCount">
+        UPDATE article_tag
+        SET use_count = GREATEST(use_count - 1, 0)
+        WHERE tag_id = #{tagId}
+    </update>
+    
+</mapper>

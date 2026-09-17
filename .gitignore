@@ -1,0 +1,71 @@
+# Documentation and generated reports
+/docs/
+/python-agent/docs/
+*.md
+*.docx
+*.pdf
+
+# Local IDE and AI assistant state
+.idea/
+**/.idea/
+.vscode/
+.kiro/
+.claude/
+.settings/
+.classpath
+.factorypath
+.project
+
+# Java build outputs
+/target/
+**/target/
+*.class
+
+# Frontend dependencies and build outputs
+**/node_modules/
+/frontend/dist/
+**/dist-ssr/
+*.local
+
+# Python virtual environments and caches
+**/__pycache__/
+*.py[cod]
+*.pyd
+.venv/
+**/.venv/
+venv/
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+
+# Secrets and machine-specific runtime configuration
+.env
+.env.*
+!.env.example
+!**/.env.example
+/src/main/resources/application.yml
+/src/main/resources/application-dev.yml
+/src/main/resources/application-prod.yml
+*.pem
+*.key
+*.p12
+*.jks
+
+# Runtime data, logs, and temporary files
+logs/
+**/logs/
+*.log
+uploads/
+temp/
+tmp/
+
+# Root-level local media; application assets under public/static remain tracked
+/wangzhantouxiang.jpg
+
+# Legacy debug pages; test assets belong under test/
+/src/main/resources/static/test-*.html
+
+# Operating-system files
+.DS_Store
+Thumbs.db
+Desktop.ini

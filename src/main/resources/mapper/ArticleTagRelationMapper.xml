@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.easyjob.mapper.ArticleTagRelationMapper">
+    
+    <!-- 根据文章ID删除所有关联 -->
+    <delete id="deleteByArticleId">
+        DELETE FROM article_tag_relation
+        WHERE article_id = #{articleId}
+    </delete>
+    
+    <!-- 批量插入文章-标签关联 -->
+    <insert id="batchInsert">
+        INSERT INTO article_tag_relation (article_id, tag_id, create_time)
+        VALUES
+        <foreach collection="relations" item="item" separator=",">
+            (#{item.articleId}, #{item.tagId}, #{item.createTime})
+        </foreach>
+    </insert>
+    
+    <!-- 根据文章ID获取关联的标签ID列表 -->
+    <select id="getTagIdsByArticleId" resultType="java.lang.Long">
+        SELECT tag_id
+        FROM article_tag_relation
+        WHERE article_id = #{articleId}
+    </select>
+    
+</mapper>

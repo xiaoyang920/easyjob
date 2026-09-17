@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>粉丝与关注 - EasyJob</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            min-height: 100vh;
+            background: linear-gradient(180deg,
+                #0f2027 0%,
+                #203a43 30%,
+                #2c5364 60%,
+                #ee9ca7 85%,
+                #ffdde1 100%
+            );
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        /* 星空背景 */
+        .stars {
+            position: fixed;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            z-index: 0;
+        }
+
+        .star {
+            position: absolute;
+            width: 2px;
+            height: 2px;
+            background: white;
+            border-radius: 50%;
+            box-shadow: 0 0 3px white;
+            animation: twinkle 3s infinite;
+        }
+
+        @keyframes twinkle {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 1; }
+        }
+
+        /* 导航栏 */
+        .navbar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 64px;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 40px;
+            z-index: 100;
+        }
+
+        .logo {
+            font-size: 24px;
+            font-weight: bold;
+            background: linear-gradient(135deg, #ffffff 0%, #e0f7ff 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .nav-right {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+
+        .nav-btn {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            padding: 8px 20px;
+            border-radius: 20px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 14px;
+        }
+
+        .nav-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+        }
+
+        /* 主容器 */
+        .container {
+            position: relative;
+            z-index: 1;
+            max-width: 1400px;
+            margin: 100px auto 50px;
+            padding: 0 20px;
+        }
+
+        /* 标签页卡片 */
+        .tab-card {
+            background: white;
+            border: 1px solid rgba(0, 0, 0, 0.1);
+            border-radius: 20px;
+            padding: 30px 40px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+
+        /* 标签页 */
+        .tabs {
+            display: flex;
+            gap: 10px;
+            border-bottom: 2px solid #f0f0f0;
+            padding-bottom: 15px;
+        }
+
+        .tab {
+            padding: 12px 30px;
+            border: none;
+            border-radius: 10px;
+            background: transparent;
+            color: #666;
+            font-size: 16px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .tab svg {
+            width: 20px;
+            height: 20px;
+        }
+
+        .tab:hover {
+            background: #f7f9fc;
+            color: #333;
+        }
+
+        .tab.active {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+            box-shadow: 0 4px 15px rgba(79, 172, 254, 0.3);
+        }
+
+        .tab-badge {
+            background: rgba(255, 255, 255, 0.3);
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: 13px;
+        }
+
+        /* 用户列表 */
+        .user-list {
+            display: none;
+            padding-top: 20px;
+        }
+
+        .user-list.active {
+            display: block;
+        }
+
+        .user-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 25px 0;
+            border-bottom: 1px solid #f0f0f0;
+            transition: all 0.3s;
+        }
+
+        .user-item:last-child {
+            border-bottom: none;
+        }
+
+        .user-item:hover {
+            background: #f7f9fc;
+            margin: 0 -20px;
+            padding: 25px 20px;
+            border-radius: 10px;
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            flex: 1;
+        }
+
+        .user-avatar {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 3px solid #f0f0f0;
+        }
+
+        .user-details {
+            flex: 1;
+        }
+
+        .user-name {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 5px;
+        }
+
+        .user-intro {
+            font-size: 14px;
+            color: #999;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            max-width: 400px;
+        }
+
+        .user-stats {
+            display: flex;
+            gap: 20px;
+            margin-top: 8px;
+        }
+
+        .stat-item {
+            font-size: 13px;
+            color: #666;
+        }
+
+        .stat-value {
+            font-weight: 600;
+            color: #667eea;
+        }
+
+        .action-btn {
+            padding: 10px 25px;
+            border: none;
+            border-radius: 20px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: 500;
+        }
+
+        .btn-follow {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+        }
+
+        .btn-follow:hover {
+            transform: scale(1.05);
+            box-shadow: 0 4px 12px rgba(79, 172, 254, 0.4);
+        }
+
+        .btn-following {
+            background: #f0f0f0;
+            color: #666;
+            border: 1px solid #ddd;
+        }
+
+        .btn-following:hover {
+            background: #ffebee;
+            color: #f44336;
+            border-color: #f44336;
+        }
+
+        /* 空状态 */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+        }
+
+        .empty-icon {
+            margin-bottom: 20px;
+        }
+
+        .empty-icon svg {
+            width: 80px;
+            height: 80px;
+            opacity: 0.3;
+        }
+
+        .empty-text {
+            font-size: 18px;
+            margin-bottom: 10px;
+            color: #666;
+        }
+
+        .empty-tip {
+            font-size: 14px;
+            color: #999;
+        }
+
+        /* 加载状态 */
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #667eea;
+            font-size: 16px;
+        }
+
+        .loading::after {
+            content: '...';
+            animation: dots 1.5s steps(4, end) infinite;
+        }
+
+        @keyframes dots {
+            0%, 20% { content: '.'; }
+            40% { content: '..'; }
+            60%, 100% { content: '...'; }
+        }
+
+        /* 加载更多按钮 */
+        .load-more-btn {
+            text-align: center;
+            padding: 20px;
+            margin: 20px 0;
+            color: #667eea;
+            font-size: 14px;
+            cursor: pointer;
+            border-radius: 10px;
+            background: #f7f9fc;
+            border: 1px solid #e0e0e0;
+            transition: all 0.3s;
+        }
+
+        .load-more-btn:hover {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+            border-color: transparent;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(79, 172, 254, 0.3);
+        }
+    </style>
+</head>
+<body>
+    <!-- 星空背景 -->
+    <div class="stars" id="stars"></div>
+
+    <!-- 导航栏 -->
+    <div class="navbar">
+        <div class="logo">EasyJob</div>
+        <div class="nav-right">
+            <button class="nav-btn" onclick="goBack()">返回</button>
+            <button class="nav-btn" onclick="goHome()">首页</button>
+        </div>
+    </div>
+
+    <!-- 主容器 -->
+    <div class="container">
+        <!-- 标签页和列表卡片 -->
+        <div class="tab-card">
+            <!-- 标签页 -->
+            <div class="tabs">
+                <button class="tab active" onclick="switchTab('followers')">
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/>
+                    </svg>
+                    粉丝 <span class="tab-badge" id="followersCount">0</span>
+                </button>
+                <button class="tab" onclick="switchTab('following')">
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+                    </svg>
+                    关注 <span class="tab-badge" id="followingCount">0</span>
+                </button>
+            </div>
+
+            <!-- 粉丝列表 -->
+            <div class="user-list active" id="followersList">
+                <div class="loading">加载中</div>
+            </div>
+
+            <!-- 关注列表 -->
+            <div class="user-list" id="followingList">
+                <div class="loading">加载中</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 生成星星
+        const starsContainer = document.getElementById('stars');
+        for (let i = 0; i < 100; i++) {
+            const star = document.createElement('div');
+            star.className = 'star';
+            star.style.left = Math.random() * 100 + '%';
+            star.style.top = Math.random() * 100 + '%';
+            star.style.animationDelay = Math.random() * 3 + 's';
+            starsContainer.appendChild(star);
+        }
+
+        // 获取URL参数中的userId，如果没有则使用当前登录用户的ID
+        function getTargetUserId() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const urlUserId = urlParams.get('userId');
+            return urlUserId || localStorage.getItem('userId');
+        }
+        
+        // 当前用户ID（目标用户）
+        const currentUserId = getTargetUserId();
+        const token = localStorage.getItem('token');
+
+        // 分页状态
+        let followersPage = {
+            current: 1,
+            size: 20,
+            total: 0,
+            pages: 0
+        };
+
+        let followingPage = {
+            current: 1,
+            size: 20,
+            total: 0,
+            pages: 0
+        };
+
+        // 页面加载时获取数据
+        window.addEventListener('load', () => {
+            loadFollowers();
+            loadFollowing();
+        });
+
+        // 切换标签页
+        function switchTab(type) {
+            // 更新标签按钮状态
+            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+            event.target.closest('.tab').classList.add('active');
+
+            // 显示对应列表
+            document.querySelectorAll('.user-list').forEach(list => list.classList.remove('active'));
+            if (type === 'followers') {
+                document.getElementById('followersList').classList.add('active');
+            } else {
+                document.getElementById('followingList').classList.add('active');
+            }
+        }
+
+        // 加载粉丝列表
+        async function loadFollowers(page = 1, append = false) {
+            try {
+                const response = await fetch(`/api/user/${currentUserId}/followers?page=${page}&size=${followersPage.size}`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const result = await response.json();
+
+                if (result.status === 'success' && result.data) {
+                    const followers = result.data.records || result.data;
+                    
+                    // 更新分页信息
+                    followersPage.current = result.data.current || page;
+                    followersPage.total = result.data.total || followers.length;
+                    followersPage.pages = result.data.pages || 1;
+                    
+                    document.getElementById('followersCount').textContent = followersPage.total;
+                    
+                    if (append) {
+                        // 追加模式：在现有列表后面追加
+                        appendUsers(followers, 'followersList', 'followers');
+                    } else {
+                        // 替换模式：重新渲染列表
+                        displayUsers(followers, 'followersList', 'followers');
+                    }
+                } else {
+                    if (!append) {
+                        showEmptyState('followersList', '还没有粉丝', '分享优质内容吸引更多粉丝吧~');
+                    }
+                }
+            } catch (error) {
+                console.error('加载粉丝列表失败:', error);
+                if (!append) {
+                    showEmptyState('followersList', '加载失败', '请稍后重试');
+                }
+            }
+        }
+
+        // 加载关注列表
+        async function loadFollowing(page = 1, append = false) {
+            try {
+                const response = await fetch(`/api/user/${currentUserId}/following?page=${page}&size=${followingPage.size}`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const result = await response.json();
+
+                if (result.status === 'success' && result.data) {
+                    const following = result.data.records || result.data;
+                    
+                    // 更新分页信息
+                    followingPage.current = result.data.current || page;
+                    followingPage.total = result.data.total || following.length;
+                    followingPage.pages = result.data.pages || 1;
+                    
+                    document.getElementById('followingCount').textContent = followingPage.total;
+                    
+                    if (append) {
+                        // 追加模式：在现有列表后面追加
+                        appendUsers(following, 'followingList', 'following');
+                    } else {
+                        // 替换模式：重新渲染列表
+                        displayUsers(following, 'followingList', 'following');
+                    }
+                } else {
+                    if (!append) {
+                        showEmptyState('followingList', '还没有关注', '去发现感兴趣的作者吧~');
+                    }
+                }
+            } catch (error) {
+                console.error('加载关注列表失败:', error);
+                if (!append) {
+                    showEmptyState('followingList', '加载失败', '请稍后重试');
+                }
+            }
+        }
+
+        // 显示用户列表
+        function displayUsers(users, containerId, type) {
+            const container = document.getElementById(containerId);
+            
+            if (!users || users.length === 0) {
+                showEmptyState(containerId, 
+                    type === 'followers' ? '还没有粉丝' : '还没有关注',
+                    type === 'followers' ? '分享优质内容吸引更多粉丝吧~' : '去发现感兴趣的作者吧~'
+                );
+                return;
+            }
+
+            container.innerHTML = users.map(user => `
+                <div class="user-item">
+                    <div class="user-info">
+                        <img src="${user.avatar || 'https://i.pravatar.cc/150?img=' + (user.userId % 70)}" 
+                             alt="${user.nickName}" 
+                             class="user-avatar">
+                        <div class="user-details">
+                            <div class="user-name">${user.nickName}</div>
+                            <div class="user-intro">${user.personIntroduction || '这个人很懒，什么都没有留下~'}</div>
+                            <div class="user-stats">
+                                <span class="stat-item">文章 <span class="stat-value">${user.articleCount || 0}</span></span>
+                                <span class="stat-item">粉丝 <span class="stat-value">${user.followerCount || 0}</span></span>
+                            </div>
+                        </div>
+                    </div>
+                    <button class="action-btn ${user.isFollowing ? 'btn-following' : 'btn-follow'}" 
+                            onclick="toggleFollow('${user.userId}', ${user.isFollowing}, this)">
+                        ${user.isFollowing ? '已关注' : '关注'}
+                    </button>
+                </div>
+            `).join('');
+            
+            // 添加加载更多按钮
+            addLoadMoreButton(containerId, type);
+        }
+
+        // 追加用户到列表（分页加载）
+        function appendUsers(users, containerId, type) {
+            const container = document.getElementById(containerId);
+            
+            if (!users || users.length === 0) {
+                return;
+            }
+
+            // 移除旧的加载更多按钮
+            const oldLoadMore = container.querySelector('.load-more-btn');
+            if (oldLoadMore) {
+                oldLoadMore.remove();
+            }
+
+            // 追加新用户
+            const newUsersHTML = users.map(user => `
+                <div class="user-item">
+                    <div class="user-info">
+                        <img src="${user.avatar || 'https://i.pravatar.cc/150?img=' + (user.userId % 70)}" 
+                             alt="${user.nickName}" 
+                             class="user-avatar">
+                        <div class="user-details">
+                            <div class="user-name">${user.nickName}</div>
+                            <div class="user-intro">${user.personIntroduction || '这个人很懒，什么都没有留下~'}</div>
+                            <div class="user-stats">
+                                <span class="stat-item">文章 <span class="stat-value">${user.articleCount || 0}</span></span>
+                                <span class="stat-item">粉丝 <span class="stat-value">${user.followerCount || 0}</span></span>
+                            </div>
+                        </div>
+                    </div>
+                    <button class="action-btn ${user.isFollowing ? 'btn-following' : 'btn-follow'}" 
+                            onclick="toggleFollow('${user.userId}', ${user.isFollowing}, this)">
+                        ${user.isFollowing ? '已关注' : '关注'}
+                    </button>
+                </div>
+            `).join('');
+
+            container.insertAdjacentHTML('beforeend', newUsersHTML);
+            
+            // 添加加载更多按钮
+            addLoadMoreButton(containerId, type);
+        }
+
+        // 添加加载更多按钮
+        function addLoadMoreButton(containerId, type) {
+            const container = document.getElementById(containerId);
+            const pageInfo = type === 'followers' ? followersPage : followingPage;
+            
+            // 判断是否还有更多数据
+            if (pageInfo.current < pageInfo.pages) {
+                const loadMoreHTML = `
+                    <div class="load-more-btn" onclick="loadMore('${type}')">
+                        加载更多 (${pageInfo.current}/${pageInfo.pages})
+                    </div>
+                `;
+                container.insertAdjacentHTML('beforeend', loadMoreHTML);
+            }
+        }
+
+        // 加载更多
+        function loadMore(type) {
+            if (type === 'followers') {
+                loadFollowers(followersPage.current + 1, true);
+            } else {
+                loadFollowing(followingPage.current + 1, true);
+            }
+        }
+
+        // 显示空状态
+        function showEmptyState(containerId, text, tip) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-icon">
+                        <svg viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/>
+                        </svg>
+                    </div>
+                    <div class="empty-text">${text}</div>
+                    <div class="empty-tip">${tip}</div>
+                </div>
+            `;
+        }
+
+        // 关注/取消关注
+        async function toggleFollow(userId, isFollowing, button) {
+            try {
+                const url = isFollowing ? `/api/user/${userId}/unfollow` : `/api/user/${userId}/follow`;
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const result = await response.json();
+
+                if (result.status === 'success') {
+                    // 显示成功提示（使用后端返回的message）
+                    alert(result.message || (isFollowing ? '取消关注成功' : '关注成功'));
+                    
+                    // 更新按钮状态
+                    if (isFollowing) {
+                        button.className = 'action-btn btn-follow';
+                        button.textContent = '关注';
+                    } else {
+                        button.className = 'action-btn btn-following';
+                        button.textContent = '已关注';
+                    }
+                    button.onclick = () => toggleFollow(userId, !isFollowing, button);
+                    
+                    // 刷新列表
+                    loadFollowers();
+                    loadFollowing();
+                } else {
+                    // 显示失败提示（使用后端返回的message）
+                    alert(result.message || '操作失败');
+                }
+            } catch (error) {
+                console.error('操作失败:', error);
+                // 显示错误提示（使用异常的message）
+                alert(error.message || '操作失败，请稍后重试');
+            }
+        }
+
+        // 返回
+        function goBack() {
+            window.history.back();
+        }
+
+        // 首页
+        function goHome() {
+            window.location.href = '/user-space.html';
+        }
+    </script>
+</body>
+</html>

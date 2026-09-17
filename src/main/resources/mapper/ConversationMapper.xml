@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.easyjob.mapper.ConversationMapper">
+    <update id="updateLastMessage">
+        UPDATE conversation
+        SET last_message_id = #{messageId},
+            last_message_content = #{content},
+            last_message_time = now()
+        WHERE conversation_id = #{conversationId}
+    </update>
+
+    <!-- 查询用户的会话列表 -->
+    <select id="selectConversationList" resultType="com.easyjob.vo.ConversationVO">
+        SELECT 
+            c.conversation_id AS conversationId,
+            c.conversation_type AS conversationType,
+            c.last_message_content AS lastMessage,
+            c.last_message_time AS lastMessageTime,
+            cm.unread_count AS unreadCount,
+            cm.is_muted AS isMuted,
+            cm.is_top AS isTop,
+            -- 单聊时获取对方信息
+            other_cm.user_id AS otherUserId,
+            u.nick_name AS otherUserName,
+            u.avatar AS otherUserAvatar
+        FROM conversation c
+        INNER JOIN conversation_member cm 
+            ON c.conversation_id = cm.conversation_id 
+            AND cm.user_id = #{userId}
+            AND cm.is_deleted = 0
+        -- 关联对方成员（单聊）
+        LEFT JOIN conversation_member other_cm 
+            ON c.conversation_id = other_cm.conversation_id 
+            AND other_cm.user_id != #{userId}
+            AND c.conversation_type = 1
+        -- 关联对方用户信息
+        LEFT JOIN user_info u ON other_cm.user_id = u.user_id
+        ORDER BY cm.is_top DESC, c.last_message_time DESC
+    </select>
+
+    <!-- 查询两个用户之间是否存在单聊会话 -->
+    <select id="selectExistConversation" resultType="java.lang.Long">
+        SELECT c.conversation_id
+        FROM conversation c
+        INNER JOIN conversation_member cm1 
+            ON c.conversation_id = cm1.conversation_id 
+            AND cm1.user_id = #{userId1}
+        INNER JOIN conversation_member cm2 
+            ON c.conversation_id = cm2.conversation_id 
+            AND cm2.user_id = #{userId2}
+        WHERE c.conversation_type = 1
+        LIMIT 1
+    </select>
+    <select id="selectUnreadCount" resultType="java.lang.Integer">
+        SELECT IFNULL(unread_count, 0) AS unreadCount
+        FROM conversation_member
+        WHERE conversation_id = #{conversationId}
+          AND user_id = #{userId}
+    </select>
+    <select id="getLastMessageId" resultType="java.lang.Long" parameterType="java.lang.Long">
+        SELECT last_message_id
+        FROM conversation
+        WHERE conversation_id = #{conversationId}
+    </select>
+
+</mapper>

@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.easyjob.mapper.ArticleMapper">
+    <update id="changeLikeCount">
+        update article_info
+        set like_count = like_count + #{count}
+        where article_id = #{articleId}
+    </update>
+    <update id="changeCollectCount">
+        update article_info
+        set collect_count = collect_count + #{count}
+        where article_id = #{articleId}
+    </update>
+    <update id="changeViewCount">
+        update article_info
+        set view_count = view_count + #{count}
+        where article_id = #{articleId}
+    </update>
+    <update id="changeCommentCount">
+        update article_info
+        set comment_count = comment_count + #{count}
+        where article_id = #{articleId}
+    </update>
+    <update id="changeShareCount">
+        update article_info
+        set share_count = share_count + #{count}
+        where article_id = #{articleId}
+    </update>
+    <select id="selectArticleAndUser" resultType="com.easyjob.vo.ArticleDetailVO">
+        select a.*,u.nick_name author_name,u.avatar author_avatar
+        from article_info a, user_info u
+        where article_id = #{articleId} and a.user_id = u.user_id
+    </select>
+    <select id="listArticles" resultType="com.easyjob.vo.ArticleListVO">
+        SELECT
+            a.article_id as articleId,
+            a.title,
+            a.summary,
+            a.cover_image as coverImage,
+            a.user_id as userId,
+            u.nick_name as nickName,
+            u.avatar,
+            a.view_count as viewCount,
+            a.like_count as likeCount,
+            a.collect_count as collectCount,
+            a.comment_count as commentCount,
+            a.publish_time as publishTime,
+            a.tags,
+            a.is_original as isOriginal
+        FROM article_info a
+        LEFT JOIN user_info u ON a.user_id = u.user_id
+        WHERE a.status = 1
+        <if test="keyword != null and keyword != ''">
+            AND (a.title LIKE CONCAT('%', #{keyword}, '%') OR a.summary LIKE CONCAT('%', #{keyword}, '%'))
+        </if>
+        <if test="categoryId != null">
+            AND a.category_id = #{categoryId}
+        </if>
+        ORDER BY
+        <choose>
+            <when test="sort == 'hottest'">
+                a.view_count DESC
+            </when>
+            <when test="sort == 'liked'">
+                a.like_count DESC
+            </when>
+            <otherwise>
+                a.publish_time DESC
+            </otherwise>
+        </choose>
+    </select>
+    <select id="listUserCollectionOrLike" resultType="com.easyjob.vo.ArticleListVO">
+        SELECT
+            a.article_id as articleId,
+            a.title,
+            a.summary,
+            a.cover_image as coverImage,
+            a.user_id as userId,
+            u.nick_name as nickName,
+            u.avatar,
+            a.view_count as viewCount,
+            a.like_count as likeCount,
+            a.collect_count as collectCount,
+            a.comment_count as commentCount,
+            a.publish_time as publishTime,
+            a.tags,
+            a.is_original as isOriginal
+        FROM article_info a
+        LEFT JOIN user_info u ON a.user_id = u.user_id
+        LEFT JOIN user_action ua ON a.article_id = ua.article_id AND ua.user_id = #{userId}
+        WHERE ua.action_type = #{type}
+        ORDER BY
+        <choose>
+            <when test="order == 'hottest'">
+                a.view_count DESC
+            </when>
+            <when test="order == 'liked'">
+                a.like_count DESC
+            </when>
+            <when test="order == 'collect'">
+                a.collect_count DESC
+            </when>
+            <otherwise>
+                a.publish_time DESC
+            </otherwise>
+        </choose>
+    </select>
+    <select id="getShareCount" resultType="java.lang.Integer">
+        SELECT
+            share_count
+        FROM article_info
+        WHERE article_id = #{articleId}
+    </select>
+    <select id="selectArticlesAndUsers" resultType="com.easyjob.vo.ArticleDetailVO">
+        SELECT
+            a.*,
+            u.nick_name author_name,
+            u.avatar author_avatar
+        FROM article_info a
+        LEFT JOIN user_info u ON a.user_id = u.user_id
+        WHERE a.article_id IN
+        <foreach item="item" collection="articleIds" separator="," open="(" close=")">
+            #{item}
+        </foreach>
+        AND a.status = 1
+    </select>
+    <select id="selectHotArticles" resultType="com.easyjob.vo.ArticleListVO" parameterType="int">
+        SELECT
+            a.article_id AS articleId,
+            a.title,
+            a.cover_image AS coverImage,
+            a.summary,
+            a.view_count AS viewCount,
+            a.like_count AS likeCount,
+            a.collect_count AS collectCount,
+            a.publish_time AS publishTime,
+            u.nick_name AS authorName,
+            u.avatar AS authorAvatar
+        FROM article_info a
+        JOIN user_info u ON a.user_id = u.user_id
+        WHERE a.status = 1
+        ORDER BY (a.like_count * 2 + a.collect_count * 3 + a.view_count) DESC
+        LIMIT #{limit}
+    </select>
+    <select id="selectRecommendArticles" resultType="com.easyjob.vo.ArticleListVO">
+        SELECT
+            a.article_id AS articleId,
+            a.title,
+            a.cover_image AS coverImage,
+            a.summary,
+            a.view_count AS viewCount,
+            a.like_count AS likeCount,
+            a.collect_count AS collectCount,
+            a.publish_time AS publishTime,
+            u.nick_name AS authorName,
+            u.avatar AS authorAvatar
+        FROM article_info a
+        JOIN article_tag_relation atr ON a.article_id = atr.article_id
+        JOIN user_info u ON a.user_id = u.user_id
+        WHERE a.status = 1 AND atr.tag_id IN
+        <foreach item="item" collection="topTagIds" separator="," open="(" close=")">
+            #{item}
+        </foreach>
+        AND a.article_id NOT IN(
+            SELECT article_id FROM user_action
+                              WHERE user_id = #{userId} AND action_type = 7
+        )
+        GROUP BY a.article_id
+        ORDER BY(
+            COUNT(atr.tag_id) * 10 +  -- 匹配的偏好标签越多，分越高
+            (a.like_count * 2 + a.collect_count * 3 + a.view_count) /
+            (1 + DATEDIFF(NOW(), a.publish_time) * 0.1) DESC
+        )
+        LIMIT #{limit}
+    </select>
+    <select id="selectHotArticlesExclude" resultType="com.easyjob.vo.ArticleListVO">
+        SELECT
+            a.article_id AS articleId,
+            a.title,
+            a.cover_image AS coverImage,
+            a.summary,
+            a.view_count AS viewCount,
+            a.like_count AS likeCount,
+            a.collect_count AS collectCount,
+            a.publish_time AS publishTime,
+            u.nick_name AS authorName,
+            u.avatar AS authorAvatar
+        FROM article_info a
+        JOIN user_info u ON a.user_id = u.user_id
+        WHERE a.status = 1
+            <if test="excludeIds != null and excludeIds.size() > 0">
+                AND a.article_id NOT IN
+                <foreach item="item" collection="excludeIds" separator="," open="(" close=")">
+                    #{item}
+                </foreach>
+            </if>
+        ORDER BY (a.like_count * 2 + a.collect_count * 3 + a.view_count) DESC
+        LIMIT #{limit}
+    </select>
+
+</mapper>

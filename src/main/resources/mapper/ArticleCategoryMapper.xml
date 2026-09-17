@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.easyjob.mapper.ArticleCategoryMapper">
+
+    <resultMap id="CategoryWithChildren" type="com.easyjob.vo.CategoryVO">
+        <id property="categoryId" column="categoryId"/>
+        <result property="categoryName" column="categoryName"/>
+        <result property="parentId" column="parentId"/>
+        <result property="sortOrder" column="sortOrder"/>
+        <result property="description" column="description"/>
+        <result property="articleCount" column="articleCount"/>
+        <result property="status" column="status"/>
+        <result property="createTime" column="createTime"/>
+        <collection property="children" ofType="com.easyjob.vo.CategoryVO">
+            <id property="categoryId" column="child_categoryId"/>
+            <result property="categoryName" column="child_categoryName"/>
+            <result property="parentId" column="child_parentId"/>
+            <result property="sortOrder" column="child_sortOrder"/>
+            <result property="description" column="child_description"/>
+            <result property="articleCount" column="child_articleCount"/>
+            <result property="status" column="child_status"/>
+            <result property="createTime" column="child_createTime"/>
+        </collection>
+    </resultMap>
+
+    <select id="listAll" resultMap="CategoryWithChildren">
+        SELECT
+            a.category_id as categoryId,
+            a.category_name as categoryName,
+            a.parent_id as parentId,
+            a.sort_order as sortOrder,
+            a.description as description,
+            a.article_count as articleCount,
+            a.status as  status,
+            a.create_time as createTime,
+            b.category_id AS child_categoryId,
+            b.category_name AS child_categoryName,
+            b.parent_id AS child_parentId,
+            b.sort_order AS child_sortOrder,
+            b.description AS child_description,
+            b.article_count AS child_articleCount,
+            b.status AS child_status,
+            b.create_time AS child_createTime
+        FROM category AS a
+                 LEFT JOIN category AS b ON a.category_id = b.parent_id
+        WHERE a.parent_id = 0
+        ORDER BY a.sort_order
+    </select>
+</mapper>

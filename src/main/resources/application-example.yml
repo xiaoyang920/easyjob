@@ -1,0 +1,102 @@
+spring:
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+  main:
+    allow-circular-references: true
+  jackson:
+    time-zone: GMT+8
+    date-format: yyyy-MM-dd HH:mm:ss
+  servlet:
+    multipart:
+      max-file-size: 15MB
+      max-request-size: 15MB
+  datasource:
+    url: ${MYSQL_URL:jdbc:mysql://localhost:3306/easyjob?serverTimezone=GMT%2B8&useUnicode=true&characterEncoding=utf8&useSSL=false}
+    username: ${MYSQL_USER:root}
+    password: ${MYSQL_PASSWORD:}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  data:
+    redis:
+      database: ${REDIS_DB:0}
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+    virtual-host: ${RABBITMQ_VIRTUAL_HOST:/}
+    publisher-confirm-type: correlated
+    publisher-returns: true
+  mail:
+    host: ${MAIL_HOST:smtp.qq.com}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+  ai:
+    deepseek:
+      api-key: ${DEEPSEEK_API_KEY:}
+      chat:
+        options:
+          model: ${DEEPSEEK_MODEL:deepseek-chat}
+          temperature: 0.7
+          max-tokens: 5000
+    zhipuai:
+      api-key: ${ZHIPUAI_API_KEY:}
+      chat:
+        options:
+          model: ${ZHIPU_VISION_MODEL:glm-4.6v}
+      embedding:
+        options:
+          model: ${ZHIPU_EMBEDDING_MODEL:embedding-3}
+          dimensions: ${ZHIPU_EMBEDDING_DIMENSIONS:2048}
+    dashscope:
+      api-key: ${DASHSCOPE_API_KEY:}
+
+server:
+  port: ${SERVER_PORT:8080}
+
+mybatis:
+  configuration:
+    map-underscore-to-camel-case: true
+
+agent:
+  conversation:
+    max-rounds: 20
+    redis-ttl: 7200
+    redis-key-prefix: "agent:conv:"
+  rag:
+    enabled: true
+    chunk-size: 500
+    chunk-overlap: 100
+    top-k: 5
+    similarity-threshold: 0.7
+    es-index: article_vectors
+  bocha:
+    enabled: ${BOCHA_ENABLED:false}
+    api-key: ${BOCHA_API_KEY:}
+    base-url: https://api.bocha.cn/v1/web-search
+    timeout: 30
+    max-results: 10
+
+# Generate a unique Base64-encoded secret of at least 64 bytes before starting.
+easyjob:
+  jwt:
+    secret-key: ${JWT_SECRET_KEY:}
+    ttl: 604800000
+    token-name: Bearer
+
+file:
+  upload:
+    path: ${FILE_UPLOAD_PATH:./uploads}
+  base-url: ${FILE_BASE_URL:}
+  access:
+    url: /uploads
+  thumbnail:
+    width: 400
+    quality: 0.85
+    categories: covers,articles
+
+reranker:
+  model: ${RERANKER_MODEL:qwen3-vl-rerank}

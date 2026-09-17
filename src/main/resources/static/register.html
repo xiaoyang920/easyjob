@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>系统注册 - Welcome</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            height: 100vh;
+            overflow: hidden;
+            background: linear-gradient(180deg, 
+                #0f2027 0%,     /* 深蓝夜空 */
+                #203a43 30%,    /* 中蓝 */
+                #2c5364 60%,    /* 浅蓝 */
+                #ee9ca7 85%,    /* 粉红 */
+                #ffdde1 100%    /* 淡粉 */
+            );
+            position: relative;
+        }
+
+        /* 星空背景 */
+        .stars {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            z-index: 0;
+        }
+
+        /* 飞行的法师 */
+        .flying-wizard {
+            position: absolute;
+            font-size: 40px;
+            z-index: 1;
+            animation: flyAcrossScreen 20s linear infinite;
+        }
+
+        @keyframes flyAcrossScreen {
+            0% {
+                transform: translateX(-100px) translateY(100px) rotate(0deg);
+            }
+            100% {
+                transform: translateX(calc(100vw + 100px)) translateY(-100px) rotate(360deg);
+            }
+        }
+
+        /* 星星 */
+        .star {
+            position: absolute;
+            width: 2px;
+            height: 2px;
+            background: white;
+            border-radius: 50%;
+            box-shadow: 0 0 3px white;
+            animation: twinkle 3s infinite;
+        }
+
+        @keyframes twinkle {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 1; }
+        }
+
+        /* 流星 */
+        .meteor {
+            position: absolute;
+            width: 2px;
+            height: 2px;
+            background: white;
+            border-radius: 50%;
+            box-shadow: 
+                0 0 0 2px rgba(255, 255, 255, 0.1),
+                0 0 0 4px rgba(255, 255, 255, 0.1),
+                0 0 10px rgba(255, 255, 255, 0.5);
+            animation: meteor-animation linear infinite;
+            opacity: 0;
+        }
+
+        .meteor::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 150px;
+            height: 1px;
+            background: linear-gradient(to right, 
+                rgba(255, 255, 255, 0) 0%,
+                rgba(255, 255, 255, 0.8) 50%,
+                rgba(255, 255, 255, 0) 100%
+            );
+            transform: translateX(0) translateY(0) rotate(-45deg);
+            transform-origin: 0% 0%;
+        }
+
+        @keyframes meteor-animation {
+            0% {
+                opacity: 0;
+                transform: translateX(0) translateY(0);
+            }
+            10% {
+                opacity: 1;
+            }
+            90% {
+                opacity: 1;
+            }
+            100% {
+                opacity: 0;
+                transform: translateX(300px) translateY(300px);
+            }
+        }
+
+        /* 云彩效果 */
+        .cloud {
+            position: absolute;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 100px;
+            filter: blur(40px);
+            animation: float-cloud 30s infinite;
+        }
+
+        .cloud:nth-child(1) {
+            width: 200px;
+            height: 100px;
+            top: 20%;
+            left: 10%;
+            animation-delay: 0s;
+        }
+
+        .cloud:nth-child(2) {
+            width: 300px;
+            height: 150px;
+            top: 50%;
+            right: 10%;
+            animation-delay: 5s;
+        }
+
+        .cloud:nth-child(3) {
+            width: 250px;
+            height: 120px;
+            bottom: 20%;
+            left: 30%;
+            animation-delay: 10s;
+        }
+
+        @keyframes float-cloud {
+            0%, 100% {
+                transform: translateX(0) translateY(0);
+                opacity: 0.3;
+            }
+            50% {
+                transform: translateX(50px) translateY(-20px);
+                opacity: 0.6;
+            }
+        }
+
+        /* 注册容器 */
+        .register-container {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        .register-box {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 30px;
+            padding: 40px 60px;
+            box-shadow: 
+                0 8px 32px 0 rgba(31, 38, 135, 0.37),
+                0 0 30px rgba(79, 172, 254, 0.2);
+            width: 420px;
+            position: relative;
+            animation: slideIn 0.8s ease-out;
+            overflow: hidden;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        /* 液态玻璃流动效果 */
+        .register-box::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(
+                circle,
+                rgba(255, 255, 255, 0.1) 0%,
+                transparent 70%
+            );
+            pointer-events: none;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translate3d(0, -50px, 0) scale(0.9);
+            }
+            to {
+                opacity: 1;
+                transform: translate3d(0, 0, 0) scale(1);
+            }
+        }
+
+        /* 标题 */
+        .register-title {
+            text-align: center;
+            margin-bottom: 30px;
+            margin-top: 10px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .register-title h1 {
+            background: linear-gradient(135deg, #ffffff 0%, #e0f7ff 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            font-size: 32px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            animation: titleGlow 3s ease-in-out infinite;
+            text-shadow: 0 0 20px rgba(255, 255, 255, 0.5);
+            letter-spacing: 2px;
+        }
+
+        @keyframes titleGlow {
+            0%, 100% {
+                filter: brightness(1);
+                text-shadow: 0 0 20px rgba(255, 255, 255, 0.5);
+            }
+            50% {
+                filter: brightness(1.3);
+                text-shadow: 0 0 30px rgba(255, 255, 255, 0.8), 0 0 60px rgba(179, 229, 252, 0.6);
+            }
+        }
+
+        .register-title p {
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+        }
+
+        /* 输入框 */
+        .input-group {
+            margin-bottom: 20px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .input-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 14px;
+            font-weight: 500;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+        }
+
+        .input-wrapper {
+            position: relative;
+        }
+
+        .input-icon {
+            position: absolute;
+            left: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 18px;
+            color: rgba(255, 255, 255, 0.7);
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+        }
+
+        .input-group input {
+            width: 100%;
+            padding: 12px 15px 12px 45px;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            border-radius: 15px;
+            font-size: 15px;
+            transition: all 0.3s ease;
+            background: rgba(255, 255, 255, 0.15);
+            color: white;
+        }
+
+        .input-group input::placeholder {
+            color: rgba(255, 255, 255, 0.5);
+        }
+
+        .input-group input:focus {
+            outline: none;
+            border-color: rgba(255, 255, 255, 0.5);
+            background: rgba(255, 255, 255, 0.15);
+            box-shadow: 0 5px 20px rgba(79, 172, 254, 0.3);
+            transform: translateY(-2px);
+        }
+
+        /* 按钮 */
+        .register-button {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, rgba(79, 172, 254, 0.8) 0%, rgba(0, 242, 254, 0.8) 100%);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 15px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 5px 20px rgba(79, 172, 254, 0.4);
+            position: relative;
+            overflow: hidden;
+            z-index: 1;
+            letter-spacing: 1px;
+            margin-top: 10px;
+        }
+
+        .register-button::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.3);
+            transform: translate(-50%, -50%);
+            transition: width 0.6s, height 0.6s;
+        }
+
+        .register-button:hover::before {
+            width: 300px;
+            height: 300px;
+        }
+
+        .register-button:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 30px rgba(79, 172, 254, 0.6);
+        }
+
+        .register-button:active {
+            transform: translateY(-1px);
+            box-shadow: 0 5px 15px rgba(79, 172, 254, 0.4);
+        }
+
+        /* 错误和成功消息 */
+        .message {
+            padding: 12px 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            text-align: center;
+            display: none;
+            animation: shake 0.5s;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            z-index: 1;
+            position: relative;
+        }
+
+        .error-message {
+            background: linear-gradient(135deg, rgba(255, 107, 157, 0.9) 0%, rgba(255, 195, 160, 0.9) 100%);
+            color: white;
+        }
+
+        .success-message {
+            background: linear-gradient(135deg, rgba(76, 175, 80, 0.9) 0%, rgba(129, 199, 132, 0.9) 100%);
+            color: white;
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-10px); }
+            75% { transform: translateX(10px); }
+        }
+
+        /* 页脚 */
+        .register-footer {
+            text-align: center;
+            margin-top: 20px;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 13px;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+            position: relative;
+            z-index: 1;
+        }
+
+        .register-footer a {
+            color: #a3d9ff;
+            text-decoration: none;
+            transition: all 0.3s;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+        }
+
+        .register-footer a:hover {
+            color: #ffffff;
+            text-shadow: 0 0 20px rgba(255, 255, 255, 0.8);
+        }
+
+        /* 密码强度指示器 */
+        .password-strength {
+            margin-top: 5px;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .password-strength-bar {
+            height: 100%;
+            width: 0;
+            transition: all 0.3s ease;
+            border-radius: 2px;
+        }
+
+        .strength-weak {
+            background: #ff6b6b;
+            width: 33%;
+        }
+
+        .strength-medium {
+            background: #ffd93d;
+            width: 66%;
+        }
+
+        .strength-strong {
+            background: #6bcf7f;
+            width: 100%;
+        }
+
+        .password-strength-text {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.7);
+            margin-top: 3px;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+        }
+    </style>
+</head>
+<body>
+    <!-- 星空和流星背景 -->
+    <div class="stars" id="stars"></div>
+
+    <!-- 注册容器 -->
+    <div class="register-container">
+        <div class="register-box">
+
+            <!-- 标题 -->
+            <div class="register-title">
+                <div class="magic-hat">✨</div>
+                <h1>加入魔法学院</h1>
+                <div class="magic-wand">🌟</div>
+            </div>
+
+            <!-- 错误消息 -->
+            <div class="message error-message" id="errorMessage"></div>
+            
+            <!-- 成功消息 -->
+            <div class="message success-message" id="successMessage"></div>
+
+            <!-- 表单 -->
+            <form id="registerForm" onsubmit="handleRegister(event)">
+                <div class="input-group">
+                    <label for="nickName">魔法师昵称</label>
+                    <div class="input-wrapper">
+                        <span class="input-icon">🧙</span>
+                        <input 
+                            type="text" 
+                            id="nickName" 
+                            name="nickName" 
+                            placeholder="请输入您的魔法师昵称" 
+                            required
+                            autocomplete="name"
+                        >
+                    </div>
+                </div>
+
+                <div class="input-group">
+                    <label for="email">魔法邮箱</label>
+                    <div class="input-wrapper">
+                        <span class="input-icon">📧</span>
+                        <input 
+                            type="email" 
+                            id="email" 
+                            name="email" 
+                            placeholder="请输入您的魔法邮箱" 
+                            required
+                            autocomplete="email"
+                        >
+                    </div>
+                </div>
+
+                <div class="input-group">
+                    <label for="password">魔法密语</label>
+                    <div class="input-wrapper">
+                        <span class="input-icon">🔑</span>
+                        <input 
+                            type="password" 
+                            id="password" 
+                            name="password" 
+                            placeholder="请输入您的魔法密语" 
+                            required
+                            autocomplete="new-password"
+                            oninput="checkPasswordStrength()"
+                        >
+                    </div>
+                    <div class="password-strength">
+                        <div class="password-strength-bar" id="strengthBar"></div>
+                    </div>
+                    <div class="password-strength-text" id="strengthText"></div>
+                </div>
+
+                <div class="input-group">
+                    <label for="confirmPassword">确认密语</label>
+                    <div class="input-wrapper">
+                        <span class="input-icon">🔐</span>
+                        <input 
+                            type="password" 
+                            id="confirmPassword" 
+                            name="confirmPassword" 
+                            placeholder="请再次输入您的魔法密语" 
+                            required
+                            autocomplete="new-password"
+                        >
+                    </div>
+                </div>
+
+                <button type="submit" class="register-button" id="registerButton">
+                    <span id="buttonText">注册</span>
+                </button>
+            </form>
+
+            <!-- 页脚 -->
+            <div class="register-footer">
+                <p>已有魔法通行证？ <a href="/login.html">立即登录</a></p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 生成星空背景
+        function createStars() {
+            const starsContainer = document.getElementById('stars');
+            const starCount = 50;
+            
+            // 创建星星
+            for (let i = 0; i < starCount; i++) {
+                const star = document.createElement('div');
+                star.className = 'star';
+                star.style.left = Math.random() * 100 + '%';
+                star.style.top = Math.random() * 100 + '%';
+                star.style.animationDelay = Math.random() * 3 + 's';
+                star.style.animationDuration = (Math.random() * 2 + 2) + 's';
+                starsContainer.appendChild(star);
+            }
+            
+            // 创建云彩
+            for (let i = 0; i < 2; i++) {
+                const cloud = document.createElement('div');
+                cloud.className = 'cloud';
+                starsContainer.appendChild(cloud);
+            }
+        }
+        
+        // 创建流星
+        function createMeteor() {
+            const starsContainer = document.getElementById('stars');
+            const meteor = document.createElement('div');
+            meteor.className = 'meteor';
+            
+            meteor.style.left = Math.random() * 50 + '%';
+            meteor.style.top = Math.random() * 30 + '%';
+            
+            const duration = Math.random() * 2 + 1;
+            meteor.style.animationDuration = duration + 's';
+            
+            starsContainer.appendChild(meteor);
+            
+            setTimeout(() => {
+                meteor.remove();
+            }, duration * 1000);
+        }
+        
+        // 定期创建流星
+        function startMeteorShower() {
+            createMeteor();
+            
+            setInterval(() => {
+                createMeteor();
+            }, Math.random() * 4000 + 6000);
+        }
+        
+        // 页面加载时初始化
+        window.addEventListener('load', () => {
+            createStars();
+            startMeteorShower();
+            createFlyingWizard();
+            
+            setInterval(createFlyingWizard, 15000);
+        });
+
+        // 创建飞行的法师
+        function createFlyingWizard() {
+            const starsContainer = document.getElementById('stars');
+            const wizard = document.createElement('div');
+            wizard.className = 'flying-wizard';
+            wizard.innerHTML = '🧙‍♂️';
+            wizard.style.top = Math.random() * 50 + 20 + '%';
+            starsContainer.appendChild(wizard);
+            
+            setTimeout(() => {
+                wizard.remove();
+            }, 20000);
+        }
+        
+        // 检查密码强度
+        function checkPasswordStrength() {
+            const password = document.getElementById('password').value;
+            const strengthBar = document.getElementById('strengthBar');
+            const strengthText = document.getElementById('strengthText');
+            
+            if (password.length === 0) {
+                strengthBar.className = 'password-strength-bar';
+                strengthText.textContent = '';
+                return;
+            }
+            
+            let strength = 0;
+            
+            // 长度检查
+            if (password.length >= 8) strength++;
+            if (password.length >= 12) strength++;
+            
+            // 复杂度检查
+            if (/[a-z]/.test(password)) strength++;
+            if (/[A-Z]/.test(password)) strength++;
+            if (/[0-9]/.test(password)) strength++;
+            if (/[^a-zA-Z0-9]/.test(password)) strength++;
+            
+            // 设置强度等级
+            if (strength <= 2) {
+                strengthBar.className = 'password-strength-bar strength-weak';
+                strengthText.textContent = '密码强度：弱';
+            } else if (strength <= 4) {
+                strengthBar.className = 'password-strength-bar strength-medium';
+                strengthText.textContent = '密码强度：中等';
+            } else {
+                strengthBar.className = 'password-strength-bar strength-strong';
+                strengthText.textContent = '密码强度：强';
+            }
+        }
+        
+        // 注册处理
+        async function handleRegister(event) {
+            event.preventDefault();
+            
+            const nickName = document.getElementById('nickName').value.trim();
+            const email = document.getElementById('email').value.trim();
+            const password = document.getElementById('password').value;
+            const confirmPassword = document.getElementById('confirmPassword').value;
+            const errorMessage = document.getElementById('errorMessage');
+            const successMessage = document.getElementById('successMessage');
+            const buttonText = document.getElementById('buttonText');
+            const registerButton = document.querySelector('.register-button');
+            
+            // 隐藏消息
+            errorMessage.style.display = 'none';
+            successMessage.style.display = 'none';
+            
+            // 验证昵称
+            if (nickName.length < 2 || nickName.length > 20) {
+                errorMessage.textContent = '昵称长度应在2-20个字符之间';
+                errorMessage.style.display = 'block';
+                return;
+            }
+            
+            // 验证密码
+            if (password.length < 6) {
+                errorMessage.textContent = '密码长度至少为6个字符';
+                errorMessage.style.display = 'block';
+                return;
+            }
+            
+            // 验证密码确认
+            if (password !== confirmPassword) {
+                errorMessage.textContent = '两次输入的密码不一致';
+                errorMessage.style.display = 'block';
+                return;
+            }
+            
+            // 显示加载状态
+            buttonText.textContent = '施法中...';
+            registerButton.disabled = true;
+            
+            try {
+                const response = await fetch('/api/auth/register', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ nickName, email, password })
+                });
+                
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    // 注册成功
+                    buttonText.textContent = '✔️ 注册成功！';
+                    registerButton.style.background = 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)';
+                    
+                    successMessage.textContent = '注册成功！3秒后跳转到登录页面...';
+                    successMessage.style.display = 'block';
+                    
+                    // 跳转到登录页
+                    setTimeout(() => {
+                        window.location.href = '/login.html';
+                    }, 3000);
+                } else {
+                    // 注册失败
+                    errorMessage.textContent = data.message || '注册失败，请重试';
+                    errorMessage.style.display = 'block';
+                    buttonText.textContent = '注册';
+                    registerButton.disabled = false;
+                }
+            } catch (error) {
+                console.error('注册错误:', error);
+                errorMessage.textContent = '网络错误，请稍后重试！';
+                errorMessage.style.display = 'block';
+                buttonText.textContent = '注册';
+                registerButton.disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>

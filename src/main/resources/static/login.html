@@ -1,0 +1,1014 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>系统登录 - Welcome</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            height: 100vh;
+            overflow: hidden;
+            background: linear-gradient(180deg, 
+                #0f2027 0%,     /* 深蓝夜空 */
+                #203a43 30%,    /* 中蓝 */
+                #2c5364 60%,    /* 浅蓝 */
+                #ee9ca7 85%,    /* 粉红 */
+                #ffdde1 100%    /* 淡粉 */
+            );
+            position: relative;
+        }
+
+        /* 星空背景 */
+        .stars {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            z-index: 0;
+        }
+
+        /* 飞行的法师 */
+        .flying-wizard {
+            position: absolute;
+            font-size: 40px;
+            z-index: 1;
+            animation: flyAcrossScreen 20s linear infinite;
+        }
+
+        @keyframes flyAcrossScreen {
+            0% {
+                transform: translateX(-100px) translateY(100px) rotate(0deg);
+            }
+            100% {
+                transform: translateX(calc(100vw + 100px)) translateY(-100px) rotate(360deg);
+            }
+        }
+
+        /* 星星 */
+        .star {
+            position: absolute;
+            width: 2px;
+            height: 2px;
+            background: white;
+            border-radius: 50%;
+            box-shadow: 0 0 3px white;
+            animation: twinkle 3s infinite;
+        }
+
+        @keyframes twinkle {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 1; }
+        }
+
+        /* 流星 */
+        .meteor {
+            position: absolute;
+            width: 2px;
+            height: 2px;
+            background: white;
+            border-radius: 50%;
+            box-shadow: 
+                0 0 0 2px rgba(255, 255, 255, 0.1),
+                0 0 0 4px rgba(255, 255, 255, 0.1),
+                0 0 10px rgba(255, 255, 255, 0.5);
+            animation: meteor-animation linear infinite;
+            opacity: 0;
+        }
+
+        .meteor::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 150px;
+            height: 1px;
+            background: linear-gradient(to right, 
+                rgba(255, 255, 255, 0) 0%,
+                rgba(255, 255, 255, 0.8) 50%,
+                rgba(255, 255, 255, 0) 100%
+            );
+            transform: translateX(0) translateY(0) rotate(-45deg);
+            transform-origin: 0% 0%;
+        }
+
+        @keyframes meteor-animation {
+            0% {
+                opacity: 0;
+                transform: translateX(0) translateY(0);
+            }
+            10% {
+                opacity: 1;
+            }
+            90% {
+                opacity: 1;
+            }
+            100% {
+                opacity: 0;
+                transform: translateX(300px) translateY(300px);
+            }
+        }
+
+        /* 云彩效果 */
+        .cloud {
+            position: absolute;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 100px;
+            filter: blur(40px);
+            animation: float-cloud 30s infinite;
+        }
+
+        .cloud:nth-child(1) {
+            width: 200px;
+            height: 100px;
+            top: 20%;
+            left: 10%;
+            animation-delay: 0s;
+        }
+
+        .cloud:nth-child(2) {
+            width: 300px;
+            height: 150px;
+            top: 50%;
+            right: 10%;
+            animation-delay: 5s;
+        }
+
+        .cloud:nth-child(3) {
+            width: 250px;
+            height: 120px;
+            bottom: 20%;
+            left: 30%;
+            animation-delay: 10s;
+        }
+
+        @keyframes float-cloud {
+            0%, 100% {
+                transform: translateX(0) translateY(0);
+                opacity: 0.3;
+            }
+            50% {
+                transform: translateX(50px) translateY(-20px);
+                opacity: 0.6;
+            }
+        }
+
+        /* 登录容器 */
+        .login-container {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        .login-box {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 30px;
+            padding: 50px 60px;
+            box-shadow: 
+                0 8px 32px 0 rgba(31, 38, 135, 0.37),
+                0 0 30px rgba(79, 172, 254, 0.2);
+            width: 420px;
+            position: relative;
+            animation: slideIn 0.8s ease-out;
+            overflow: hidden;
+        }
+
+        /* 液态玻璃流动效果 */
+        .login-box::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(
+                circle,
+                rgba(255, 255, 255, 0.1) 0%,
+                transparent 70%
+            );
+            pointer-events: none;
+        }
+
+        @keyframes glassFloat {
+            0%, 100% {
+                transform: translate3d(0, 0, 0);
+            }
+            50% {
+                transform: translate3d(0, -8px, 0);
+            }
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translate3d(0, -50px, 0) scale(0.9);
+            }
+            to {
+                opacity: 1;
+                transform: translate3d(0, 0, 0) scale(1);
+            }
+        }
+
+
+        /* 标题 */
+        .login-title {
+            text-align: center;
+            margin-bottom: 40px;
+            margin-top: 20px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .login-title h1 {
+            background: linear-gradient(135deg, #ffffff 0%, #e0f7ff 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            font-size: 32px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            animation: titleGlow 3s ease-in-out infinite;
+            text-shadow: 0 0 20px rgba(255, 255, 255, 0.5);
+            letter-spacing: 2px;
+        }
+
+        @keyframes titleGlow {
+            0%, 100% {
+                filter: brightness(1);
+                text-shadow: 0 0 20px rgba(255, 255, 255, 0.5);
+            }
+            50% {
+                filter: brightness(1.3);
+                text-shadow: 0 0 30px rgba(255, 255, 255, 0.8), 0 0 60px rgba(179, 229, 252, 0.6);
+            }
+        }
+
+        .login-title p {
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+        }
+
+        /* 输入框 */
+        .input-group {
+            margin-bottom: 25px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .input-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 14px;
+            font-weight: 500;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+        }
+
+        .input-wrapper {
+            position: relative;
+        }
+
+        .input-icon {
+            position: absolute;
+            left: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 18px;
+            color: rgba(255, 255, 255, 0.7);
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+        }
+
+        .input-group input {
+            width: 100%;
+            padding: 15px 15px 15px 45px;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            border-radius: 15px;
+            font-size: 15px;
+            transition: all 0.3s ease;
+            background: rgba(255, 255, 255, 0.15);
+            color: white;
+        }
+
+        .input-group input::placeholder {
+            color: rgba(255, 255, 255, 0.5);
+        }
+
+        .input-group input:focus {
+            outline: none;
+            border-color: rgba(255, 255, 255, 0.5);
+            background: rgba(255, 255, 255, 0.15);
+            box-shadow: 0 5px 20px rgba(79, 172, 254, 0.3);
+            transform: translateY(-2px);
+        }
+
+        /* 按钮 */
+        .login-button {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, rgba(79, 172, 254, 0.8) 0%, rgba(0, 242, 254, 0.8) 100%);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 15px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 5px 20px rgba(79, 172, 254, 0.4);
+            position: relative;
+            overflow: hidden;
+            z-index: 1;
+            letter-spacing: 1px;
+        }
+
+        .login-button::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.3);
+            transform: translate(-50%, -50%);
+            transition: width 0.6s, height 0.6s;
+        }
+
+        .login-button:hover::before {
+            width: 300px;
+            height: 300px;
+        }
+
+        .login-button:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 30px rgba(79, 172, 254, 0.6);
+        }
+
+        .login-button:active {
+            transform: translateY(-1px);
+            box-shadow: 0 5px 15px rgba(79, 172, 254, 0.4);
+        }
+
+
+
+        /* 错误消息 */
+        .error-message {
+            background: linear-gradient(135deg, rgba(255, 107, 157, 0.9) 0%, rgba(255, 195, 160, 0.9) 100%);
+            color: white;
+            padding: 12px 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            text-align: center;
+            display: none;
+            animation: shake 0.5s;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            z-index: 1;
+            position: relative;
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-10px); }
+            75% { transform: translateX(10px); }
+        }
+
+
+
+        /* 页脚 */
+        .login-footer {
+            text-align: center;
+            margin-top: 25px;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 13px;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+            position: relative;
+            z-index: 1;
+        }
+
+        .login-footer a {
+            color: #a3d9ff;
+            text-decoration: none;
+            transition: all 0.3s;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+        }
+
+        .login-footer a:hover {
+            color: #ffffff;
+            text-shadow: 0 0 20px rgba(255, 255, 255, 0.8);
+        }
+
+        /* 滑块验证样式 */
+        .captcha-container {
+            margin: 20px 0;
+            position: relative;
+        }
+
+        .captcha-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .captcha-title {
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.9);
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+        }
+
+        .captcha-refresh {
+            background: none;
+            border: none;
+            color: #a3d9ff;
+            cursor: pointer;
+            font-size: 12px;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+        }
+
+        .captcha-box {
+            position: relative;
+            height: 40px;
+            background: rgba(255, 255, 255, 0.15);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 5px;
+            display: flex;
+            align-items: center;
+        }
+
+        .captcha-text {
+            position: absolute;
+            left: 15px;
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.7);
+            pointer-events: none;
+            z-index: 1;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+        }
+
+        .captcha-slider {
+            position: absolute;
+            width: 40px;
+            height: 38px;
+            background: rgba(255, 255, 255, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 5px;
+            cursor: move;
+            z-index: 2;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        .captcha-progress {
+            height: 100%;
+            background: rgba(179, 229, 252, 0.3);
+            border-radius: 5px;
+            width: 0;
+            transition: width 0.1s;
+        }
+
+        .captcha-success {
+            background: rgba(179, 229, 252, 0.2);
+            border-color: rgba(179, 229, 252, 0.5);
+        }
+
+        .captcha-success .captcha-text {
+            color: rgba(179, 229, 252, 0.9);
+        }
+
+        .captcha-tip {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.7);
+            margin-top: 5px;
+            text-align: center;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+        }
+
+        /* 拼图滑块验证样式 */
+        .captcha-bg {
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            border-radius: 5px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .captcha-gap {
+            position: absolute;
+            top: 50%;
+            left: 70%;
+            transform: translateY(-50%);
+            width: 40px;
+            height: 40px;
+            background: rgba(255, 255, 255, 0.8);
+            border-radius: 5px;
+            box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.2);
+            z-index: 1;
+        }
+
+        .captcha-piece {
+            position: absolute;
+            top: 50%;
+            left: 0;
+            transform: translateY(-50%);
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            border-radius: 5px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+            z-index: 2;
+        }
+
+        .captcha-slider {
+            position: absolute;
+            width: 50px;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.9);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            border-radius: 5px;
+            cursor: move;
+            z-index: 3;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .slider-icon {
+            font-size: 20px;
+            color: #667eea;
+        }
+
+        .captcha-success .captcha-bg {
+            background: linear-gradient(45deg, #67c23a, #95de64);
+        }
+
+        .captcha-success .captcha-piece {
+            background: linear-gradient(45deg, #67c23a, #95de64);
+        }
+        
+        /* 弹出式拼图验证样式 */
+        .captcha-popup {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            display: none;
+        }
+        
+        .captcha-modal {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            width: 300px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+        
+        .captcha-image-container {
+            position: relative;
+            width: 100%;
+            height: 150px;
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            border-radius: 5px;
+            margin-bottom: 20px;
+            overflow: hidden;
+        }
+        
+        .captcha-image-gap {
+            position: absolute;
+            top: 50%;
+            right: 20px;
+            transform: translateY(-50%);
+            width: 40px;
+            height: 40px;
+            background: rgba(255, 255, 255, 0.8);
+            border-radius: 5px;
+            box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.2);
+        }
+        
+        .captcha-drag-area {
+            width: 100%;
+            height: 40px;
+            background: #f5f5f5;
+            border-radius: 5px;
+            position: relative;
+            margin-top: 10px;
+        }
+        
+        .captcha-drag-slider {
+            position: absolute;
+            width: 40px;
+            height: 36px;
+            background: #667eea;
+            border-radius: 5px;
+            cursor: move;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 12px;
+        }
+        
+        .captcha-instructions {
+            text-align: center;
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <!-- 星空和流星背景 -->
+    <div class="stars" id="stars"></div>
+
+    <!-- 登录容器 -->
+    <div class="login-container">
+        <div class="login-box">
+
+            <!-- 标题 -->
+            <div class="login-title">
+                <div class="magic-hat">🎩</div>
+                <h1>欢迎来到魔法学院</h1>
+                <div class="magic-wand">🪄</div>
+            </div>
+            <!-- 错误消息 -->
+            <div class="error-message" id="errorMessage"></div>
+
+            <!-- 表单 -->
+            <form id="loginForm" onsubmit="handleLogin(event)">
+                <div class="input-group">
+                    <label for="email">魔法邮箱</label>
+                    <div class="input-wrapper">
+                        <span class="input-icon">📧</span>
+                        <input 
+                            type="email" 
+                            id="email" 
+                            name="email" 
+                            placeholder="请输入您的魔法邮箱" 
+                            required
+                            autocomplete="email"
+                        >
+                    </div>
+                </div>
+
+                <div class="input-group">
+                    <label for="password">魔法密语</label>
+                    <div class="input-wrapper">
+                        <span class="input-icon">🔑</span>
+                        <input 
+                            type="password" 
+                            id="password" 
+                            name="password" 
+                            placeholder="请输入您的魔法密语" 
+                            required
+                            autocomplete="current-password"
+                        >
+                    </div>
+                </div>
+                
+                <!-- 拼图滑块验证 -->
+                <div class="captcha-container">
+                    <div class="captcha-header">
+                        <div class="captcha-title">请拖动滑块完成拼图</div>
+                        <button type="button" class="captcha-refresh" id="refreshCaptcha">刷新</button>
+                    </div>
+                    <div class="captcha-box" id="captchaBox">
+                        <div class="captcha-bg"></div>
+                        <div class="captcha-gap"></div>
+                        <div class="captcha-piece" id="captchaPiece"></div>
+                        <div class="captcha-slider" id="captchaSlider">
+                            <div class="slider-icon">➤</div>
+                        </div>
+                        <div class="captcha-text" id="captchaText">拖动滑块验证</div>
+                    </div>
+                    <div class="captcha-tip" id="captchaTip">验证成功后才能登录</div>
+                </div>
+                
+                <!-- 弹出式拼图验证 -->
+                <div class="captcha-popup" id="captchaPopup">
+                    <div class="captcha-modal">
+                        <div class="captcha-instructions">请拖动滑块完成拼图</div>
+                        <div class="captcha-image-container" id="captchaImageContainer">
+                            <div class="captcha-image-gap"></div>
+                            <div class="captcha-piece" id="popupCaptchaPiece"></div>
+                        </div>
+                        <div class="captcha-drag-area" id="captchaDragArea">
+                            <div class="captcha-drag-slider" id="captchaDragSlider">拖动</div>
+                        </div>
+                    </div>
+                </div>
+
+                <button type="submit" class="login-button" id="loginButton">
+                    <span id="buttonText">登录</span>
+                </button>
+            </form>
+
+            <!-- 页脚 -->
+            <div class="login-footer">
+                <p>还没有魔法通行证？ <a href="/register.html">立即注册</a></p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 生成星空背景
+        function createStars() {
+            const starsContainer = document.getElementById('stars');
+            const starCount = 50; // 减少星星数量以提高性能
+            
+            // 创建星星
+            for (let i = 0; i < starCount; i++) {
+                const star = document.createElement('div');
+                star.className = 'star';
+                star.style.left = Math.random() * 100 + '%';
+                star.style.top = Math.random() * 100 + '%';
+                star.style.animationDelay = Math.random() * 3 + 's';
+                star.style.animationDuration = (Math.random() * 2 + 2) + 's';
+                starsContainer.appendChild(star);
+            }
+            
+            // 创建云彩
+            for (let i = 0; i < 2; i++) { // 减少云彩数量
+                const cloud = document.createElement('div');
+                cloud.className = 'cloud';
+                starsContainer.appendChild(cloud);
+            }
+        }
+        
+        // 创建流星
+        function createMeteor() {
+            const starsContainer = document.getElementById('stars');
+            const meteor = document.createElement('div');
+            meteor.className = 'meteor';
+            
+            // 随机起始位置（从左上区域）
+            meteor.style.left = Math.random() * 50 + '%';
+            meteor.style.top = Math.random() * 30 + '%';
+            
+            // 随机速度
+            const duration = Math.random() * 2 + 1; // 1-3秒
+            meteor.style.animationDuration = duration + 's';
+            
+            starsContainer.appendChild(meteor);
+            
+            // 动画结杜后移除
+            setTimeout(() => {
+                meteor.remove();
+            }, duration * 1000);
+        }
+        
+        // 定期创建流星
+        function startMeteorShower() {
+            // 立即创建一个
+            createMeteor();
+            
+            // 每隔6-10秒随机创建一个流星（进一步降低频率以提高性能）
+            setInterval(() => {
+                createMeteor();
+            }, Math.random() * 4000 + 6000);
+        }
+        
+        // 页面加载时初始化
+        window.addEventListener('load', () => {
+            createStars();
+            startMeteorShower();
+            createFlyingWizard();
+            initCaptcha(); // 初始化拼图验证
+            
+            // 定期创建飞行的法师
+            setInterval(createFlyingWizard, 15000);
+            
+            const token = localStorage.getItem('token');
+            if (token) {
+                // 如果已经登录，直接跳转到主界面
+                window.location.href = '/index.html';
+            }
+        });
+        // 创建飞行的法师
+        function createFlyingWizard() {
+            const starsContainer = document.getElementById('stars');
+            const wizard = document.createElement('div');
+            wizard.className = 'flying-wizard';
+            wizard.innerHTML = '🧙‍♂️';
+            wizard.style.top = Math.random() * 50 + 20 + '%'; // 在屏幕中间附近随机位置
+            starsContainer.appendChild(wizard);
+            
+            // 动画结束后移除元素
+            setTimeout(() => {
+                wizard.remove();
+            }, 20000);
+        }
+        
+        // 拼图滑块验证逻辑
+        let captchaVerified = false;
+        
+        function initCaptcha() {
+            const slider = document.getElementById('captchaSlider');
+            const piece = document.getElementById('captchaPiece');
+            const box = document.getElementById('captchaBox');
+            const text = document.getElementById('captchaText');
+            const tip = document.getElementById('captchaTip');
+            const loginButton = document.getElementById('loginButton');
+            
+            // 点击验证区域时显示弹出式拼图验证
+            box.addEventListener('click', function() {
+                showCaptchaPopup();
+            });
+            
+            // 点击刷新按钮时也显示弹出式拼图验证
+            document.getElementById('refreshCaptcha').addEventListener('click', function() {
+                showCaptchaPopup();
+            });
+            
+            // 初始化禁用登录按钮
+            loginButton.disabled = true;
+        }
+        
+        // 显示弹出式拼图验证
+        function showCaptchaPopup() {
+            const popup = document.getElementById('captchaPopup');
+            popup.style.display = 'flex';
+            
+            // 初始化弹出式拼图验证
+            initPopupCaptcha();
+        }
+        
+        // 初始化弹出式拼图验证
+        function initPopupCaptcha() {
+            const dragSlider = document.getElementById('captchaDragSlider');
+            const piece = document.getElementById('popupCaptchaPiece');
+            const dragArea = document.getElementById('captchaDragArea');
+            const popup = document.getElementById('captchaPopup');
+            
+            let isDragging = false;
+            let startX = 0;
+            let startLeft = 0;
+            
+            // 鼠标按下事件
+            dragSlider.addEventListener('mousedown', function(e) {
+                isDragging = true;
+                startX = e.clientX;
+                startLeft = dragSlider.offsetLeft;
+                dragSlider.style.transition = 'none';
+                e.preventDefault();
+            });
+            
+            // 鼠标移动事件
+            document.addEventListener('mousemove', function(e) {
+                if (!isDragging) return;
+                
+                const deltaX = e.clientX - startX;
+                let newLeft = startLeft + deltaX;
+                
+                // 限制滑块移动范围
+                const maxLeft = dragArea.offsetWidth - dragSlider.offsetWidth;
+                newLeft = Math.max(0, Math.min(newLeft, maxLeft));
+                
+                dragSlider.style.left = newLeft + 'px';
+                
+                // 同时移动拼图块
+                if (piece) {
+                    piece.style.left = newLeft + 'px';
+                }
+                
+                // 检查是否对齐缺口
+                const gap = document.querySelector('.captcha-image-gap');
+                const gapLeft = gap.offsetLeft;
+                const gapWidth = gap.offsetWidth;
+                
+                if (Math.abs((newLeft + piece.offsetWidth / 2) - (gapLeft + gapWidth / 2)) < 5) {
+                    verifyPopupSuccess();
+                }
+            });
+            
+            // 鼠标释放事件
+            document.addEventListener('mouseup', function() {
+                if (!isDragging) return;
+                
+                isDragging = false;
+                dragSlider.style.transition = 'left 0.3s';
+                if (piece) {
+                    piece.style.transition = 'left 0.3s';
+                }
+                
+                // 如果未验证成功，重置滑块和拼图块位置
+                const gap = document.querySelector('.captcha-image-gap');
+                if (gap && Math.abs((dragSlider.offsetLeft + piece.offsetWidth / 2) - (gap.offsetLeft + gap.offsetWidth / 2)) >= 5) {
+                    dragSlider.style.left = '0px';
+                    if (piece) {
+                        piece.style.left = '0px';
+                    }
+                }
+            });
+            
+            // 验证成功处理
+            function verifyPopupSuccess() {
+                // 关闭弹窗
+                setTimeout(() => {
+                    popup.style.display = 'none';
+                    
+                    // 更新主验证区域状态
+                    captchaVerified = true;
+                    const box = document.getElementById('captchaBox');
+                    const text = document.getElementById('captchaText');
+                    const tip = document.getElementById('captchaTip');
+                    const loginButton = document.getElementById('loginButton');
+                    
+                    box.classList.add('captcha-success');
+                    text.textContent = '验证成功';
+                    tip.textContent = '验证已完成，可以登录';
+                    loginButton.disabled = false;
+                }, 500);
+            }
+        }
+        
+        // 登录处理
+        async function handleLogin(event) {
+            event.preventDefault();
+            
+            // 检查是否已完成人机验证
+            if (!captchaVerified) {
+                const errorMessage = document.getElementById('errorMessage');
+                errorMessage.textContent = '请先完成人机验证';
+                errorMessage.style.display = 'block';
+                return;
+            }
+            
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const errorMessage = document.getElementById('errorMessage');
+            const buttonText = document.getElementById('buttonText');
+            const loginButton = document.querySelector('.login-button');
+            
+            // 隐藏错误消息
+            errorMessage.style.display = 'none';
+            
+            // 显示加载状态
+            buttonText.textContent = '施法中...';
+            loginButton.disabled = true;
+            
+            try {
+                const response = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ email, password })
+                });
+                
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    // 登录成功
+                    buttonText.textContent = '✔️ 施法成功！';
+                    loginButton.style.background = 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)';
+                    
+                    // 先清除旧的登录信息，避免数据混乱
+                    localStorage.clear();
+                    
+                    // 保存新的 token 和用户信息到 localStorage
+                    localStorage.setItem('token', data.data.token);
+                    localStorage.setItem('userId', data.data.userId);
+                    localStorage.setItem('email', data.data.email);
+                    localStorage.setItem('nickName', data.data.nickName);
+                    
+                    console.log('登录成功，用户ID:', data.data.userId);
+                    
+                    // 跳转到主界面
+                    setTimeout(() => {
+                        window.location.href = '/index.html';
+                    }, 1500);
+                } else {
+                    // 登录失败
+                    errorMessage.textContent = data.message || '魔法密语错误，请重新施法!';
+                    errorMessage.style.display = 'block';
+                    buttonText.textContent = '登录';
+                    loginButton.disabled = false;
+                    
+                }
+            } catch (error) {
+                console.error('登录错误:', error);
+                errorMessage.textContent = '网络错误，请稍后重试！';
+                errorMessage.style.display = 'block';                buttonText.textContent = '登录';
+                loginButton.disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>编辑文章 - EasyJob</title>
+    <!-- Wangeditor v5 富文本编辑器 -->
+    <link href="https://unpkg.com/@wangeditor/editor@latest/dist/css/style.css" rel="stylesheet">
+    <script src="https://unpkg.com/@wangeditor/editor@latest/dist/index.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* 顶部导航栏 */
+        .top-bar {
+            background: rgba(15, 32, 39, 0.95);
+            padding: 15px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+        }
+
+        .top-bar h1 {
+            color: white;
+            font-size: 20px;
+            font-weight: 600;
+        }
+
+        .top-bar-buttons {
+            display: flex;
+            gap: 15px;
+        }
+
+        .btn {
+            padding: 10px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: 500;
+        }
+
+        .btn-cancel {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .btn-cancel:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        .btn-save {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-save:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        /* 编辑器容器 */
+        .editor-container {
+            flex: 1;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .editor-wrapper {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* Wangeditor 工具栏 */
+        #toolbar-container {
+            border-bottom: 1px solid #e8e8e8;
+        }
+
+        /* Wangeditor 编辑区域 */
+        #editor-container {
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        /* 编辑器内代码块样式 */
+        #editor-container pre {
+            background: #f6f8fa;
+            border: 1px solid #e1e4e8;
+            border-radius: 6px;
+            padding: 16px;
+            overflow-x: auto;
+            margin: 10px 0;
+        }
+
+        #editor-container pre code {
+            font-family: 'Fira Code', 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 14px;
+            line-height: 1.6;
+            color: #24292e;
+            display: block;
+            white-space: pre;
+        }
+
+        #editor-container code {
+            font-family: 'Fira Code', 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 14px;
+            background: #f6f8fa;
+            padding: 2px 6px;
+            border-radius: 3px;
+            color: #d73a49;
+        }
+
+        /* 编辑器提示 */
+        .editor-hint {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 10px 15px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            font-size: 13px;
+            color: #666;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .editor-hint strong {
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <!-- 顶部导航栏 -->
+    <div class="top-bar">
+        <h1>✍️ 编辑文章内容</h1>
+        <div class="top-bar-buttons">
+            <button class="btn btn-cancel" onclick="cancelEdit()">取消</button>
+            <button class="btn btn-save" onclick="saveAndReturn()">✓ 保存并返回</button>
+        </div>
+    </div>
+
+    <!-- 编辑器容器 -->
+    <div class="editor-container">
+        <div class="editor-wrapper">
+            <div id="toolbar-container"></div>
+            <div id="editor-container"></div>
+        </div>
+        <div class="editor-hint">
+            💡 <strong>提示：</strong>粘贴代码时会自动识别并保留格式，或点击工具栏的“代码块”按钮
+        </div>
+    </div>
+
+    <script>
+        const { createEditor, createToolbar } = window.wangEditor;
+        let editor;
+
+        // 页面加载时初始化
+        window.addEventListener('load', () => {
+            initEditor();
+        });
+
+        // 初始化编辑器
+        function initEditor() {
+            const editorConfig = {
+                placeholder: '开始创作你的文章...',
+                
+                // 自动保存
+                onChange(editor) {
+                    const html = editor.getHtml();
+                    localStorage.setItem('article_content_draft', html);
+                },
+                
+                // 图片上传配置
+                MENU_CONF: {
+                    uploadImage: {
+                        async customUpload(file, insertFn) {
+                            const formData = new FormData();
+                            formData.append('file', file);
+                            
+                            try {
+                                const token = localStorage.getItem('token');
+                                const response = await fetch('/api/file/upload-article-image', {
+                                    method: 'POST',
+                                    headers: {
+                                        'Authorization': `Bearer ${token}`
+                                    },
+                                    body: formData
+                                });
+                                
+                                const result = await response.json();
+                                
+                                if (result.status === 'success') {
+                                    // 插入图片到编辑器
+                                    insertFn(result.data.url, '', result.data.url);
+                                } else {
+                                    alert(result.message || '图片上传失败');
+                                }
+                            } catch (error) {
+                                console.error('上传失败:', error);
+                                alert('图片上传失败，请稍后重试');
+                            }
+                        },
+                        
+                        // 限制图片大小（5MB）
+                        maxFileSize: 5 * 1024 * 1024,
+                        maxNumberOfFiles: 10,
+                        allowedFileTypes: ['image/*']
+                    }
+                }
+            };
+
+            // 创建编辑器
+            editor = createEditor({
+                selector: '#editor-container',
+                html: '',
+                config: editorConfig,
+                mode: 'default'
+            });
+
+            // 创建工具栏
+            const toolbarConfig = {
+                // 添加代码块按钮到工具栏
+                toolbarKeys: [
+                    'headerSelect',
+                    'blockquote',
+                    '|',
+                    'bold',
+                    'underline',
+                    'italic',
+                    'through',
+                    'color',
+                    'bgColor',
+                    '|',
+                    'fontSize',
+                    'fontFamily',
+                    'lineHeight',
+                    '|',
+                    'bulletedList',
+                    'numberedList',
+                    'todo',
+                    '|',
+                    'insertLink',
+                    'uploadImage',
+                    'insertTable',
+                    'codeBlock',  // 代码块按钮
+                    '|',
+                    'undo',
+                    'redo',
+                    '|',
+                    'fullScreen'
+                ]
+            };
+            const toolbar = createToolbar({
+                editor,
+                selector: '#toolbar-container',
+                config: toolbarConfig,
+                mode: 'default'
+            });
+
+            // 加载草稿
+            const savedContent = localStorage.getItem('article_content_draft');
+            if (savedContent) {
+                editor.setHtml(savedContent);
+            }
+
+            // 自动聚焦
+            setTimeout(() => {
+                editor.focus();
+            }, 100);
+
+            // 监听粘贴事件，自动识别代码
+            const editorDom = document.querySelector('#editor-container [contenteditable="true"]');
+            if (editorDom) {
+                editorDom.addEventListener('paste', function(event) {
+                    const clipboardData = event.clipboardData;
+                    const text = clipboardData.getData('text/plain');
+                    const html = clipboardData.getData('text/html');
+                    
+                    // 如果粘贴的是 HTML，且已经包含 pre/code 标签，则不处理
+                    if (html && (html.includes('<pre>') || html.includes('<code>'))) {
+                        return;
+                    }
+                    
+                    // 检测是否是代码
+                    const lines = text.split('\n');
+                    const hasMultipleLines = lines.length > 2;
+                    const hasIndentation = /^[ \t]+/.test(text) || lines.some(line => /^[ \t]+/.test(line));
+                    const hasCodeSymbols = /[{}\[\];()]/.test(text);
+                    const hasImportOrPackage = /^(import|package|class|public|private|protected|static|void|return)\s/.test(text);
+                    
+                    const isCode = hasMultipleLines && (hasIndentation || hasCodeSymbols || hasImportOrPackage);
+                    
+                    if (isCode) {
+                        event.preventDefault();
+                        
+                        // 转义 HTML 特殊字符
+                        const escapedText = text
+                            .replace(/&/g, '&amp;')
+                            .replace(/</g, '&lt;')
+                            .replace(/>/g, '&gt;')
+                            .replace(/"/g, '&quot;');
+                        
+                        // 插入代码块
+                        const codeHtml = `<pre><code>${escapedText}</code></pre><p><br></p>`;
+                        editor.dangerouslyInsertHtml(codeHtml);
+                        
+                        console.log('检测到代码，已自动转换为代码块');
+                    }
+                });
+            }
+        }
+
+        // 保存并返回
+        function saveAndReturn() {
+            if (!editor) {
+                alert('编辑器未初始化');
+                return;
+            }
+            
+            const html = editor.getHtml();
+            
+            // 保存到 localStorage
+            localStorage.setItem('article_content_draft', html);
+            
+            // 尝试关闭窗口
+            window.close();
+            
+            // 如果无法关闭（浏览器安全限制），则返回上一页
+            setTimeout(() => {
+                if (!window.closed) {
+                    window.history.back();
+                }
+            }, 100);
+        }
+
+        // 取消编辑
+        function cancelEdit() {
+            if (confirm('确定要取消编辑吗？未保存的内容将丢失。')) {
+                window.close();
+                setTimeout(() => {
+                    if (!window.closed) {
+                        window.history.back();
+                    }
+                }, 100);
+            }
+        }
+
+        // 快捷键保存
+        document.addEventListener('keydown', function(e) {
+            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                e.preventDefault();
+                saveAndReturn();
+            }
+        });
+    </script>
+</body>
+</html>

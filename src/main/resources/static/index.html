@@ -1,0 +1,976 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EasyJob - 首页</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            min-height: 100vh;
+            background: linear-gradient(180deg,
+                #0f2027 0%,
+                #203a43 30%,
+                #2c5364 60%,
+                #ee9ca7 85%,
+                #ffdde1 100%
+            );
+            position: relative;
+        }
+
+        /* 星空背景 */
+        .stars {
+            position: fixed;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            z-index: 0;
+        }
+
+        .star {
+            position: absolute;
+            width: 2px;
+            height: 2px;
+            background: white;
+            border-radius: 50%;
+            box-shadow: 0 0 3px white;
+            animation: twinkle 3s infinite;
+        }
+
+        @keyframes twinkle {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 1; }
+        }
+
+        /* 导航栏 */
+        .navbar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 70px;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 50px;
+            z-index: 1000;
+        }
+
+        .logo {
+            font-size: 28px;
+            font-weight: bold;
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            cursor: pointer;
+        }
+
+        .nav-menu {
+            display: flex;
+            gap: 30px;
+            align-items: center;
+        }
+
+        .nav-btn {
+            background: transparent;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.3s;
+        }
+
+        .nav-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+        }
+
+        .nav-btn.primary {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+            font-weight: 600;
+        }
+
+        .nav-btn.primary:hover {
+            box-shadow: 0 4px 12px rgba(79, 172, 254, 0.4);
+        }
+
+        /* 用户信息区 */
+        .user-info-nav {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .user-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            cursor: pointer;
+            transition: all 0.3s;
+            object-fit: cover;
+        }
+
+        .user-avatar:hover {
+            border-color: rgba(79, 172, 254, 0.8);
+            transform: scale(1.05);
+            box-shadow: 0 4px 12px rgba(79, 172, 254, 0.4);
+        }
+
+        .user-nick-name {
+            color: white;
+            font-size: 16px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .user-nick-name:hover {
+            color: #4facfe;
+        }
+        
+        /* 用户信息卡片弹窗 */
+        .user-info-popup {
+            position: absolute;
+            top: 60px;
+            right: 0;
+            width: 320px;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(-10px);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 2000;
+            overflow: hidden;
+        }
+        
+        .user-info-popup.show {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
+        
+        .user-info-popup::before {
+            content: '';
+            position: absolute;
+            top: -8px;
+            right: 40px;
+            width: 0;
+            height: 0;
+            border-left: 8px solid transparent;
+            border-right: 8px solid transparent;
+            border-bottom: 8px solid white;
+        }
+        
+        .popup-header {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            padding: 24px;
+            text-align: center;
+            position: relative;
+        }
+        
+        .popup-avatar {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            border: 4px solid rgba(255, 255, 255, 0.9);
+            margin: 0 auto 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            object-fit: cover;
+        }
+        
+        .popup-nickname {
+            color: white;
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        
+        .popup-user-id {
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 13px;
+        }
+        
+        .popup-user-level {
+            display: inline-block;
+            background: #FF3B3F;
+            color: white;
+            padding: 3px 10px;
+            border-radius: 3px;
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            margin-top: 6px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+        }
+        
+        .popup-stats {
+            display: flex;
+            justify-content: space-around;
+            padding: 20px;
+            background: #f8f9fa;
+        }
+        
+        .popup-stat-item {
+            text-align: center;
+        }
+        
+        .popup-stat-value {
+            color: #333;
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+        
+        .popup-stat-label {
+            color: #666;
+            font-size: 12px;
+        }
+        
+        .popup-menu {
+            padding: 8px 0;
+        }
+        
+        .popup-menu-item {
+            display: flex;
+            align-items: center;
+            padding: 12px 24px;
+            color: #333;
+            text-decoration: none;
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+        
+        .popup-menu-item:hover {
+            background: #f0f2f5;
+        }
+        
+        .popup-menu-item svg {
+            width: 18px;
+            height: 18px;
+            margin-right: 12px;
+            color: #666;
+        }
+        
+        .popup-menu-item.logout {
+            color: #f44336;
+            border-top: 1px solid #e0e0e0;
+        }
+        
+        .popup-menu-item.logout:hover {
+            background: #ffebee;
+        }
+        
+        .popup-menu-item.logout svg {
+            color: #f44336;
+        }
+        
+        /* 用户信息区容器 - 用于包裹头像和弹窗 */
+        .user-info-container {
+            position: relative;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        /* 主容器 */
+        .container {
+            position: relative;
+            z-index: 1;
+            max-width: 1400px;
+            margin: 100px auto 50px;
+            padding: 0 20px;
+        }
+
+        /* 欢迎区域 */
+        .welcome-section {
+            text-align: center;
+            margin-bottom: 40px;
+            animation: fadeIn 1s ease-out;
+        }
+
+        .welcome-title {
+            font-size: 48px;
+            color: white;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+
+        .welcome-subtitle {
+            font-size: 20px;
+            color: rgba(255, 255, 255, 0.8);
+        }
+
+        /* 主内容区域 - 左右布局 */
+        .main-content {
+            display: flex;
+            gap: 30px;
+            align-items: flex-start;
+        }
+
+        /* 左侧文章列表区（主体） */
+        .articles-section {
+            flex: 1;
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+        }
+
+        .section-title {
+            font-size: 28px;
+            font-weight: 600;
+            color: #333;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 0;
+        }
+
+        /* 排序控件 */
+        .sort-tabs {
+            display: flex;
+            gap: 10px;
+            background: #f7f9fc;
+            padding: 6px;
+            border-radius: 12px;
+        }
+
+        .sort-tab {
+            padding: 8px 20px;
+            border: none;
+            background: transparent;
+            color: #666;
+            font-size: 14px;
+            cursor: pointer;
+            border-radius: 8px;
+            transition: all 0.3s;
+            white-space: nowrap;
+        }
+
+        .sort-tab:hover {
+            background: rgba(79, 172, 254, 0.1);
+            color: #4facfe;
+        }
+
+        .sort-tab.active {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+            font-weight: 600;
+        }
+
+        /* 右侧功能卡片区 */
+        .sidebar {
+            width: 320px;
+            flex-shrink: 0;
+        }
+
+        .features {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .feature-card {
+            background: white;
+            border-radius: 16px;
+            padding: 25px 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+
+        .feature-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 12px 48px rgba(79, 172, 254, 0.3);
+        }
+
+        .feature-icon {
+            font-size: 40px;
+            margin-bottom: 15px;
+        }
+
+        .feature-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 8px;
+        }
+
+        .feature-desc {
+            font-size: 13px;
+            color: #666;
+            line-height: 1.5;
+        }
+
+        .article-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 30px;
+        }
+
+        .article-card {
+            background: #f7f9fc;
+            border-radius: 15px;
+            overflow: hidden;
+            cursor: pointer;
+            transition: all 0.3s;
+            border: 1px solid rgba(0, 0, 0, 0.1);
+        }
+
+        .article-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+        }
+
+        .article-cover {
+            width: 100%;
+            height: 180px;
+            object-fit: cover;
+        }
+
+        .article-info {
+            padding: 20px;
+        }
+
+        .article-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 10px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+        }
+
+        .article-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 14px;
+            color: #999;
+        }
+
+        .meta-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        /* 加载状态 */
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #667eea;
+            font-size: 16px;
+        }
+
+        /* 空状态 */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* 响应式设计 */
+        @media (max-width: 1200px) {
+            .main-content {
+                flex-direction: column;
+            }
+
+            .sidebar {
+                width: 100%;
+            }
+
+            .features {
+                flex-direction: row;
+                gap: 20px;
+            }
+
+            .feature-card {
+                flex: 1;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .navbar {
+                padding: 0 20px;
+            }
+
+            .welcome-title {
+                font-size: 32px;
+            }
+
+            .welcome-subtitle {
+                font-size: 16px;
+            }
+
+            .section-header {
+                flex-direction: column;
+                gap: 15px;
+                align-items: flex-start;
+            }
+
+            .article-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .features {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- 星空背景 -->
+    <div class="stars" id="stars"></div>
+
+    <!-- 导航栏 -->
+    <div class="navbar">
+        <div class="logo" onclick="location.reload()">EasyJob</div>
+        <div class="nav-menu" id="navMenu">
+            <!-- 动态生成 -->
+        </div>
+    </div>
+
+    <!-- 主容器 -->
+    <div class="container">
+        <!-- 欢迎区域 -->
+        <div class="welcome-section">
+            <h1 class="welcome-title">欢迎来到 EasyJob</h1>
+            <p class="welcome-subtitle">分享知识，记录生活，发现精彩</p>
+        </div>
+
+        <!-- 主内容区域：左侧文章 + 右侧功能卡片 -->
+        <div class="main-content">
+            <!-- 左侧：文章列表（主体） -->
+            <div class="articles-section">
+                <div class="section-header">
+                    <h2 class="section-title">
+                        <span>📚</span>
+                        精选文章
+                    </h2>
+                    <div class="sort-tabs">
+                        <button class="sort-tab active" data-sort="latest" onclick="changeSortType('latest')">最新发布</button>
+                        <button class="sort-tab" data-sort="hottest" onclick="changeSortType('hottest')">最热门</button>
+                        <button class="sort-tab" data-sort="liked" onclick="changeSortType('liked')">点赞最多</button>
+                    </div>
+                </div>
+                <div class="article-grid" id="articleGrid">
+                    <div class="loading">加载中...</div>
+                </div>
+            </div>
+
+            <!-- 右侧：功能卡片 -->
+            <div class="sidebar">
+                <div class="features">
+                    <div class="feature-card" onclick="goToCreate()">
+                        <div class="feature-icon">✍️</div>
+                        <div class="feature-title">创作文章</div>
+                        <div class="feature-desc">分享你的想法和经验，让更多人看到你的精彩内容</div>
+                    </div>
+                    <div class="feature-card" onclick="goToSpace()">
+                        <div class="feature-icon">👤</div>
+                        <div class="feature-title">个人空间</div>
+                        <div class="feature-desc">管理你的文章、草稿，查看粉丝和关注</div>
+                    </div>
+                    <div class="feature-card" onclick="goToDrafts()">
+                        <div class="feature-icon">📝</div>
+                        <div class="feature-title">草稿箱</div>
+                        <div class="feature-desc">保存未完成的文章，随时继续创作</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 生成星星
+        const starsContainer = document.getElementById('stars');
+        for (let i = 0; i < 100; i++) {
+            const star = document.createElement('div');
+            star.className = 'star';
+            star.style.left = Math.random() * 100 + '%';
+            star.style.top = Math.random() * 100 + '%';
+            star.style.animationDelay = Math.random() * 3 + 's';
+            starsContainer.appendChild(star);
+        }
+
+        // 检查登录状态
+        const token = localStorage.getItem('token');
+        const userId = localStorage.getItem('userId');
+        const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}');
+
+        // 当前排序方式
+        let currentSort = 'latest';
+
+        // 切换排序类型
+        function changeSortType(sortType) {
+            currentSort = sortType;
+            
+            // 更新按钮状态
+            document.querySelectorAll('.sort-tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            document.querySelector(`[data-sort="${sortType}"]`).classList.add('active');
+            
+            // 重新加载文章
+            loadArticles();
+        }
+
+        // 加载用户信息
+        async function loadUserInfo() {
+            if (!token || !userId) return;
+            
+            try {
+                const response = await fetch(`/api/user/space/${userId}`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const result = await response.json();
+
+                if (result.status === 'success' && result.data) {
+                    // 保存用户信息到 localStorage
+                    localStorage.setItem('nickName', result.data.nickName || '用户');
+                    if (result.data.avatar) {
+                        localStorage.setItem('avatar', result.data.avatar);
+                    }
+                    
+                    // 重新渲染导航栏
+                    renderNav();
+                }
+            } catch (error) {
+                console.error('加载用户信息失败:', error);
+            }
+        }
+
+        // 渲染导航菜单
+        function renderNav() {
+            const navMenu = document.getElementById('navMenu');
+            
+            if (token) {
+                // 已登录 - 显示头像和昵称，并添加悬浮卡片
+                const nickName = localStorage.getItem('nickName') || '用户';
+                const avatar = localStorage.getItem('avatar') || 'https://i.pravatar.cc/150?img=12';
+                
+                navMenu.innerHTML = `
+                    <button class="nav-btn" onclick="goToSpace()">个人空间</button>
+                    <button class="nav-btn" onclick="goToCreate()">写文章</button>
+                    <div class="user-info-container" id="userInfoContainer">
+                        <span class="user-nick-name" onclick="goToSpace()">${nickName}</span>
+                        <img src="${avatar}" alt="用户头像" class="user-avatar" id="navUserAvatar" onerror="this.src='https://i.pravatar.cc/150?img=12'">
+                        
+                        <!-- 用户信息弹窗 -->
+                        <div class="user-info-popup" id="userInfoPopup">
+                            <div class="popup-header">
+                                <img src="${avatar}" alt="用户头像" class="popup-avatar" onerror="this.src='https://i.pravatar.cc/150?img=12'">
+                                <div class="popup-nickname">${nickName}</div>
+                                <div class="popup-user-id">ID: ${userId}</div>
+                                <div class="popup-user-level" id="popupUserLevel">LV0</div>
+                            </div>
+                            <div class="popup-stats">
+                                <div class="popup-stat-item">
+                                    <div class="popup-stat-value" id="popupFollowerCount">0</div>
+                                    <div class="popup-stat-label">粉丝</div>
+                                </div>
+                                <div class="popup-stat-item">
+                                    <div class="popup-stat-value" id="popupFollowingCount">0</div>
+                                    <div class="popup-stat-label">关注</div>
+                                </div>
+                                <div class="popup-stat-item">
+                                    <div class="popup-stat-value" id="popupArticleCount">0</div>
+                                    <div class="popup-stat-label">文章</div>
+                                </div>
+                            </div>
+                            <div class="popup-menu">
+                                <div class="popup-menu-item" onclick="goToSpace()">
+                                    <svg viewBox="0 0 24 24" fill="currentColor">
+                                        <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+                                    </svg>
+                                    个人空间
+                                </div>
+                                <div class="popup-menu-item" onclick="goToCreate()">
+                                    <svg viewBox="0 0 24 24" fill="currentColor">
+                                        <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
+                                    </svg>
+                                    写文章
+                                </div>
+                                <div class="popup-menu-item" onclick="goToDrafts()">
+                                    <svg viewBox="0 0 24 24" fill="currentColor">
+                                        <path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
+                                    </svg>
+                                    草稿箱
+                                </div>
+                                <div class="popup-menu-item logout" onclick="logout()">
+                                    <svg viewBox="0 0 24 24" fill="currentColor">
+                                        <path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/>
+                                    </svg>
+                                    退出登录
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                // 添加鼠标事件
+                setupUserPopup();
+            } else {
+                // 未登录
+                navMenu.innerHTML = `
+                    <button class="nav-btn" onclick="goToLogin()">登录</button>
+                    <button class="nav-btn primary" onclick="goToRegister()">注册</button>
+                `;
+            }
+        }
+        
+        // 设置用户信息弹窗的事件
+        function setupUserPopup() {
+            const userContainer = document.getElementById('userInfoContainer');
+            const userPopup = document.getElementById('userInfoPopup');
+            const userAvatar = document.getElementById('navUserAvatar');
+            
+            if (!userContainer || !userPopup) return;
+            
+            let hideTimeout;
+            
+            // 鼠标移入头像区域
+            userContainer.addEventListener('mouseenter', () => {
+                clearTimeout(hideTimeout);
+                userPopup.classList.add('show');
+                loadUserStats(); // 加载用户统计信息
+            });
+            
+            // 鼠标移出头像区域
+            userContainer.addEventListener('mouseleave', () => {
+                hideTimeout = setTimeout(() => {
+                    userPopup.classList.remove('show');
+                }, 200);
+            });
+        }
+        
+        // 加载用户统计信息
+        async function loadUserStats() {
+            if (!token || !userId) return;
+            
+            try {
+                const response = await fetch(`/api/user/space/${userId}`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const result = await response.json();
+                
+                if (result.status === 'success' && result.data) {
+                    document.getElementById('popupFollowerCount').textContent = result.data.followerCount || 0;
+                    document.getElementById('popupFollowingCount').textContent = result.data.followingCount || 0;
+                    document.getElementById('popupArticleCount').textContent = result.data.articleCount || 0;
+                    
+                    // 计算并显示等级
+                    const level = calculateLevel(result.data.totalCoinCount || 0);
+                    document.getElementById('popupUserLevel').textContent = level;
+                }
+            } catch (error) {
+                console.error('加载用户统计信息失败:', error);
+            }
+        }
+        
+        // 根据累计硬币计算等级
+        function calculateLevel(totalCoins) {
+            if (totalCoins < 10) return 'LV0';
+            if (totalCoins < 50) return 'LV1';
+            if (totalCoins < 100) return 'LV2';
+            if (totalCoins < 200) return 'LV3';
+            if (totalCoins < 500) return 'LV4';
+            if (totalCoins < 1000) return 'LV5';
+            return 'LV6';
+        }
+
+        // 加载文章
+        async function loadArticles() {
+            const articleGrid = document.getElementById('articleGrid');
+            
+            // 显示加载状态
+            articleGrid.innerHTML = '<div class="loading">加载中...</div>';
+            
+            try {
+                const response = await fetch(`/api/article/list?page=1&size=12&sort=${currentSort}`, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const result = await response.json();
+
+                if (result.status === 'success' && result.data) {
+                    const articles = result.data.records || result.data;
+                    
+                    if (articles.length === 0) {
+                        articleGrid.innerHTML = `
+                            <div class="empty-state">
+                                <p>暂无文章</p>
+                            </div>
+                        `;
+                        return;
+                    }
+
+                    articleGrid.innerHTML = articles.map(article => `
+                        <div class="article-card" onclick="viewArticle('${article.articleId || article.id}')">
+                            <img src="${article.coverImage || '/images/default-cover.jpg'}" 
+                                 alt="${article.title}" 
+                                 class="article-cover"
+                                 loading="lazy"
+                                 onerror="this.src='/images/default-cover.jpg'">
+                            <div class="article-info">
+                                <div class="article-title">${article.title}</div>
+                                <div class="article-meta">
+                                    <div class="meta-item">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                                            <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
+                                        </svg>
+                                        ${formatNumber(article.viewCount || 0)}
+                                    </div>
+                                    <div class="meta-item">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                                            <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+                                        </svg>
+                                        ${formatNumber(article.likeCount || 0)}
+                                    </div>
+                                    <div class="meta-item">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                                            <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/>
+                                        </svg>
+                                        ${formatNumber(article.collectCount || 0)}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    articleGrid.innerHTML = `
+                        <div class="empty-state">
+                            <p>加载失败，请刷新重试</p>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                console.error('加载文章失败:', error);
+                articleGrid.innerHTML = `
+                    <div class="empty-state">
+                        <p>加载失败，请刷新重试</p>
+                    </div>
+                `;
+            }
+        }
+
+        // 格式化数字
+        function formatNumber(num) {
+            if (num >= 10000) {
+                return (num / 10000).toFixed(1) + '万';
+            }
+            return num;
+        }
+
+        // 查看文章
+        function viewArticle(articleId) {
+            window.location.href = '/article-detail.html?id=' + encodeURIComponent(articleId);
+        }
+
+        // 导航函数
+        function goToCreate() {
+            if (!token) {
+                alert('请先登录');
+                goToLogin();
+                return;
+            }
+            window.location.href = '/create-article.html?new=true';
+        }
+
+        function goToSpace() {
+            if (!token) {
+                alert('请先登录');
+                goToLogin();
+                return;
+            }
+            window.location.href = '/user-space.html';
+        }
+
+        function goToDrafts() {
+            if (!token) {
+                alert('请先登录');
+                goToLogin();
+                return;
+            }
+            window.location.href = '/draft-box.html';
+        }
+
+        function goToLogin() {
+            window.location.href = '/login.html';
+        }
+
+        function goToRegister() {
+            window.location.href = '/register.html';
+        }
+
+        function logout() {
+            if (confirm('确定要退出登录吗？')) {
+                localStorage.clear();
+                alert('已退出登录');
+                location.reload();
+            }
+        }
+
+        // 初始化
+        renderNav();
+        loadArticles();
+        
+        // 如果已登录，加载用户信息
+        if (token && userId) {
+            loadUserInfo();
+        }
+    </script>
+</body>
+</html>

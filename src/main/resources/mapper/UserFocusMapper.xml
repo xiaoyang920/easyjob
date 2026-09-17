@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.easyjob.mapper.UserFocusMapper">
+
+    <!-- 获取用户的粉丝列表 -->
+    <select id="getUserFollowers" resultType="com.easyjob.vo.UserFollowVO">
+        SELECT 
+            u.user_id as userId,
+            u.nick_name as nickName,
+            u.avatar,
+            u.person_introduction as personIntroduction,
+            u.article_count as articleCount,
+            u.follower_count as followerCount,
+            u.following_count as followingCount,
+            uf.focus_time as focusTime,
+            EXISTS(
+                SELECT 1 
+                FROM user_focus 
+                WHERE user_id = #{currentUserId} 
+                AND focus_user_id = u.user_id
+            ) as isFollowing
+        FROM user_focus uf
+        LEFT JOIN user_info u ON uf.user_id = u.user_id
+        WHERE uf.focus_user_id = #{userId}
+        ORDER BY uf.focus_time DESC
+    </select>
+
+    <!-- 获取用户的关注列表 -->
+    <select id="getUserFollowing" resultType="com.easyjob.vo.UserFollowVO">
+        SELECT 
+            u.user_id as userId,
+            u.nick_name as nickName,
+            u.avatar,
+            u.person_introduction as personIntroduction,
+            u.article_count as articleCount,
+            u.follower_count as followerCount,
+            u.following_count as followingCount,
+            uf.focus_time as focusTime,
+            EXISTS(
+                SELECT 1 
+                FROM user_focus 
+                WHERE user_id = #{currentUserId} 
+                AND focus_user_id = u.user_id
+            ) as isFollowing
+        FROM user_focus uf
+        LEFT JOIN user_info u ON uf.focus_user_id = u.user_id
+        WHERE uf.user_id = #{userId}
+        ORDER BY uf.focus_time DESC
+    </select>
+
+</mapper>

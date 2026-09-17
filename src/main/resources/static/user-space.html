@@ -1,0 +1,1761 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>个人空间 - 魔法世界</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(180deg, 
+                #0f2027 0%,
+                #203a43 30%,
+                #2c5364 60%,
+                #ee9ca7 85%,
+                #ffdde1 100%
+            );
+            color: #fff;
+            min-height: 100vh;
+            position: relative;
+        }
+
+        /* 星空背景 */
+        .stars {
+            position: fixed;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        .star {
+            position: absolute;
+            width: 2px;
+            height: 2px;
+            background: white;
+            border-radius: 50%;
+            box-shadow: 0 0 3px white;
+            animation: twinkle 3s infinite;
+        }
+
+        @keyframes twinkle {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 1; }
+        }
+
+        /* 飞行的法师 */
+        .flying-wizard {
+            position: fixed;
+            font-size: 40px;
+            z-index: 1;
+            animation: flyAcrossScreen 20s linear infinite;
+            pointer-events: none;
+        }
+
+        @keyframes flyAcrossScreen {
+            0% {
+                transform: translateX(-100px) translateY(100px) rotate(0deg);
+            }
+            100% {
+                transform: translateX(calc(100vw + 100px)) translateY(-100px) rotate(360deg);
+            }
+        }
+
+        /* 顶部导航栏 */
+        .top-nav {
+            background: rgba(255, 255, 255, 0.1);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(10px);
+            height: 64px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+        }
+
+        .logo {
+            font-size: 28px;
+            font-weight: bold;
+            background: linear-gradient(135deg, #ffffff 0%, #e0f7ff 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-right: 40px;
+            text-shadow: 0 0 20px rgba(255, 255, 255, 0.5);
+        }
+
+        .search-box {
+            flex: 1;
+            max-width: 500px;
+            position: relative;
+        }
+
+        .search-box input {
+            width: 100%;
+            height: 40px;
+            padding: 0 45px 0 15px;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            border-radius: 12px;
+            font-size: 14px;
+            outline: none;
+            transition: all 0.3s;
+            background: rgba(255, 255, 255, 0.15);
+            color: white;
+        }
+
+        .search-box input::placeholder {
+            color: rgba(255, 255, 255, 0.5);
+        }
+
+        .search-box input:focus {
+            border-color: rgba(255, 255, 255, 0.5);
+            box-shadow: 0 5px 20px rgba(79, 172, 254, 0.3);
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .search-btn {
+            position: absolute;
+            right: 5px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 35px;
+            height: 35px;
+            background: linear-gradient(135deg, rgba(79, 172, 254, 0.8) 0%, rgba(0, 242, 254, 0.8) 100%);
+            border: none;
+            border-radius: 8px;
+            color: white;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+        }
+
+        .search-btn:hover {
+            transform: translateY(-50%) scale(1.05);
+            box-shadow: 0 5px 15px rgba(79, 172, 254, 0.5);
+        }
+
+        .nav-right {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            margin-left: auto;
+        }
+        
+        .nav-user-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 6px 12px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 24px;
+            transition: all 0.3s;
+        }
+        
+        .nav-user-info:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+        
+        .nav-user-name {
+            color: white;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .nav-btn {
+            background: rgba(255, 255, 255, 0.15);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+            padding: 8px 16px;
+            border-radius: 10px;
+            transition: all 0.3s;
+        }
+
+        .nav-btn:hover {
+            background: rgba(255, 255, 255, 0.25);
+            transform: translateY(-2px);
+        }
+
+        .user-avatar-small {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            cursor: pointer;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            transition: all 0.3s;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        }
+
+        .user-avatar-small:hover {
+            border-color: rgba(79, 172, 254, 0.8);
+            transform: scale(1.05);
+            box-shadow: 0 5px 20px rgba(79, 172, 254, 0.4);
+        }
+
+        /* 退出登录按钮 */
+        .logout-btn {
+            background: linear-gradient(135deg, rgba(244, 67, 54, 0.8) 0%, rgba(233, 30, 99, 0.8) 100%);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+            padding: 8px 16px;
+            border-radius: 10px;
+            transition: all 0.3s;
+            font-weight: 500;
+        }
+
+        .logout-btn:hover {
+            background: linear-gradient(135deg, rgba(244, 67, 54, 1) 0%, rgba(233, 30, 99, 1) 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(244, 67, 54, 0.5);
+        }
+
+        /* 个人空间头部 */
+        .space-header {
+            margin-top: 64px;
+            height: 300px;
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.3) 0%, rgba(118, 75, 162, 0.3) 100%);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+            position: relative;
+            overflow: hidden;
+            backdrop-filter: blur(10px);
+        }
+
+        .header-bg {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            opacity: 0.3;
+        }
+
+        .header-content {
+            position: relative;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 40px 20px;
+            display: flex;
+            align-items: flex-end;
+            height: 100%;
+        }
+
+        .user-avatar {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            border: 4px solid white;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            object-fit: cover;
+        }
+
+        .user-info {
+            margin-left: 30px;
+            flex: 1;
+            color: white;
+        }
+
+        .username {
+            font-size: 28px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .user-level {
+            display: inline-block;
+            background: #FF3B3F;
+            color: white;
+            padding: 3px 10px;
+            border-radius: 3px;
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            box-shadow: 0 2px 4px rgba(255, 59, 63, 0.3);
+        }
+
+        .user-badge {
+            display: inline-block;
+            background: rgba(255, 255, 255, 0.15);
+            border: 1px solid rgba(255, 255, 255, 0.25);
+            color: white;
+            padding: 3px 12px;
+            border-radius: 3px;
+            font-size: 12px;
+            font-weight: 500;
+            backdrop-filter: blur(10px);
+            letter-spacing: 0.3px;
+        }
+
+        .user-intro {
+            font-size: 14px;
+            opacity: 0.9;
+            margin-bottom: 15px;
+        }
+
+        .user-stats {
+            display: flex;
+            gap: 30px;
+            font-size: 14px;
+        }
+
+        .stat-item {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .stat-value {
+            font-size: 20px;
+            font-weight: bold;
+        }
+
+        .stat-label {
+            opacity: 0.8;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 12px;
+            align-items: flex-end;
+        }
+
+        .action-btn {
+            padding: 10px 24px;
+            border: 2px solid white;
+            background: rgba(255,255,255,0.2);
+            color: white;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            backdrop-filter: blur(10px);
+            transition: all 0.3s;
+        }
+
+        .action-btn:hover {
+            background: rgba(255, 255, 255, 0.9);
+            color: #667eea;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(79, 172, 254, 0.3);
+        }
+
+        .action-btn.primary {
+            background: linear-gradient(135deg, rgba(79, 172, 254, 0.9) 0%, rgba(0, 242, 254, 0.9) 100%);
+            color: white;
+            border-color: rgba(255, 255, 255, 0.5);
+        }
+
+        .action-btn.primary:hover {
+            background: linear-gradient(135deg, rgba(79, 172, 254, 1) 0%, rgba(0, 242, 254, 1) 100%);
+            border-color: rgba(255, 255, 255, 0.8);
+            color: white;
+            transform: translateY(-3px);
+            box-shadow: 0 8px 30px rgba(79, 172, 254, 0.5);
+        }
+
+        /* 主要内容区域 */
+        .main-content {
+            max-width: 1200px;
+            margin: 30px auto;
+            padding: 0 20px;
+            display: flex;
+            gap: 20px;
+        }
+
+        .content-left {
+            flex: 1;
+        }
+
+        .content-right {
+            width: 380px;
+        }
+
+        /* 标签页 */
+        .tabs {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 15px;
+            padding: 0 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            display: flex;
+            gap: 40px;
+            backdrop-filter: blur(10px);
+        }
+
+        .tab-item {
+            padding: 18px 0;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 15px;
+            cursor: pointer;
+            position: relative;
+            transition: all 0.3s;
+            border-bottom: 3px solid transparent;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .tab-item svg {
+            width: 18px;
+            height: 18px;
+            fill: currentColor;
+        }
+
+        .tab-item:hover {
+            color: rgba(255, 255, 255, 0.95);
+        }
+
+        .tab-item.active {
+            color: white;
+            border-bottom-color: rgba(79, 172, 254, 0.8);
+            font-weight: 500;
+            text-shadow: 0 0 10px rgba(79, 172, 254, 0.5);
+        }
+
+        .tab-badge {
+            margin-left: 6px;
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 13px;
+        }
+
+        /* 过滤器 */
+        .filter-bar {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 15px;
+            padding: 15px 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            display: flex;
+            gap: 15px;
+            backdrop-filter: blur(10px);
+        }
+
+        .filter-btn {
+            padding: 8px 20px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            background: rgba(255, 255, 255, 0.1);
+            color: rgba(255, 255, 255, 0.8);
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+
+        .filter-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+        }
+
+        .filter-btn.active {
+            background: linear-gradient(135deg, rgba(79, 172, 254, 0.9) 0%, rgba(0, 242, 254, 0.9) 100%);
+            color: white;
+            border-color: rgba(255, 255, 255, 0.5);
+            box-shadow: 0 3px 15px rgba(79, 172, 254, 0.4);
+        }
+
+        /* 文章卡片 */
+        .article-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 20px;
+        }
+
+        .article-card {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 15px;
+            overflow: hidden;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            backdrop-filter: blur(10px);
+        }
+
+        .article-card:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 12px 35px rgba(79, 172, 254, 0.3);
+            border-color: rgba(79, 172, 254, 0.5);
+        }
+
+        .article-cover {
+            width: 100%;
+            height: 180px;
+            object-fit: cover;
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.3) 0%, rgba(118, 75, 162, 0.3) 100%);
+        }
+
+        .article-info {
+            padding: 15px;
+        }
+
+        .article-title {
+            font-size: 15px;
+            font-weight: 500;
+            color: white;
+            margin-bottom: 10px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+        }
+
+        .article-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 13px;
+        }
+
+        .meta-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        /* 侧边栏 */
+        .sidebar-card {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            backdrop-filter: blur(10px);
+        }
+
+        .card-title {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: white;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+        }
+
+        .notice-content {
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 14px;
+            line-height: 1.6;
+            padding: 15px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            min-height: 80px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .notice-empty {
+            text-align: center;
+            color: #9499a0;
+            font-style: italic;
+        }
+
+        .live-status {
+            padding: 15px;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            color: white;
+            text-align: center;
+        }
+
+        .live-tip {
+            font-size: 14px;
+            margin-bottom: 12px;
+        }
+
+        .live-btn {
+            background: rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(10px);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            padding: 10px 24px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.3s;
+        }
+
+        .live-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: scale(1.05);
+            box-shadow: 0 4px 12px rgba(255, 255, 255, 0.3);
+        }
+
+        /* 响应式 */
+        @media (max-width: 968px) {
+            .main-content {
+                flex-direction: column;
+            }
+
+            .content-right {
+                width: 100%;
+            }
+
+            .article-grid {
+                grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+            }
+        }
+
+        @media (max-width: 640px) {
+            .header-content {
+                flex-direction: column;
+                align-items: center;
+                text-align: center;
+            }
+
+            .user-info {
+                margin-left: 0;
+                margin-top: 20px;
+            }
+
+            .user-stats {
+                justify-content: center;
+            }
+
+            .header-actions {
+                justify-content: center;
+                width: 100%;
+            }
+
+            .article-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* 空状态 */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #9499a0;
+        }
+
+        .empty-icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+        }
+
+        .empty-text {
+            font-size: 16px;
+            margin-bottom: 10px;
+        }
+
+        .empty-tip {
+            font-size: 14px;
+        }
+
+        /* 加载更多 */
+        .load-more {
+            text-align: center;
+            padding: 30px;
+        }
+
+        .load-more-btn {
+            padding: 12px 40px;
+            background: white;
+            border: 1px solid #e3e5e7;
+            border-radius: 20px;
+            color: #61666d;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+
+        .load-more-btn:hover {
+            border-color: #00a1d6;
+            color: #00a1d6;
+        }
+
+        /* 用户信息扩展卡片 */
+        .user-detail-card {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+        }
+
+        .detail-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.95);
+            padding: 8px 0;
+        }
+
+        .detail-icon {
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: rgba(255, 255, 255, 0.7);
+            flex-shrink: 0;
+        }
+
+        .detail-icon svg {
+            width: 100%;
+            height: 100%;
+            fill: currentColor;
+        }
+
+        .coin-info {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 15px;
+            border-radius: 8px;
+            color: white;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .coin-item {
+            text-align: center;
+        }
+
+        .coin-value {
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 4px;
+        }
+
+        .coin-label {
+            font-size: 12px;
+            opacity: 0.9;
+        }
+        
+        /* 骨架屏样式 */
+        .skeleton-card {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 15px;
+            height: 280px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .skeleton-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(
+                90deg,
+                transparent,
+                rgba(255, 255, 255, 0.1),
+                transparent
+            );
+            animation: skeleton-loading 1.5s infinite;
+        }
+        
+        @keyframes skeleton-loading {
+            0% { left: -100%; }
+            100% { left: 100%; }
+        }
+    </style>
+</head>
+<body>
+    <!-- 星空背景 -->
+    <div class="stars" id="stars"></div>
+    
+    <!-- 飞行的法师 -->
+    <div class="flying-wizard">🧙‍♂️</div>
+
+    <!-- 顶部导航 -->
+    <div class="top-nav">
+        <div class="logo">EasyJob</div>
+        <div class="search-box">
+            <input type="text" placeholder="搜索文章、作者...">
+            <button class="search-btn">🔍</button>
+        </div>
+        <div class="nav-right">
+            <button class="nav-btn" onclick="window.location.href='/index.html'">首页</button>
+            <button class="nav-btn">消息</button>
+            <div class="nav-user-info">
+                <span class="nav-user-name" id="navUserName">加载中...</span>
+                <img src="https://i.pravatar.cc/150?img=12" alt="用户头像" class="user-avatar-small" id="navAvatar">
+            </div>
+            <button class="logout-btn" onclick="logout()">🚪 退出登录</button>
+        </div>
+    </div>
+
+    <!-- 个人空间头部 -->
+    <div class="space-header">
+        <div class="header-content">
+            <img src="https://i.pravatar.cc/150?img=12" alt="用户头像" class="user-avatar" id="userAvatar">
+            <div class="user-info">
+                <div class="username">
+                    <span id="nickName">加载中...</span>
+                    <span class="user-level">LV5</span>
+                    <span class="user-badge" id="userRole">普通用户</span>
+                </div>
+                <div class="user-intro" id="personIntroduction">这个人很懒，什么都没有留下~</div>
+                <div class="user-stats">
+                    <div class="stat-item" onclick="viewFollowers()" style="cursor: pointer;">
+                        <span class="stat-value" id="followerCount">0</span>
+                        <span class="stat-label">粉丝</span>
+                    </div>
+                    <div class="stat-item" onclick="viewFollowing()" style="cursor: pointer;">
+                        <span class="stat-value" id="followingCount">0</span>
+                        <span class="stat-label">关注</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-value" id="articleCount">0</span>
+                        <span class="stat-label">文章</span>
+                    </div>
+                </div>
+            </div>
+            <div class="header-actions">
+                <button class="action-btn" id="editProfileBtn" onclick="window.location.href='/edit-profile.html'" style="display: none;">编辑资料</button>
+                <button class="action-btn" id="draftBoxBtn" onclick="openDraftBox()" style="display: none;">草稿箱</button>
+                <button class="action-btn primary" id="createArticleBtn" onclick="createArticle()" style="display: none;">发布文章</button>
+                <button class="action-btn primary" id="followBtn" onclick="toggleFollow()" style="display: none;">关注</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 主要内容 -->
+    <div class="main-content">
+        <!-- 左侧内容 -->
+        <div class="content-left">
+            <!-- 标签页 -->
+            <div class="tabs">
+                <div class="tab-item active" data-tab="article" onclick="switchTab('article')">
+                    <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zM6 20V4h7v5h5v11H6z"/>
+                    </svg>
+                    文章<span class="tab-badge" id="tabArticleCount">0</span>
+                </div>
+                <div class="tab-item" data-tab="collect" onclick="switchTab('collect')">
+                    <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/>
+                    </svg>
+                    收藏<span class="tab-badge" id="tabCollectCount">0</span>
+                </div>
+                <div class="tab-item" data-tab="like" onclick="switchTab('like')">
+                    <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+                    </svg>
+                    点赞<span class="tab-badge" id="tabLikeCount">0</span>
+                </div>
+            </div>
+
+            <!-- 过滤器 -->
+            <div class="filter-bar">
+                <button class="filter-btn active" data-order="latest" onclick="changeOrder('latest')">最新发布</button>
+                <button class="filter-btn" data-order="hottest" onclick="changeOrder('hottest')">最多播放</button>
+                <button class="filter-btn" data-order="like" onclick="changeOrder('like')">最多点赞</button>
+                <button class="filter-btn" data-order="collect" onclick="changeOrder('collect')">最多收藏</button>
+            </div>
+
+            <!-- 文章列表 -->
+            <div class="article-grid" id="articleGrid">
+                <!-- 文章将通过 JavaScript 动态加载 -->
+            </div>
+
+            <!-- 加载更多 -->
+            <div class="load-more">
+                <button class="load-more-btn" onclick="loadMore()">加载更多</button>
+            </div>
+        </div>
+
+        <!-- 右侧边栏 -->
+        <div class="content-right">
+            <!-- 空间公告 -->
+            <div class="sidebar-card">
+                <div class="card-title">空间公告</div>
+                <div class="notice-content" id="noticeInfo">
+                    <div class="notice-empty">暂无公告</div>
+                </div>
+            </div>
+
+            <!-- 硬币信息 -->
+            <div class="sidebar-card">
+                <div class="card-title">硬币余额</div>
+                <div class="coin-info">
+                    <div class="coin-item">
+                        <div class="coin-value" id="currentCoinCount">0</div>
+                        <div class="coin-label">当前硬币</div>
+                    </div>
+                    <div class="coin-item">
+                        <div class="coin-value" id="totalCoinCount">0</div>
+                        <div class="coin-label">累计获得</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 个人信息 -->
+            <div class="sidebar-card">
+                <div class="card-title">个人信息</div>
+                <div class="user-detail-card">
+                    <div class="detail-item">
+                        <span class="detail-icon">
+                            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/>
+                            </svg>
+                        </span>
+                        <span id="email">-</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-icon">
+                            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V9h14v10zM7 11h5v5H7z"/>
+                            </svg>
+                        </span>
+                        <span id="birthday">未设置</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-icon">
+                            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/>
+                            </svg>
+                        </span>
+                        <span id="sex">未知</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-icon">
+                            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M5 13.18v4L12 21l7-3.82v-4L12 17l-7-3.82zM12 3L1 9l11 6 9-4.91V17h2V9L12 3z"/>
+                            </svg>
+                        </span>
+                        <span id="school">未填写</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-icon">
+                            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M9 11H7v2h2v-2zm4 0h-2v2h2v-2zm4 0h-2v2h2v-2zm2-7h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V9h14v11z"/>
+                            </svg>
+                        </span>
+                        <span id="joinTime">-</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-icon">
+                            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/>
+                            </svg>
+                        </span>
+                        <span id="lastLoginTime">-</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 直播间 -->
+            <div class="sidebar-card">
+                <div class="card-title">直播间</div>
+                <div class="live-status">
+                    <div class="live-tip">期待你的分享时刻~</div>
+                    <button class="live-btn" onclick="goToLive()">前往直播间 ➜</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 生成星星
+        const starsContainer = document.getElementById('stars');
+        for (let i = 0; i < 100; i++) {
+            const star = document.createElement('div');
+            star.className = 'star';
+            star.style.left = Math.random() * 100 + '%';
+            star.style.top = Math.random() * 100 + '%';
+            star.style.animationDelay = Math.random() * 3 + 's';
+            starsContainer.appendChild(star);
+        }
+
+        // 当前标签
+        let currentTab = sessionStorage.getItem('userspace_currentTab') || 'article';
+        // 当前排序方式：latest-最新发布，hottest-最多播放，like-最多点赞，collect-最多收藏
+        let currentOrder = sessionStorage.getItem('userspace_currentOrder') || 'latest';
+        
+        // 当前用户是否关注了目标用户
+        let isFollowing = false;
+        
+        // 获取URL参数中的userId，如果没有则使用当前登录用户的ID
+        function getTargetUserId() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const urlUserId = urlParams.get('userId');
+            return urlUserId || localStorage.getItem('userId');
+        }
+        
+        // 判断是否为当前登录用户的空间
+        function isMySpace() {
+            const targetUserId = getTargetUserId();
+            const currentUserId = localStorage.getItem('userId');
+            return targetUserId === currentUserId;
+        }
+
+        // 切换排序方式
+        function changeOrder(order) {
+            currentOrder = order;
+            
+            // 保存到 sessionStorage
+            sessionStorage.setItem('userspace_currentOrder', order);
+            
+            // 更新按钮样式
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.querySelector(`[data-order="${order}"]`).classList.add('active');
+            
+            // 重新加载当前标签页的内容
+            if (currentTab === 'article') {
+                loadArticles();
+            } else if (currentTab === 'collect') {
+                loadCollectedArticles();
+            } else if (currentTab === 'like') {
+                loadLikedArticles();
+            }
+        }
+
+        // 切换标签页
+        function switchTab(tab) {
+            currentTab = tab;
+            
+            // 保存到 sessionStorage
+            sessionStorage.setItem('userspace_currentTab', tab);
+            
+            // 更新标签样式
+            document.querySelectorAll('.tab-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            document.querySelector(`.tab-item[data-tab="${tab}"]`).classList.add('active');
+            
+            // 加载对应内容
+            if (tab === 'article') {
+                loadArticles();
+            } else if (tab === 'collect') {
+                loadCollectedArticles();
+            } else if (tab === 'like') {
+                loadLikedArticles();
+            }
+        }
+
+        // 加载收藏的文章
+        async function loadCollectedArticles() {
+            const articleGrid = document.getElementById('articleGrid');
+            const userId = getTargetUserId(); // 使用目标用户ID
+            const token = localStorage.getItem('token');
+            
+            articleGrid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 60px 20px; color: rgba(255,255,255,0.7);">加载中...</div>';
+            
+            try {
+                const response = await fetch(`/api/action/user/${userId}/collect?page=1&size=20&type=3&order=${currentOrder}`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const result = await response.json();
+                
+                if (result.status === 'success' && result.data) {
+                    const articles = result.data.records || result.data;
+                    
+                    // 更新收藏数量
+                    const totalCount = result.data.total || articles.length;
+                    document.getElementById('tabCollectCount').textContent = totalCount;
+                    
+                    if (articles.length === 0) {
+                        articleGrid.innerHTML = `
+                            <div class="empty-state" style="grid-column: 1/-1;">
+                                <div class="empty-icon">⭐</div>
+                                <div class="empty-text">还没有收藏文章</div>
+                                <div class="empty-tip">快去收藏你喜欢的文章吧~</div>
+                            </div>
+                        `;
+                        return;
+                    }
+                    
+                    displayArticles(articles);
+                } else {
+                    throw new Error(result.message || '加载失败');
+                }
+            } catch (error) {
+                console.error('加载收藏列表失败:', error);
+                articleGrid.innerHTML = `
+                    <div class="empty-state" style="grid-column: 1/-1;">
+                        <div class="empty-icon">😢</div>
+                        <div class="empty-text">加载失败</div>
+                        <div class="empty-tip">请稍后重试</div>
+                    </div>
+                `;
+            }
+        }
+
+        // 加载统计数据（点赞和收藏数量）
+        async function loadStatistics() {
+            const userId = getTargetUserId(); // 使用目标用户ID
+            const token = localStorage.getItem('token');
+            
+            try {
+                // 并发请求点赞和收藏数量
+                const [likeResponse, collectResponse] = await Promise.all([
+                    fetch(`/api/action/user/${userId}/like?page=1&size=1&type=2`, {
+                        method: 'GET',
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json'
+                        }
+                    }),
+                    fetch(`/api/action/user/${userId}/collect?page=1&size=1&type=3`, {
+                        method: 'GET',
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json'
+                        }
+                    })
+                ]);
+                
+                const likeResult = await likeResponse.json();
+                const collectResult = await collectResponse.json();
+                
+                // 更新点赞数量
+                if (likeResult.status === 'success' && likeResult.data) {
+                    const likeCount = likeResult.data.total || 0;
+                    document.getElementById('tabLikeCount').textContent = likeCount;
+                }
+                
+                // 更新收藏数量
+                if (collectResult.status === 'success' && collectResult.data) {
+                    const collectCount = collectResult.data.total || 0;
+                    document.getElementById('tabCollectCount').textContent = collectCount;
+                }
+            } catch (error) {
+                console.error('加载统计数据失败:', error);
+                // 静默失败，不影响页面其他功能
+            }
+        }
+
+        // 加载点赞的文章
+        async function loadLikedArticles() {
+            const articleGrid = document.getElementById('articleGrid');
+            const userId = getTargetUserId(); // 使用目标用户ID
+            const token = localStorage.getItem('token');
+            
+            articleGrid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 60px 20px; color: rgba(255,255,255,0.7);">加载中...</div>';
+            
+            try {
+                const response = await fetch(`/api/action/user/${userId}/like?page=1&size=20&type=2&order=${currentOrder}`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const result = await response.json();
+                
+                if (result.status === 'success' && result.data) {
+                    const articles = result.data.records || result.data;
+                    
+                    // 更新点赞数量
+                    const totalCount = result.data.total || articles.length;
+                    document.getElementById('tabLikeCount').textContent = totalCount;
+                    
+                    if (articles.length === 0) {
+                        articleGrid.innerHTML = `
+                            <div class="empty-state" style="grid-column: 1/-1;">
+                                <div class="empty-icon">❤️</div>
+                                <div class="empty-text">还没有点赞文章</div>
+                                <div class="empty-tip">快去点赞你喜欢的文章吧~</div>
+                            </div>
+                        `;
+                        return;
+                    }
+                    
+                    displayArticles(articles);
+                } else {
+                    throw new Error(result.message || '加载失败');
+                }
+            } catch (error) {
+                console.error('加载点赞列表失败:', error);
+                articleGrid.innerHTML = `
+                    <div class="empty-state" style="grid-column: 1/-1;">
+                        <div class="empty-icon">😢</div>
+                        <div class="empty-text">加载失败</div>
+                        <div class="empty-tip">请稍后重试</div>
+                    </div>
+                `;
+            }
+        }
+
+        // 性别映射
+        const sexMap = {
+            0: '女',
+            1: '男',
+            2: '未知'
+        };
+
+        // 角色映射
+        const roleMap = {
+            1: '普通用户',
+            2: '作者',
+            3: '管理员'
+        };
+
+        // 根据累计硬币计算等级
+        function calculateLevel(totalCoins) {
+            if (totalCoins < 10) {
+                return 'LV0';
+            } else if (totalCoins >= 10 && totalCoins < 50) {
+                return 'LV1';
+            } else if (totalCoins >= 50 && totalCoins < 100) {
+                return 'LV2';
+            } else if (totalCoins >= 100 && totalCoins < 200) {
+                return 'LV3';
+            } else if (totalCoins >= 200 && totalCoins < 500) {
+                return 'LV4';
+            } else if (totalCoins >= 500 && totalCoins < 1000) {
+                return 'LV5';
+            } else {
+                return 'LV6';
+            }
+        }
+
+        // 默认封面图片
+        const DEFAULT_COVER = '/images/default-cover.jpg';
+
+        // 页面加载时获取用户信息
+        window.addEventListener('load', async () => {
+            // 检查登录状态
+            if (!checkLogin()) {
+                return;
+            }
+            
+            // 恢复之前保存的UI状态
+            restoreUIState();
+            
+            // 显示骨架屏
+            showSkeletonScreen();
+            
+            // 并发请求，提高加载速度
+            Promise.all([
+                loadUserInfo(),
+                // 根据当前标签页加载对应内容
+                currentTab === 'article' ? loadArticles() :
+                currentTab === 'collect' ? loadCollectedArticles() :
+                loadLikedArticles(),
+                loadStatistics() // 加载统计数据
+            ]).catch(error => {
+                console.error('加载数据失败:', error);
+            }).finally(() => {
+                hideSkeletonScreen();
+            });
+        });
+        
+        // 显示骨架屏
+        function showSkeletonScreen() {
+            const articleGrid = document.getElementById('articleGrid');
+            articleGrid.innerHTML = `
+                <div class="skeleton-card"></div>
+                <div class="skeleton-card"></div>
+                <div class="skeleton-card"></div>
+                <div class="skeleton-card"></div>
+            `;
+        }
+        
+        // 隐藏骨架屏
+        function hideSkeletonScreen() {
+            // 骨架屏会被实际内容替换，无需额外操作
+        }
+
+        // 监听页面可见性变化，从草稿箱返回时自动刷新
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) {
+                // 页面重新可见时，刷新文章列表和用户信息
+                console.log('页面重新可见，刷新数据...');
+                
+                // 恢复之前保存的状态
+                const savedTab = sessionStorage.getItem('userspace_currentTab') || 'article';
+                const savedOrder = sessionStorage.getItem('userspace_currentOrder') || 'latest';
+                
+                // 更新当前状态
+                currentTab = savedTab;
+                currentOrder = savedOrder;
+                
+                // 恢复UI状态
+                restoreUIState();
+                
+                // 刷新数据
+                loadUserInfo();
+                if (currentTab === 'article') {
+                    loadArticles();
+                } else if (currentTab === 'collect') {
+                    loadCollectedArticles();
+                } else if (currentTab === 'like') {
+                    loadLikedArticles();
+                }
+                loadStatistics(); // 刷新统计数据
+            }
+        });
+        
+        // 恢复UI状态
+        function restoreUIState() {
+            // 恢复标签页选中状态
+            document.querySelectorAll('.tab-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            const tabElement = document.querySelector(`.tab-item[data-tab="${currentTab}"]`);
+            if (tabElement) {
+                tabElement.classList.add('active');
+            }
+            
+            // 恢复排序按钮选中状态
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            const orderElement = document.querySelector(`[data-order="${currentOrder}"]`);
+            if (orderElement) {
+                orderElement.classList.add('active');
+            }
+        }
+
+        // 检查登录状态
+        function checkLogin() {
+            const token = localStorage.getItem('token');
+            const userId = localStorage.getItem('userId');
+            
+            if (!token || !userId) {
+                alert('请先登录！');
+                window.location.href = '/login.html';
+                return false;
+            }
+            return true;
+        }
+
+        // 加载用户信息
+        async function loadUserInfo() {
+            const userId = getTargetUserId(); // 使用目标用户ID
+            const token = localStorage.getItem('token');
+            
+            try {
+                // 调用后端接口获取用户详细信息
+                const response = await fetch(`/api/user/space/${userId}`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const result = await response.json();
+                
+                // 检查响应状态
+                if (result.status === 'success' && result.data) {
+                    const userData = result.data;
+                    displayUserInfo(userData);
+                } else if (result.code === 401) {
+                    // token 过期或无效
+                    alert('登录已过期，请重新登录');
+                    localStorage.clear();  // 清除所有登录信息
+                    window.location.href = '/login.html';
+                } else {
+                    // 如果接口失败，使用模拟数据
+                    console.warn('接口调用失败，使用模拟数据');
+                    loadMockData();
+                }
+            } catch (error) {
+                console.error('加载用户信息失败:', error);
+                // 网络错误时使用模拟数据
+                loadMockData();
+            }
+        }
+
+        // 加载模拟数据（仅用于测试）
+        function loadMockData() {
+            try {
+                const userId = localStorage.getItem('userId');
+                // 模拟数据（实际应该从后端获取）
+                const userData = {
+                    nickName: localStorage.getItem('nickName') || '魔法师',
+                    email: localStorage.getItem('email') || 'user@example.com',
+                    avatar: 'https://i.pravatar.cc/150?img=12',
+                    personIntroduction: '热爱编程，喜欢分享技术~',
+                    followerCount: 81,
+                    followingCount: 68,
+                    articleCount: 15,
+                    totalCoinCount: 6470,
+                    currentCoinCount: 592,
+                    sex: 1,
+                    birthday: '1995-06-15',
+                    school: '清华大学',
+                    joinTime: '2023-01-15 10:30:00',
+                    lastLoginTime: new Date().toLocaleString('zh-CN'),
+                    noticeInfo: '欢迎来到我的空间！这里会分享技术文章和学习心得。',
+                    role: 2
+                };
+
+                displayUserInfo(userData);
+
+            } catch (error) {
+                console.error('加载模拟数据失败:', error);
+            }
+        }
+
+        // 显示用户信息
+        function displayUserInfo(userData) {
+            try {
+                // 根据是否为自己的空间，显示不同的按钮
+                const isOwner = isMySpace();
+                if (isOwner) {
+                    // 自己的空间：显示编辑、草稿箱、发布按钮
+                    document.getElementById('editProfileBtn').style.display = '';
+                    document.getElementById('draftBoxBtn').style.display = '';
+                    document.getElementById('createArticleBtn').style.display = '';
+                    document.getElementById('followBtn').style.display = 'none';
+                } else {
+                    // 别人的空间：显示关注按钮
+                    document.getElementById('editProfileBtn').style.display = 'none';
+                    document.getElementById('draftBoxBtn').style.display = 'none';
+                    document.getElementById('createArticleBtn').style.display = 'none';
+                    document.getElementById('followBtn').style.display = '';
+                    
+                    // 检查关注状态
+                    checkFollowStatus();
+                }
+
+                // 更新页面数据
+                document.getElementById('nickName').textContent = userData.nickName;
+                document.getElementById('userRole').textContent = roleMap[userData.role] || '普通用户';
+                document.getElementById('personIntroduction').textContent = userData.personIntroduction || '这个人很懒，什么都没有留下~';
+                document.getElementById('followerCount').textContent = userData.followerCount;
+                document.getElementById('followingCount').textContent = userData.followingCount;
+                document.getElementById('articleCount').textContent = userData.articleCount;
+                document.getElementById('tabArticleCount').textContent = userData.articleCount;
+                document.getElementById('currentCoinCount').textContent = userData.currentCoinCount;
+                document.getElementById('totalCoinCount').textContent = userData.totalCoinCount;
+                document.getElementById('email').textContent = userData.email;
+                document.getElementById('birthday').textContent = userData.birthday || '未设置';
+                document.getElementById('sex').textContent = sexMap[userData.sex] || '未知';
+                document.getElementById('school').textContent = userData.school || '未填写';
+                document.getElementById('joinTime').textContent = new Date(userData.joinTime).toLocaleDateString('zh-CN');
+                document.getElementById('lastLoginTime').textContent = userData.lastLoginTime;
+
+                // 根据累计硬币计算并更新等级
+                const level = calculateLevel(userData.totalCoinCount || 0);
+                const levelElement = document.querySelector('.user-level');
+                if (levelElement) {
+                    levelElement.textContent = level;
+                }
+
+                // 更新头像和用户名
+                if (userData.avatar) {
+                    document.getElementById('userAvatar').src = userData.avatar;
+                    document.getElementById('navAvatar').src = userData.avatar;
+                }
+                
+                // 更新导航栏用户名（如果是当前登录用户）
+                if (isOwner) {
+                    document.getElementById('navUserName').textContent = userData.nickName;
+                } else {
+                    // 如果是查看别人的空间，导航栏显示当前登录用户的名称
+                    const currentUserNickName = localStorage.getItem('nickName') || '用户';
+                    document.getElementById('navUserName').textContent = currentUserNickName;
+                }
+
+                // 更新公告
+                const noticeDiv = document.getElementById('noticeInfo');
+                if (userData.noticeInfo) {
+                    noticeDiv.innerHTML = userData.noticeInfo;
+                } else {
+                    noticeDiv.innerHTML = '<div class="notice-empty">暂无公告</div>';
+                }
+
+            } catch (error) {
+                console.error('显示用户信息失败:', error);
+            }
+        }
+
+        // 加载文章列表
+        async function loadArticles() {
+            const articleGrid = document.getElementById('articleGrid');
+            const userId = getTargetUserId(); // 使用目标用户ID
+            const token = localStorage.getItem('token');
+            
+            console.log('[排序调试] 当前排序方式:', currentOrder);
+            
+            try {
+                // 调用后端接口获取文章列表，带上排序参数
+                const url = `/api/article/user/${userId}?page=1&size=10&order=${currentOrder}`;
+                console.log('[排序调试] 请求URL:', url);
+                
+                const response = await fetch(url, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const result = await response.json();
+                console.log('[排序调试] 后端返回数据:', result);
+                
+                if (result.status === 'success' && result.data && result.data.records) {
+                    const articles = result.data.records;
+                    console.log('[排序调试] 文章列表:', articles.map(a => ({
+                        title: a.title,
+                        viewCount: a.viewCount,
+                        likeCount: a.likeCount,
+                        collectCount: a.collectCount
+                    })));
+                    displayArticles(articles);
+                    return;
+                }
+            } catch (error) {
+                console.error('加载文章列表失败:', error);
+            }
+            
+            // 如果接口失败，使用模拟数据
+            const articles = [
+                {
+                    id: 1,
+                    title: 'Spring Boot + MyBatis-Plus 快速开发指南',
+                    cover: 'https://picsum.photos/400/300?random=1',
+                    viewCount: 1234,
+                    likeCount: 89,
+                    publishTime: '2024-12-01'
+                },
+                {
+                    id: 2,
+                    title: 'Vue3 组合式 API 最佳实践',
+                    cover: 'https://picsum.photos/400/300?random=2',
+                    viewCount: 2567,
+                    likeCount: 156,
+                    publishTime: '2024-11-28'
+                },
+                {
+                    id: 3,
+                    title: 'MySQL 索引优化技巧分享',
+                    cover: 'https://picsum.photos/400/300?random=3',
+                    viewCount: 890,
+                    likeCount: 45,
+                    publishTime: '2024-11-25'
+                }
+            ];
+
+            displayArticles(articles);
+        }
+
+        // 显示文章列表
+        function displayArticles(articles) {
+            const articleGrid = document.getElementById('articleGrid');
+            
+            if (!articles || articles.length === 0) {
+                articleGrid.innerHTML = `
+                    <div class="empty-state" style="grid-column: 1/-1;">
+                        <div class="empty-icon">📝</div>
+                        <div class="empty-text">还没有发布文章</div>
+                        <div class="empty-tip">快来分享你的第一篇文章吧~</div>
+                    </div>
+                `;
+                return;
+            }
+
+            articleGrid.innerHTML = articles.map(article => `
+                <div class="article-card" onclick="viewArticle('${article.articleId || article.id}')">
+                    <img src="${article.coverImage || article.cover || DEFAULT_COVER}" 
+                         alt="${article.title}" 
+                         class="article-cover" 
+                         loading="lazy"
+                         onerror="if(this.src!=='${DEFAULT_COVER}'){this.src='${DEFAULT_COVER}';this.onerror=null;}">
+                    <div class="article-info">
+                        <div class="article-title">${article.title}</div>
+                        <div class="article-meta">
+                            <div class="meta-item">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="vertical-align: middle; margin-right: 4px;">
+                                    <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
+                                </svg>
+                                ${formatNumber(article.viewCount)}
+                            </div>
+                            <div class="meta-item">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="vertical-align: middle; margin-right: 4px;">
+                                    <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+                                </svg>
+                                ${formatNumber(article.likeCount)}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // 格式化数字
+        function formatNumber(num) {
+            if (num >= 10000) {
+                return (num / 10000).toFixed(1) + '万';
+            }
+            return num;
+        }
+
+        // 查看粉丝列表
+        function viewFollowers() {
+            const targetUserId = getTargetUserId();
+            window.location.href = `/followers-following.html?userId=${targetUserId}`;
+        }
+        
+        // 查看关注列表
+        function viewFollowing() {
+            const targetUserId = getTargetUserId();
+            window.location.href = `/followers-following.html?userId=${targetUserId}`;
+        }
+        
+        // 查看文章
+        function viewArticle(articleId) {
+            if (!articleId) {
+                alert('文章ID不存在');
+                return;
+            }
+            window.location.href = '/article-detail.html?id=' + encodeURIComponent(articleId);
+        }
+
+        // 编辑资料
+        function editProfile() {
+            // TODO: 跳转到资料编辑页
+            alert('资料编辑功能开发中...');
+        }
+
+        // 退出登录
+        function logout() {
+            // 确认退出
+            if (confirm('确定要退出登录吗？')) {
+                // 清除所有登录信息
+                localStorage.clear();
+                
+                // 显示提示
+                alert('已退出登录');
+                
+                // 跳转到登录页
+                window.location.href = '/login.html';
+            }
+        }
+
+        // 发布文章
+        function createArticle() {
+            // 添加 new=true 参数，表示新建文章，不加载草稿
+            window.location.href = '/create-article.html?new=true';
+        }
+
+        // 打开草稿箱
+        function openDraftBox() {
+            window.location.href = '/draft-box.html';
+        }
+
+        // 前往直播间
+        function goToLive() {
+            alert('直播功能开发中...');
+        }
+
+        // 加载更多
+        function loadMore() {
+            alert('加载更多功能开发中...');
+        }
+        
+        // 检查关注状态
+        async function checkFollowStatus() {
+            const targetUserId = getTargetUserId();
+            const token = localStorage.getItem('token');
+            
+            try {
+                const response = await fetch(`/api/user/${targetUserId}/follow-status`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const result = await response.json();
+                if (result.status === 'success' && result.data) {
+                    isFollowing = result.data.isFollowing;
+                    updateFollowButton();
+                }
+            } catch (error) {
+                console.error('检查关注状态失败:', error);
+            }
+        }
+        
+        // 更新关注按钮文字
+        function updateFollowButton() {
+            const followBtn = document.getElementById('followBtn');
+            if (isFollowing) {
+                followBtn.textContent = '已关注';
+                followBtn.classList.remove('primary');
+            } else {
+                followBtn.textContent = '关注';
+                followBtn.classList.add('primary');
+            }
+        }
+        
+        // 切换关注状态
+        async function toggleFollow() {
+            const targetUserId = getTargetUserId();
+            const token = localStorage.getItem('token');
+            const followBtn = document.getElementById('followBtn');
+            
+            // 禁用按钮，防止重复点击
+            followBtn.disabled = true;
+            
+            try {
+                const url = isFollowing 
+                    ? `/api/user/${targetUserId}/unfollow` 
+                    : `/api/user/${targetUserId}/follow`;
+                
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    // 切换状态
+                    isFollowing = !isFollowing;
+                    updateFollowButton();
+                    
+                    // 更新粉丝数
+                    const followerCountElem = document.getElementById('followerCount');
+                    let currentCount = parseInt(followerCountElem.textContent) || 0;
+                    followerCountElem.textContent = isFollowing ? currentCount + 1 : Math.max(0, currentCount - 1);
+                } else {
+                    alert(result.message || '操作失败');
+                }
+            } catch (error) {
+                console.error('关注操作失败:', error);
+                alert('操作失败，请稍后重试');
+            } finally {
+                // 恢复按钮
+                followBtn.disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>

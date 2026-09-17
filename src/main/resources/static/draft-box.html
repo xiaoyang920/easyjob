@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>草稿箱 - EasyJob</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            min-height: 100vh;
+            background: linear-gradient(180deg,
+                #0f2027 0%,
+                #203a43 30%,
+                #2c5364 60%,
+                #ee9ca7 85%,
+                #ffdde1 100%
+            );
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        /* 星空背景 */
+        .stars {
+            position: fixed;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            z-index: 0;
+        }
+
+        .star {
+            position: absolute;
+            width: 2px;
+            height: 2px;
+            background: white;
+            border-radius: 50%;
+            box-shadow: 0 0 3px white;
+            animation: twinkle 3s infinite;
+        }
+
+        @keyframes twinkle {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 1; }
+        }
+
+        /* 导航栏 */
+        .navbar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 64px;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 40px;
+            z-index: 100;
+        }
+
+        .logo {
+            font-size: 24px;
+            font-weight: bold;
+            background: linear-gradient(135deg, #ffffff 0%, #e0f7ff 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .nav-right {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+
+        .nav-btn {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            padding: 8px 20px;
+            border-radius: 20px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 14px;
+        }
+
+        .nav-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+        }
+
+        /* 主容器 */
+        .main-container {
+            position: relative;
+            z-index: 1;
+            max-width: 1200px;
+            margin: 100px auto 50px;
+            padding: 0 20px;
+        }
+
+        /* 页面标题 */
+        .page-header {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 20px;
+            padding: 30px 40px;
+            margin-bottom: 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .page-title {
+            font-size: 28px;
+            color: white;
+            font-weight: 600;
+        }
+
+        .draft-count {
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 16px;
+        }
+
+        /* 草稿列表 */
+        .draft-list {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 20px;
+            padding: 30px;
+        }
+
+        .draft-item {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 20px;
+            transition: all 0.3s;
+        }
+
+        .draft-item:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(79, 172, 254, 0.5);
+            transform: translateY(-3px);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+        }
+
+        .draft-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 15px;
+        }
+
+        .draft-title {
+            font-size: 20px;
+            color: white;
+            font-weight: 600;
+            flex: 1;
+            cursor: pointer;
+        }
+
+        .draft-title:hover {
+            color: rgba(79, 172, 254, 0.9);
+        }
+
+        .draft-time {
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 14px;
+            margin-left: 20px;
+        }
+
+        .draft-summary {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 14px;
+            line-height: 1.6;
+            margin-bottom: 15px;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        .draft-meta {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 15px;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 14px;
+        }
+
+        .draft-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .btn {
+            padding: 8px 20px;
+            border-radius: 20px;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+
+        .btn-edit {
+            background: rgba(79, 172, 254, 0.2);
+            color: rgba(79, 172, 254, 1);
+            border: 1px solid rgba(79, 172, 254, 0.5);
+        }
+
+        .btn-edit:hover {
+            background: rgba(79, 172, 254, 0.3);
+            transform: translateY(-2px);
+        }
+
+        .btn-publish {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .btn-publish:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(79, 172, 254, 0.4);
+        }
+
+        .btn-delete {
+            background: rgba(255, 107, 107, 0.2);
+            color: rgba(255, 107, 107, 1);
+            border: 1px solid rgba(255, 107, 107, 0.5);
+        }
+
+        .btn-delete:hover {
+            background: rgba(255, 107, 107, 0.3);
+            transform: translateY(-2px);
+        }
+
+        /* 空状态 */
+        .empty-state {
+            text-align: center;
+            padding: 80px 20px;
+            color: rgba(255, 255, 255, 0.7);
+        }
+
+        .empty-icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+        }
+
+        .empty-text {
+            font-size: 18px;
+            margin-bottom: 10px;
+        }
+
+        .empty-tip {
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.5);
+        }
+
+        /* 加载状态 */
+        .loading {
+            text-align: center;
+            padding: 50px;
+            color: white;
+            font-size: 16px;
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 30px;
+            height: 30px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-bottom: 15px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <!-- 星空背景 -->
+    <div class="stars" id="stars"></div>
+
+    <!-- 导航栏 -->
+    <div class="navbar">
+        <div class="logo">✨ EasyJob</div>
+        <div class="nav-right">
+            <button class="nav-btn" onclick="goBack()">返回</button>
+            <button class="nav-btn" onclick="goHome()">首页</button>
+        </div>
+    </div>
+
+    <!-- 主容器 -->
+    <div class="main-container">
+        <!-- 页面标题 -->
+        <div class="page-header">
+            <div>
+                <h1 class="page-title">📝 我的草稿箱</h1>
+            </div>
+            <div class="draft-count" id="draftCount">共 0 篇草稿</div>
+        </div>
+
+        <!-- 草稿列表 -->
+        <div class="draft-list">
+            <div class="loading" id="loading">
+                <div class="loading-spinner"></div>
+                <div>加载草稿中...</div>
+            </div>
+            <div id="draftContainer" style="display: none;"></div>
+        </div>
+    </div>
+
+    <script>
+        // 生成星星
+        const starsContainer = document.getElementById('stars');
+        for (let i = 0; i < 100; i++) {
+            const star = document.createElement('div');
+            star.className = 'star';
+            star.style.left = Math.random() * 100 + '%';
+            star.style.top = Math.random() * 100 + '%';
+            star.style.animationDelay = Math.random() * 3 + 's';
+            starsContainer.appendChild(star);
+        }
+
+        // 检查登录状态
+        function checkLogin() {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                alert('请先登录！');
+                window.location.href = '/login.html';
+                return false;
+            }
+            return true;
+        }
+
+        // 页面加载时获取草稿列表
+        window.addEventListener('load', async () => {
+            if (!checkLogin()) {
+                return;
+            }
+            await loadDrafts();
+        });
+
+        // 加载草稿列表
+        async function loadDrafts() {
+            try {
+                const token = localStorage.getItem('token');
+                const userId = localStorage.getItem('userId');
+                
+                const response = await fetch(`/api/article/drafts?page=1&size=10`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const result = await response.json();
+
+                if (result.status === 'success' && result.data) {
+                    // 如果返回的是分页数据
+                    if (result.data.records) {
+                        displayDrafts(result.data.records, result.data.total);
+                    } else if (Array.isArray(result.data)) {
+                        // 如果返回的是数组
+                        displayDrafts(result.data, result.data.length);
+                    } else {
+                        showEmptyState();
+                    }
+                } else if (result.code === 401) {
+                    alert('登录已过期，请重新登录');
+                    localStorage.clear();
+                    window.location.href = '/login.html';
+                } else {
+                    showEmptyState();
+                }
+            } catch (error) {
+                console.error('加载草稿失败:', error);
+                showEmptyState();
+            }
+        }
+
+        // 显示草稿列表
+        function displayDrafts(drafts, total) {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('draftContainer').style.display = 'block';
+            
+            if (!drafts || drafts.length === 0) {
+                showEmptyState();
+                return;
+            }
+
+            // 显示总数量，而不是当前页数量
+            document.getElementById('draftCount').textContent = `共 ${total || drafts.length} 篇草稿`;
+            
+            const container = document.getElementById('draftContainer');
+            container.innerHTML = drafts.map(draft => `
+                <div class="draft-item">
+                    <div class="draft-header">
+                        <div class="draft-title" onclick="editDraft('${draft.articleId}')">${draft.title || '无标题'}</div>
+                        <div class="draft-time">${formatTime(draft.updateTime || draft.createTime || draft.publishTime)}</div>
+                    </div>
+                    <div class="draft-summary">${stripHtml(draft.summary || draft.content || '暂无内容')}</div>
+                    <div class="draft-meta">
+                        <span>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="vertical-align: middle; margin-right: 4px;">
+                                <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
+                            </svg>
+                            ${formatNumber(draft.viewCount || 0)}
+                        </span>
+                        <span>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="vertical-align: middle; margin-right: 4px;">
+                                <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+                            </svg>
+                            ${formatNumber(draft.likeCount || 0)}
+                        </span>
+                    </div>
+                    <div class="draft-actions">
+                        <button class="btn btn-edit" onclick="editDraft('${draft.articleId}')">
+                            编辑
+                        </button>
+                        <button class="btn btn-publish" onclick="publishDraft('${draft.articleId}')">
+                            发布
+                        </button>
+                        <button class="btn btn-delete" onclick="deleteDraft('${draft.articleId}')">
+                            删除
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // 显示空状态
+        function showEmptyState() {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('draftContainer').style.display = 'block';
+            document.getElementById('draftCount').textContent = '共 0 篇草稿';
+            
+            document.getElementById('draftContainer').innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-icon">
+                        <svg width="64" height="64" viewBox="0 0 24 24" fill="rgba(255,255,255,0.5)">
+                            <path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zM6 20V4h7v5h5v11H6z"/>
+                        </svg>
+                    </div>
+                    <div class="empty-text">还没有草稿</div>
+                    <div class="empty-tip">创作的草稿会保存在这里</div>
+                </div>
+            `;
+        }
+
+        // 编辑草稿
+        function editDraft(articleId) {
+            window.location.href = `/edit-article.html?id=${articleId}`;
+        }
+
+        // 发布草稿
+        async function publishDraft(articleId) {
+            if (!confirm('确定要发布这篇草稿吗？')) {
+                return;
+            }
+
+            try {
+                const token = localStorage.getItem('token');
+                const response = await fetch(`/api/article/${articleId}/publish`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const result = await response.json();
+
+                if (result.status === 'success') {
+                    alert('发布成功！');
+                    // 重新加载草稿列表
+                    await loadDrafts();
+                } else {
+                    alert(result.message || '发布失败');
+                }
+            } catch (error) {
+                console.error('发布失败:', error);
+                alert('发布失败，请稍后重试');
+            }
+        }
+
+        // 删除草稿
+        async function deleteDraft(articleId) {
+            if (!confirm('确定要删除这篇草稿吗？删除后无法恢复！')) {
+                return;
+            }
+
+            try {
+                const token = localStorage.getItem('token');
+                const response = await fetch(`/api/article/${articleId}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const result = await response.json();
+
+                if (result.status === 'success') {
+                    alert('删除成功！');
+                    // 重新加载草稿列表
+                    await loadDrafts();
+                } else {
+                    alert(result.message || '删除失败');
+                }
+            } catch (error) {
+                console.error('删除失败:', error);
+                alert('删除失败，请稍后重试');
+            }
+        }
+
+        // 格式化时间
+        function formatTime(timeStr) {
+            if (!timeStr) return '';
+            const date = new Date(timeStr);
+            const now = new Date();
+            const diff = now - date;
+            
+            if (diff < 60000) return '刚刚';
+            if (diff < 3600000) return Math.floor(diff / 60000) + ' 分钟前';
+            if (diff < 86400000) return Math.floor(diff / 3600000) + ' 小时前';
+            if (diff < 604800000) return Math.floor(diff / 86400000) + ' 天前';
+            
+            return date.toLocaleDateString('zh-CN');
+        }
+
+        // 格式化数字
+        function formatNumber(num) {
+            if (num >= 10000) {
+                return (num / 10000).toFixed(1) + '万';
+            }
+            return num;
+        }
+
+        // 去除HTML标签
+        function stripHtml(html) {
+            const tmp = document.createElement('div');
+            tmp.innerHTML = html;
+            return tmp.textContent || tmp.innerText || '';
+        }
+
+        // 返回
+        function goBack() {
+            window.history.back();
+        }
+
+        // 首页
+        function goHome() {
+            window.location.href = '/user-space.html';
+        }
+    </script>
+</body>
+</html>

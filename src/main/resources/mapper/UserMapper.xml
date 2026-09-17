@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.easyjob.mapper.UserMapper">
+    <!-- MyBatis-Plus 会自动处理 CRUD 操作，无需手动定义 -->
+    <update id="changeArticleCount">
+        update user_info
+        set article_count = article_count + #{count}
+        where user_id = #{userId}
+    </update>
+    
+    <update id="changeFollowingCount">
+        update user_info
+        set following_count = following_count + #{count}
+        where user_id = #{userId}
+    </update>
+    
+    <update id="changeFollowerCount">
+        update user_info
+        set follower_count = follower_count + #{count}
+        where user_id = #{userId}
+    </update>
+    <select id="getUserFollowers" resultType="com.easyjob.vo.UserFollowVO">
+        SELECT
+            u.user_id as userId,
+            u.nick_name as nickName,
+            u.avatar,
+            u.person_introduction as personIntroduction,
+            u.article_count as articleCount,
+            u.follower_count as followerCount,
+            u.following_count as followingCount,
+            uf.focus_time as focusTime,
+            (
+                SELECT COUNT(1)
+                FROM user_focus
+                WHERE user_id = #{currentUserId}
+                  AND focus_user_id = u.user_id
+            ) > 0 as isFollowing
+        FROM user_focus uf
+        LEFT JOIN user_info u ON uf.user_id = u.user_id
+        WHERE uf.focus_user_id = #{userId}
+        ORDER BY uf.focus_time DESC
+    </select>
+    <select id="getUserFollowing" resultType="com.easyjob.vo.UserFollowVO" parameterType="java.lang.Long">
+        select u.user_id,u.nick_name,u.avatar,u.person_introduction,u.article_count,u.follower_count,u.following_count,uf.focus_time
+        from user_focus uf
+        left join user_info u on u.user_id = uf.focus_user_id
+        where uf.user_id = #{userId}
+        order by uf.focus_time desc
+    </select>
+</mapper>

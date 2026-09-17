@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>修改个人资料 - 魔法空间</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            min-height: 100vh;
+            overflow-x: hidden;
+            background: linear-gradient(180deg, 
+                #0f2027 0%,
+                #203a43 30%,
+                #2c5364 60%,
+                #ee9ca7 85%,
+                #ffdde1 100%
+            );
+            position: relative;
+        }
+
+        /* 星空背景 */
+        .stars {
+            position: fixed;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            z-index: 0;
+        }
+
+        .star {
+            position: absolute;
+            width: 2px;
+            height: 2px;
+            background: white;
+            border-radius: 50%;
+            box-shadow: 0 0 3px white;
+            animation: twinkle 3s infinite;
+        }
+
+        @keyframes twinkle {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 1; }
+        }
+
+        /* 飞行的法师 */
+        .flying-wizard {
+            position: fixed;
+            font-size: 40px;
+            z-index: 1;
+            animation: flyAcrossScreen 20s linear infinite;
+        }
+
+        @keyframes flyAcrossScreen {
+            0% {
+                transform: translateX(-100px) translateY(100px) rotate(0deg);
+            }
+            100% {
+                transform: translateX(calc(100vw + 100px)) translateY(-100px) rotate(360deg);
+            }
+        }
+
+        /* 主容器 */
+        .main-container {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 40px 20px;
+        }
+
+        .profile-box {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 30px;
+            padding: 50px 60px;
+            box-shadow: 
+                0 8px 32px 0 rgba(31, 38, 135, 0.37),
+                0 0 30px rgba(79, 172, 254, 0.2);
+            width: 600px;
+            max-width: 90%;
+            position: relative;
+            animation: slideIn 0.8s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translate3d(0, -50px, 0) scale(0.9);
+            }
+            to {
+                opacity: 1;
+                transform: translate3d(0, 0, 0) scale(1);
+            }
+        }
+
+        /* 标题 */
+        .profile-title {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .profile-title h1 {
+            background: linear-gradient(135deg, #ffffff 0%, #e0f7ff 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            font-size: 32px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            animation: titleGlow 3s ease-in-out infinite;
+            letter-spacing: 2px;
+        }
+
+        @keyframes titleGlow {
+            0%, 100% {
+                filter: brightness(1);
+            }
+            50% {
+                filter: brightness(1.3);
+            }
+        }
+
+        .profile-title p {
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+        }
+
+        /* 头像上传区域 */
+        .avatar-upload {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .avatar-preview {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            margin: 0 auto 15px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            overflow: hidden;
+            box-shadow: 0 5px 20px rgba(79, 172, 254, 0.3);
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .avatar-preview:hover {
+            transform: scale(1.05);
+            box-shadow: 0 8px 30px rgba(79, 172, 254, 0.5);
+        }
+
+        .avatar-preview img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .avatar-btn {
+            padding: 10px 20px;
+            background: rgba(79, 172, 254, 0.3);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+
+        .avatar-btn:hover {
+            background: rgba(79, 172, 254, 0.5);
+            transform: translateY(-2px);
+        }
+
+        /* 输入框 */
+        .input-group {
+            margin-bottom: 25px;
+        }
+
+        .input-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 14px;
+            font-weight: 500;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+        }
+
+        .input-group label .required {
+            color: #ff6b9d;
+            margin-left: 3px;
+        }
+
+        .input-wrapper {
+            position: relative;
+        }
+
+        .input-icon {
+            position: absolute;
+            left: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 18px;
+            color: rgba(255, 255, 255, 0.7);
+        }
+
+        .input-group input,
+        .input-group textarea,
+        .input-group select {
+            width: 100%;
+            padding: 15px 15px 15px 45px;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            border-radius: 15px;
+            font-size: 15px;
+            transition: all 0.3s ease;
+            background: rgba(255, 255, 255, 0.15);
+            color: white;
+            font-family: inherit;
+        }
+
+        .input-group textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+
+        .input-group input::placeholder,
+        .input-group textarea::placeholder {
+            color: rgba(255, 255, 255, 0.5);
+        }
+
+        .input-group input:focus,
+        .input-group textarea:focus,
+        .input-group select:focus {
+            outline: none;
+            border-color: rgba(255, 255, 255, 0.5);
+            background: rgba(255, 255, 255, 0.15);
+            box-shadow: 0 5px 20px rgba(79, 172, 254, 0.3);
+            transform: translateY(-2px);
+        }
+
+        .input-group select {
+            cursor: pointer;
+        }
+
+        .input-group select option {
+            background: #2c5364;
+            color: white;
+        }
+
+        /* 两列布局 */
+        .row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        @media (max-width: 768px) {
+            .row {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* 按钮组 */
+        .button-group {
+            display: flex;
+            gap: 15px;
+            margin-top: 30px;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 15px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 15px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            letter-spacing: 1px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, rgba(79, 172, 254, 0.8) 0%, rgba(0, 242, 254, 0.8) 100%);
+            color: white;
+            box-shadow: 0 5px 20px rgba(79, 172, 254, 0.4);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 30px rgba(79, 172, 254, 0.6);
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.15);
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.25);
+            transform: translateY(-2px);
+        }
+
+        /* 消息提示 */
+        .message {
+            padding: 12px 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            text-align: center;
+            display: none;
+            animation: shake 0.5s;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .message.success {
+            background: linear-gradient(135deg, rgba(76, 217, 100, 0.9) 0%, rgba(52, 211, 153, 0.9) 100%);
+            color: white;
+        }
+
+        .message.error {
+            background: linear-gradient(135deg, rgba(255, 107, 157, 0.9) 0%, rgba(255, 195, 160, 0.9) 100%);
+            color: white;
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-10px); }
+            75% { transform: translateX(10px); }
+        }
+
+        /* 返回按钮 */
+        .back-btn {
+            position: fixed;
+            top: 30px;
+            left: 30px;
+            padding: 12px 24px;
+            background: rgba(255, 255, 255, 0.15);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 12px;
+            color: white;
+            text-decoration: none;
+            font-size: 14px;
+            z-index: 10;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(10px);
+        }
+
+        .back-btn:hover {
+            background: rgba(255, 255, 255, 0.25);
+            transform: translateX(-5px);
+        }
+    </style>
+</head>
+<body>
+    <!-- 星空背景 -->
+    <div class="stars" id="stars"></div>
+
+    <!-- 飞行的法师 -->
+    <div class="flying-wizard">🧙‍♂️</div>
+
+    <!-- 返回按钮 -->
+    <a href="/user-space.html" class="back-btn">← 返回个人空间</a>
+
+    <!-- 主容器 -->
+    <div class="main-container">
+        <div class="profile-box">
+            <div class="profile-title">
+                <h1>✨ 修改个人资料 ✨</h1>
+                <p>完善你的魔法信息</p>
+            </div>
+
+            <!-- 消息提示 -->
+            <div id="message" class="message"></div>
+
+            <!-- 头像上传 -->
+            <div class="avatar-upload">
+                <div class="avatar-preview" onclick="document.getElementById('avatarInput').click()">
+                    <img id="avatarImg" src="https://i.pravatar.cc/150?img=12" alt="头像">
+                </div>
+                <input type="file" id="avatarInput" accept="image/*" style="display: none;" onchange="previewAvatar(event)">
+                <button class="avatar-btn" onclick="document.getElementById('avatarInput').click()">更换头像</button>
+            </div>
+
+            <!-- 表单 -->
+            <form id="profileForm">
+                <div class="input-group">
+                    <label>
+                        昵称 <span class="required">*</span>
+                    </label>
+                    <div class="input-wrapper">
+                        <span class="input-icon">👤</span>
+                        <input type="text" id="nickName" name="nickName" placeholder="请输入昵称" required>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="input-group">
+                        <label>性别</label>
+                        <div class="input-wrapper">
+                            <span class="input-icon">⚧</span>
+                            <select id="sex" name="sex">
+                                <option value="2">未知</option>
+                                <option value="1">男</option>
+                                <option value="0">女</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="input-group">
+                        <label>生日</label>
+                        <div class="input-wrapper">
+                            <span class="input-icon">🎂</span>
+                            <input type="date" id="birthday" name="birthday">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="input-group">
+                    <label>学校</label>
+                    <div class="input-wrapper">
+                        <span class="input-icon">🎓</span>
+                        <input type="text" id="school" name="school" placeholder="请输入学校名称">
+                    </div>
+                </div>
+
+                <div class="input-group">
+                    <label>个人简介</label>
+                    <div class="input-wrapper">
+                        <span class="input-icon" style="top: 20px;">✍️</span>
+                        <textarea id="personIntroduction" name="personIntroduction" placeholder="介绍一下自己吧..."></textarea>
+                    </div>
+                </div>
+
+                <div class="input-group">
+                    <label>空间公告</label>
+                    <div class="input-wrapper">
+                        <span class="input-icon" style="top: 20px;">📢</span>
+                        <textarea id="noticeInfo" name="noticeInfo" placeholder="设置你的空间公告"></textarea>
+                    </div>
+                </div>
+
+                <div class="input-group">
+                    <label>主题</label>
+                    <div class="input-wrapper">
+                        <span class="input-icon">🎨</span>
+                        <select id="theme" name="theme">
+                            <option value="1">默认主题</option>
+                            <option value="2">暗黑主题</option>
+                            <option value="3">梦幻主题</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- 按钮组 -->
+                <div class="button-group">
+                    <button type="button" class="btn btn-secondary" onclick="window.location.href='/user-space.html'">取消</button>
+                    <button type="submit" class="btn btn-primary">保存修改</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // 生成星星
+        const starsContainer = document.getElementById('stars');
+        for (let i = 0; i < 100; i++) {
+            const star = document.createElement('div');
+            star.className = 'star';
+            star.style.left = Math.random() * 100 + '%';
+            star.style.top = Math.random() * 100 + '%';
+            star.style.animationDelay = Math.random() * 3 + 's';
+            starsContainer.appendChild(star);
+        }
+
+        // 页面加载时获取用户信息
+        window.addEventListener('load', async () => {
+            await loadUserInfo();
+        });
+
+        // 检查登录状态
+        function checkLogin() {
+            const token = localStorage.getItem('token');
+            const userId = localStorage.getItem('userId');
+            
+            if (!token || !userId) {
+                alert('请先登录！');
+                window.location.href = '/login.html';
+                return false;
+            }
+            return true;
+        }
+
+        // 加载用户信息
+        async function loadUserInfo() {
+            if (!checkLogin()) {
+                return;
+            }
+
+            const userId = localStorage.getItem('userId');
+            const token = localStorage.getItem('token');
+            
+            try {
+                const response = await fetch(`/api/user/space/${userId}`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const result = await response.json();
+                
+                if (result.status === 'success' && result.data) {
+                    fillForm(result.data);
+                } else if (result.code === 401) {
+                    alert('登录已过期，请重新登录');
+                    localStorage.clear();
+                    window.location.href = '/login.html';
+                } else {
+                    // 使用本地存储的数据
+                    fillFormFromLocalStorage();
+                }
+            } catch (error) {
+                console.error('加载用户信息失败:', error);
+                fillFormFromLocalStorage();
+            }
+        }
+
+        // 填充表单
+        function fillForm(userData) {
+            document.getElementById('nickName').value = userData.nickName || '';
+            document.getElementById('sex').value = userData.sex || 2;
+            document.getElementById('birthday').value = userData.birthday || '';
+            document.getElementById('school').value = userData.school || '';
+            document.getElementById('personIntroduction').value = userData.personIntroduction || '';
+            document.getElementById('noticeInfo').value = userData.noticeInfo || '';
+            document.getElementById('theme').value = userData.theme || 1;
+            
+            if (userData.avatar) {
+                document.getElementById('avatarImg').src = userData.avatar;
+            }
+        }
+
+        // 从本地存储填充表单
+        function fillFormFromLocalStorage() {
+            document.getElementById('nickName').value = localStorage.getItem('nickName') || '';
+        }
+
+        // 预览头像
+        function previewAvatar(event) {
+            const file = event.target.files[0];
+            if (file) {
+                // 验证文件大小
+                if (file.size > 5 * 1024 * 1024) {
+                    showMessage('文件大小不能超过5MB', 'error');
+                    return;
+                }
+                
+                // 验证文件类型
+                const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+                if (!allowedTypes.includes(file.type)) {
+                    showMessage('只支持上传 jpg、png、gif、webp 格式的图片', 'error');
+                    return;
+                }
+                
+                // 预览图片
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    document.getElementById('avatarImg').src = e.target.result;
+                };
+                reader.readAsDataURL(file);
+                
+                // 立即上传到服务器
+                uploadAvatar(file);
+            }
+        }
+
+        // 上传头像到服务器
+        let uploadedAvatarUrl = null; // 保存上传后的URL
+        
+        async function uploadAvatar(file) {
+            const token = localStorage.getItem('token');
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            try {
+                showMessage('正在上传头像...', 'success');
+                
+                const response = await fetch('/api/file/upload-avatar', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    uploadedAvatarUrl = result.data.url;
+                    showMessage('头像上传成功！', 'success');
+                    console.log('头像URL:', uploadedAvatarUrl);
+                } else {
+                    showMessage(result.message || '头像上传失败', 'error');
+                    uploadedAvatarUrl = null;
+                }
+            } catch (error) {
+                console.error('头像上传失败:', error);
+                showMessage('头像上传失败，请稍后重试', 'error');
+                uploadedAvatarUrl = null;
+            }
+        }
+
+        // 提交表单
+        document.getElementById('profileForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            if (!checkLogin()) {
+                return;
+            }
+
+            const token = localStorage.getItem('token');
+            
+            // 获取表单数据
+            const formData = {
+                nickName: document.getElementById('nickName').value.trim(),
+                sex: parseInt(document.getElementById('sex').value),
+                birthday: document.getElementById('birthday').value,
+                school: document.getElementById('school').value.trim(),
+                personIntroduction: document.getElementById('personIntroduction').value.trim(),
+                noticeInfo: document.getElementById('noticeInfo').value.trim(),
+                theme: parseInt(document.getElementById('theme').value)
+            };
+            
+            // 如果上传了新头像，添加到表单数据中
+            if (uploadedAvatarUrl) {
+                formData.avatar = uploadedAvatarUrl;
+            }
+
+            // 验证昵称
+            if (!formData.nickName || formData.nickName.length < 2 || formData.nickName.length > 20) {
+                showMessage('昵称长度应在2-20个字符之间', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/user/update', {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(formData)
+                });
+                
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    showMessage('修改成功！', 'success');
+                    
+                    // 更新本地存储
+                    localStorage.setItem('nickName', formData.nickName);
+                    
+                    // 2秒后跳转
+                    setTimeout(() => {
+                        window.location.href = '/user-space.html';
+                    }, 2000);
+                } else {
+                    showMessage(result.message || '修改失败，请稍后重试', 'error');
+                }
+            } catch (error) {
+                console.error('修改失败:', error);
+                showMessage('网络错误，请稍后重试', 'error');
+            }
+        });
+
+        // 显示消息
+        function showMessage(text, type) {
+            const messageDiv = document.getElementById('message');
+            messageDiv.textContent = text;
+            messageDiv.className = `message ${type}`;
+            messageDiv.style.display = 'block';
+            
+            setTimeout(() => {
+                messageDiv.style.display = 'none';
+            }, 5000);
+        }
+    </script>
+</body>
+</html>

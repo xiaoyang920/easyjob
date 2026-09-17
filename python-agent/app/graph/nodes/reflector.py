@@ -1,0 +1,87 @@
+import logging
+
+from langchain_core.messages import SystemMessage
+from pydantic import BaseModel, Field
+
+from app.config import get_llm
+from app.graph.state import AgentState
+
+log  = logging.getLogger(__name__)
+
+class ReflectResult(BaseModel):
+    relevance: int = Field(description="相关性 0-10：回复是否切中用户问题")
+    completeness: int = Field(description="完整性 0-10：是否遗漏关键信息")
+    accuracy: int = Field(description="准确性 0-10：事实和代码是否正确")
+    formatting: int = Field(description="格式性 0-10：结构是否清晰")
+    passed: bool = Field(description="是否通过：4 项均分 >= 6.0 且无严重错误时 true")
+    feedback: str = Field(default="", description="具体的改进建议")
+
+    @property
+    def overall(self) -> float:
+        return (self.relevance + self.completeness + self.accuracy + self.formatting) / 4.0
+REFLECT_PROMPT = """你是一个质量评审专家。请评估以下 Agent 回复的质量。
+
+【评估维度】
+1. 相关性：回复是否切中用户问题（0-10）
+2. 完整性：是否遗漏关键信息（0-10）
+3. 准确性：事实和代码是否正确（0-10）
+4. 格式性：结构是否清晰（0-10）
+
+【用户问题】
+{user_message}
+
+【Agent 回复】
+{agent_reply}
+
+评分 >= 6.0 且没有严重事实错误时 passed=true，否则 passed=false。"""
+# † JSON schema 由 with_structured_output(ReflectResult) 自动注入
+
+async def reflector_node(state: AgentState)->dict:
+    """
+    反思节点：评估 worker 结果质量
+
+    返回:
+    - needs_retry=False → 质量合格，继续到 synthesizer
+    - needs_retry=True + feedback → 质量差，带反馈意见回到 worker 重做
+    """
+    if state.get("cancelled"):
+        return {"needs_retry": False}
+
+    worker_results = state.get("worker_results",[])
+    if not worker_results:
+        return {"needs_retry": False}
+
+    #拼接所有worker结果
+    combined = "\n\n".join(
+        f"[{r.get('worker_name', 'unknown')}]:{r.get('result','')}"
+        for r in worker_results
+    )
+    # 已经重试过就不再重试（通过 state 里的计数判断）
+    retry_count = state.get("retry_count", 0)
+    if retry_count >=1:
+        log.info("已重试过 %d 次, 跳过反思", retry_count)
+        return {"needs_retry": False}
+    llm = get_llm(temperature=0.2)
+    try:
+        structured_llm = llm.with_structured_output(ReflectResult, method="function_calling")
+        result = await structured_llm.ainvoke([
+            SystemMessage(content=REFLECT_PROMPT.format(
+                user_message = state["user_message"],
+                agent_reply = combined[:3000],
+            ))
+        ])
+        # result 已经是 ReflectResult 对象
+        if result.passed:
+            log.info("反思通过: overall=%.1f", result.overall)
+            return {"needs_retry": False}
+        else:
+            log.info("反思未通过: overall=%.1f, feedback=%s", result.overall, result.feedback)
+            return {
+                "needs_retry": True,
+                "reflection_feedback": result.feedback,
+                "retry_count": retry_count + 1,
+                "worker_results": [],
+            }
+    except Exception as e:
+        log.warning("反思节点异常: %s, 默认通过", e)
+        return {"needs_retry": False}
