@@ -24,7 +24,10 @@ snowflake-id>=1.0,<2.0
 # 图片压缩
 Pillow>=10.0,<11.0
 
-langchain-mcp-adapters>=0.2,<1.0
+# Keep the validated adapter/SDK pair: newer adapters can import streamable HTTP
+# symbols absent from the SDK selected by their declared dependency range.
+langchain-mcp-adapters==0.2.2
+mcp==1.19.0
 
 langfuse>=3.0,<4.0
 pyyaml>=6.0,<7.0
