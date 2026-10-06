@@ -8,6 +8,8 @@ from langgraph.types import Send
 
 from app.graph.state import AgentState
 from app.services.observability import trace_node
+from app.graph.staged_plan import ExecutionTask
+from app.security.capabilities import task_capabilities
 
 
 @trace_node("dispatcher")
@@ -24,14 +26,24 @@ def dispatcher_node(state: AgentState) -> list[Send]:
     # 返回 Send 列表，LangGraph 会并行执行这些节点
     sends = []
     for worker in active_workers:
+        # Legacy regression graph only. This path also builds execution context
+        # in code; a planner worker name cannot override the capability policy.
+        context = state
+        if worker in ("search", "analysis", "writing"):
+            task = ExecutionTask(task_id=f"legacy_{worker}", kind=worker,
+                actor="main" if worker == "writing" else "subagent",
+                instruction=state["task_descriptions"].get(worker) or state["user_message"])
+            context = {**state, "current_task": task.model_dump(), "task_id": task.task_id,
+                       "execution_mode": "direct" if task.actor == "main" else "delegate",
+                       "capabilities": sorted(task_capabilities(task))}
         if worker == "search":
-            sends.append(Send("search_worker", state))
+            sends.append(Send("search_worker", context))
         elif worker == "chat":
             sends.append(Send("chat_worker", state))
         elif worker == "analysis":
-            sends.append(Send("analysis_worker", state))
+            sends.append(Send("analysis_worker", context))
         elif worker == "writing":
-            sends.append(Send("writing_worker", state))
+            sends.append(Send("writing_worker", context))
     
     # 如果没有任何 worker，默认使用 chat
     if not sends:

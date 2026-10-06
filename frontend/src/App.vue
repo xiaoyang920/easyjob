@@ -1,9 +1,23 @@
 <template>
-  <router-view />
+  <div class="easyjob-shell">
+    <router-view v-slot="{ Component, route }">
+      <Transition name="page" mode="out-in">
+        <div :key="route.path" class="page-frame">
+          <component :is="Component" />
+        </div>
+      </Transition>
+    </router-view>
+    <AiRunPanel />
+  </div>
 </template>
 
 <script setup lang="ts">
-// 根组件，使用路由视图展示不同页面
+import './styles/theme.css'
+import AiRunPanel from './components/AiRunPanel.vue'
+import { onMounted, onUnmounted } from 'vue'
+import { startAiRunMonitor, stopAiRunMonitor } from './utils/aiRuns'
+onMounted(startAiRunMonitor)
+onUnmounted(stopAiRunMonitor)
 </script>
 
 <style>

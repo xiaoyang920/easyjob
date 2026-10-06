@@ -14,6 +14,17 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
  */
 @Configuration
 public class WebMvcConfig implements WebMvcConfigurer {
+    @org.springframework.context.annotation.Bean
+    public org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor mvcStreamExecutor() {
+        var executor = new org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(8); executor.setMaxPoolSize(32); executor.setQueueCapacity(64);
+        executor.setThreadNamePrefix("mvc-stream-"); executor.initialize(); return executor;
+    }
+
+    @Override public void configureAsyncSupport(org.springframework.web.servlet.config.annotation.AsyncSupportConfigurer configurer) {
+        configurer.setTaskExecutor(mvcStreamExecutor());
+        configurer.setDefaultTimeout(330000);
+    }
 
     @Autowired
     private JwtInterceptor jwtInterceptor;
@@ -42,11 +53,14 @@ public class WebMvcConfig implements WebMvcConfigurer {
                 .addPathPatterns("/**")
                 // 排除登录接口
                 .excludePathPatterns("/api/auth/**")
+                // Dedicated service-key authentication inside this exact endpoint.
+                .excludePathPatterns("/internal/agent/drafts")
                 .excludePathPatterns("/api/user/space/**")
                 .excludePathPatterns("/test/**")
                 // 排除文章详情（公开看）
                 .excludePathPatterns("/api/article/list") // 文章列表
                 .excludePathPatterns("/api/article/detail/**")
+                .excludePathPatterns("/api/article/*/view")
                 .excludePathPatterns("/api/article/recommend") // 推荐文章（未登录返回热门）
                 .excludePathPatterns("/api/comment/list")// 评论
                 .excludePathPatterns("/api/comment/replies")

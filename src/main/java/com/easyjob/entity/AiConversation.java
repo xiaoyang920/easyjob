@@ -26,6 +26,14 @@ public class AiConversation {
      */
     @JsonSerialize(using = ToStringSerializer.class)
     private Long userId;
+
+    /** 发起会话的文章；普通会话为空。 */
+    @JsonSerialize(using = ToStringSerializer.class)
+    private Long originArticleId;
+
+    /** 展示用标题，由会话列表关联当前可读文章获取。 */
+    @TableField(exist = false)
+    private String originArticleTitle;
     
     /**
      * 会话标题

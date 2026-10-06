@@ -184,7 +184,7 @@ async function handleRegister() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, var(--ej-accent) 0%, #53664b 100%);
   position: relative;
   overflow: hidden;
 }
@@ -265,7 +265,7 @@ async function handleRegister() {
   margin: 0 0 8px 0;
   font-size: 28px;
   font-weight: 600;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, var(--ej-accent) 0%, #53664b 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -326,12 +326,12 @@ async function handleRegister() {
 }
 
 .register-card :deep(.el-input__wrapper:hover) {
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+  box-shadow: 0 4px 12px rgba(82, 115, 99, 0.15);
 }
 
 .register-card :deep(.el-input__wrapper.is-focus) {
-  box-shadow: 0 4px 16px rgba(102, 126, 234, 0.25);
-  border-color: #667eea;
+  box-shadow: 0 4px 16px rgba(82, 115, 99, 0.25);
+  border-color: var(--ej-accent);
 }
 
 .register-card :deep(.el-button) {
@@ -341,14 +341,14 @@ async function handleRegister() {
 }
 
 .register-card :deep(.el-button--primary) {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, var(--ej-accent) 0%, #53664b 100%);
   border: none;
-  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+  box-shadow: 0 4px 15px rgba(82, 115, 99, 0.4);
 }
 
 .register-card :deep(.el-button--primary:hover) {
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.5);
+  box-shadow: 0 6px 20px rgba(82, 115, 99, 0.5);
 }
 
 .register-card :deep(.el-button--primary:active) {
@@ -365,7 +365,7 @@ async function handleRegister() {
 }
 
 .register-footer a {
-  color: #667eea;
+  color: var(--ej-accent);
   text-decoration: none;
   margin-left: 5px;
   font-weight: 500;
@@ -380,12 +380,12 @@ async function handleRegister() {
   left: 0;
   width: 0;
   height: 2px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, var(--ej-accent) 0%, #53664b 100%);
   transition: width 0.3s;
 }
 
 .register-footer a:hover {
-  color: #764ba2;
+  color: #53664b;
 }
 
 .register-footer a:hover::after {

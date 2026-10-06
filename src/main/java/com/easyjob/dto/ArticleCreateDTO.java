@@ -11,6 +11,8 @@ import java.util.List;
  */
 @Data
 public class ArticleCreateDTO implements Serializable {
+    // The editor's current immutable revision. Zero means a legacy article with no snapshot yet.
+    private String expectedRevisionId;
     
     private static final long serialVersionUID = 1L;
     
@@ -60,7 +62,7 @@ public class ArticleCreateDTO implements Serializable {
     private Integer isOriginal = 1;
     
     /**
-     * 状态：0.草稿 1.已发布（默认0）
+     * 保存意图：0.保存版本草稿 1.提交审核；不能直接指定公开状态
      */
     private Integer status;
     

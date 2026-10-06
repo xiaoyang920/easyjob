@@ -4,6 +4,8 @@ import lombok.Data;
 
 @Data
 public class ResumeParam {
+    private String runId;
+    private String draftHash;
     
     /**
      * 会话ID

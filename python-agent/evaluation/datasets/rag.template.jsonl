@@ -1,0 +1,12 @@
+{"id":"rag_01","kind":"rag","query":"RAG 的检索和生成流程是什么？","reviewed":false,"relevance":{},"category":"概念与流程"}
+{"id":"rag_02","kind":"rag","query":"向量检索和关键词检索分别适合什么场景？","reviewed":false,"relevance":{},"category":"比较"}
+{"id":"rag_03","kind":"rag","query":"如何通过 RRF 融合 BM25 和 KNN 检索结果？","reviewed":false,"relevance":{},"category":"实现"}
+{"id":"rag_04","kind":"rag","query":"为什么混合检索后还需要 Reranker？","reviewed":false,"relevance":{},"category":"比较"}
+{"id":"rag_05","kind":"rag","query":"Redis 缓存与数据库不一致怎么处理？","reviewed":false,"relevance":{},"category":"同义表达"}
+{"id":"rag_06","kind":"rag","query":"热点缓存过期后大量请求访问数据库如何避免？","reviewed":false,"relevance":{},"category":"同义表达"}
+{"id":"rag_07","kind":"rag","query":"Spring Boot 如何实现异步消息消费和失败重试？","reviewed":false,"relevance":{},"category":"实现"}
+{"id":"rag_08","kind":"rag","query":"LangGraph 中如何暂停草稿流程等待用户审批？","reviewed":false,"relevance":{},"category":"实现"}
+{"id":"rag_09","kind":"rag","query":"代码示例在文章分块时如何保持缩进和上下文？","reviewed":false,"relevance":{},"category":"代码检索"}
+{"id":"rag_10","kind":"rag","query":"如何使用消息游标压缩长会话历史？","reviewed":false,"relevance":{},"category":"实现"}
+{"id":"rag_11","kind":"rag","query":"如何让智能助手记住用户偏好并支持撤销？","reviewed":false,"relevance":{},"category":"长期记忆"}
+{"id":"rag_12","kind":"rag","query":"MySQL 如何避免同一篇文章被并发重建索引？","reviewed":false,"relevance":{},"category":"并发控制"}

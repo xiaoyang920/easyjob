@@ -16,7 +16,9 @@ public enum NotificationTypeEnum {
     /** 关注（被人关注） */
     FOLLOW(4, "关注"),
     /** 系统通知 */
-    SYSTEM(5, "系统");
+    SYSTEM(5, "系统"),
+    REVIEW_APPROVED(6, "审核通过"),
+    REVIEW_REJECTED(7, "审核驳回");
 
     private final Integer code;
     private final String desc;

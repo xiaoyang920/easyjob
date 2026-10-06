@@ -1,0 +1,1 @@
+ALTER TABLE agent_run ADD COLUMN executor_lease_until DATETIME(6) NULL DEFAULT NULL;

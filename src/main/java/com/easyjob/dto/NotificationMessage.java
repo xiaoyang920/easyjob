@@ -37,4 +37,6 @@ public class NotificationMessage implements Serializable {
     private String targetPreview;
     /** 通知动词文案，如 "赞了你的评论" */
     private String content;
+    private Integer isRead;
+    private java.time.LocalDateTime createTime;
 }

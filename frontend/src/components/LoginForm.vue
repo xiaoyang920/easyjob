@@ -112,6 +112,8 @@
 </template>
 
 <script setup lang="ts">
+import { clearAccountStorage } from '@/utils/searchHistory'
+import { eventBus, EVENT_AUTH_CHANGED } from '@/utils/eventBus'
 import { ref, reactive } from 'vue'
 import { ElMessage } from 'element-plus'
 import request from '@/utils/request'
@@ -176,13 +178,11 @@ async function handleLogin() {
     loading.value = true
     
     try {
-      console.log('发送登录请求:', formData)
       const response = await request.post('/auth/login', formData)
-      console.log('登录响应:', response)
       
       // 兼容多种响应格式
       if (response.status === 'success' || response.code === 200) {
-        localStorage.clear()
+        clearAccountStorage()
         
         const data = response.data || response
         localStorage.setItem('token', data.token)
@@ -190,6 +190,7 @@ async function handleLogin() {
         localStorage.setItem('email', data.email)
         localStorage.setItem('nickName', data.nickName || '')
         localStorage.setItem('avatar', data.avatar || '')
+        eventBus.emit(EVENT_AUTH_CHANGED)
         
         emit('success')
       } else {
@@ -226,7 +227,6 @@ async function sendVerificationCode() {
       timeout: 30000  // 发送邮件耗时较长，设置30秒超时
     })
     
-    console.log('发送验证码响应:', response)
     
     // 兼容多种响应格式
     if (response.code === 200 || response.status === 'success') {
@@ -269,13 +269,11 @@ async function handleCodeLogin() {
     loading.value = true
     
     try {
-      console.log('发送验证码登录请求:', codeFormData)
       const response = await request.post('/auth/login-by-email', codeFormData)
-      console.log('登录响应:', response)
       
       // 兼容多种响应格式
       if (response.status === 'success' || response.code === 200) {
-        localStorage.clear()
+        clearAccountStorage()
         
         const data = response.data || response
         localStorage.setItem('token', data.token)
@@ -283,6 +281,7 @@ async function handleCodeLogin() {
         localStorage.setItem('email', data.email)
         localStorage.setItem('nickName', data.nickName || '')
         localStorage.setItem('avatar', data.avatar || '')
+        eventBus.emit(EVENT_AUTH_CHANGED)
         
         if (countdownTimer) {
           clearInterval(countdownTimer)
@@ -356,7 +355,7 @@ async function handleCodeLogin() {
 
 .login-tabs :deep(.el-tabs__active-bar) {
   height: 2px;
-  background: #00a1d6;
+  background: var(--ej-accent);
   border-radius: 2px;
 }
 
@@ -367,22 +366,22 @@ async function handleCodeLogin() {
 .login-tabs :deep(.el-input__wrapper) {
   padding: 0 16px;
   height: 52px;
-  background: #f8fafc !important;
-  border: 1.5px solid #e5e7eb;
+  background: var(--ej-canvas) !important;
+  border: 1px solid var(--ej-line);
   box-shadow: none !important;
   border-radius: 14px;
   transition: all 0.25s ease;
 }
 
 .login-tabs :deep(.el-input__wrapper:hover) {
-  border-color: #d1d5db;
-  background: #fff !important;
+  border-color: var(--ej-ink);
+  background: var(--ej-surface) !important;
 }
 
 .login-tabs :deep(.el-input__wrapper.is-focus) {
-  background: #fff !important;
-  border-color: #00a1d6;
-  box-shadow: none !important;
+  background: var(--ej-surface) !important;
+  border-color: var(--ej-ink);
+  box-shadow: 3px 3px 0 #11110f14 !important;
 }
 
 /* 彻底清除输入框内部蓝色 */
@@ -395,7 +394,7 @@ async function handleCodeLogin() {
 }
 
 .login-tabs :deep(.el-input) {
-  --el-input-focus-border-color: #00a1d6;
+  --el-input-focus-border-color: var(--ej-accent);
   --el-input-bg-color: transparent;
 }
 
@@ -422,14 +421,14 @@ async function handleCodeLogin() {
 }
 
 .login-tabs :deep(.el-button--primary) {
-  background: #00a1d6;
-  border-color: #00a1d6;
+  background: var(--ej-accent);
+  border-color: var(--ej-accent);
   height: 52px;
 }
 
 .login-tabs :deep(.el-button--primary:hover) {
-  background: #00b5e5;
-  border-color: #00b5e5;
+  background: var(--ej-ink);
+  border-color: var(--ej-ink);
 }
 
 .login-tabs :deep(.el-button--primary:active) {
@@ -442,16 +441,16 @@ async function handleCodeLogin() {
 }
 
 .login-tabs :deep(.el-button--default) {
-  background: #f8fafc;
-  border: 1.5px solid #e5e7eb;
+  background: var(--ej-surface);
+  border: 1px solid var(--ej-ink);
   color: #4b5563;
   height: 52px;
 }
 
 .login-tabs :deep(.el-button--default:hover) {
   background: #fff;
-  border-color: #00a1d6;
-  color: #00a1d6;
+  border-color: var(--ej-accent);
+  color: var(--ej-accent);
 }
 
 .login-tabs :deep(.el-button--success) {
@@ -473,7 +472,7 @@ async function handleCodeLogin() {
 }
 
 .form-footer a {
-  color: #00a1d6;
+  color: var(--ej-accent);
   cursor: pointer;
   margin-left: 6px;
   text-decoration: none;
@@ -482,7 +481,7 @@ async function handleCodeLogin() {
 }
 
 .form-footer a:hover {
-  color: #00b5e5;
+  color: var(--ej-ink);
 }
 
 /* 装饰图片 */

@@ -40,6 +40,7 @@ public class EsVectorStore {
             }else {
                 log.info("向量索引{}已存在", VECTOR_INDEX);
             }
+            esClient.indices().putMapping(m -> m.index(VECTOR_INDEX).withJson(new StringReader(CHUNK_METADATA_MAPPING)));
         } catch (Exception e) {
             log.error("向量创建索引失败", e);
             throw new BusinessException("向量创建索引失败");
@@ -55,12 +56,22 @@ public class EsVectorStore {
         }
         try {
             List<BulkOperation> operations = new ArrayList<>();
-            for(DocumentChunk chunk: chunks){
-                //生成向量
-                List<Double> vector = embeddingService.embed(chunk.getContent());
+            List<List<Double>> vectors = new ArrayList<>();
+            for (int start = 0; start < chunks.size(); start += 16) {
+                List<DocumentChunk> batch = chunks.subList(start, Math.min(start + 16, chunks.size()));
+                List<List<Double>> embedded = embeddingService.embedBatch(batch.stream().map(DocumentChunk::getEmbeddingText).toList());
+                if (embedded.size() != batch.size()) throw new BusinessException("Embedding返回数量与文本块不一致");
+                vectors.addAll(embedded);
+            }
+            for(int i = 0; i < chunks.size(); i++){
+                DocumentChunk chunk = chunks.get(i);
+                List<Double> vector = vectors.get(i);
+                if (vector == null || vector.size() != 2048 || vector.stream().anyMatch(v -> v == null || !Double.isFinite(v))) {
+                    throw new BusinessException("Embedding维度或数值不兼容，未提交索引");
+                }
                 chunk.setVector(vector);
                 //构建批量操作
-                String chunkId = chunk.getArticleId() + "_" + chunk.getChunkIndex();
+                String chunkId = chunk.getChunkId();
                 operations.add(BulkOperation.of(op->op
                         .index(idx->idx
                                 .index(VECTOR_INDEX)
@@ -70,11 +81,25 @@ public class EsVectorStore {
                 ));
             }
             //批量保存向量数据
-            esClient.bulk(b->b.operations(operations));
+            var response = esClient.bulk(b->b.operations(operations).refresh(co.elastic.clients.elasticsearch._types.Refresh.WaitFor));
+            if (response.errors()) throw new BusinessException("文本块批量索引部分失败，需重试");
             log.info("成功存储 {} 个文档块", chunks.size());
         } catch (Exception e) {
             log.error("保存向量数据失败", e);
             throw new BusinessException("保存向量数据失败");
+        }
+    }
+
+    /** Called under the shared per-article indexing lock, after a complete bulk write. */
+    public void retainChunks(String articleId, List<DocumentChunk> chunks) {
+        try {
+            List<String> ids = chunks.stream().map(DocumentChunk::getChunkId).toList();
+            var response = esClient.deleteByQuery(d -> d.index(VECTOR_INDEX).refresh(true).query(q -> q.bool(b -> b
+                    .filter(f -> f.term(t -> t.field("article_id").value(articleId)))
+                    .mustNot(n -> n.ids(i -> i.values(ids))))));
+            if (Boolean.TRUE.equals(response.timedOut()) || !response.failures().isEmpty()) throw new BusinessException("旧文本块未完全清理");
+        } catch (Exception e) {
+            throw new BusinessException("旧文本块清理失败，需重试", e);
         }
     }
     /**
@@ -175,8 +200,9 @@ public class EsVectorStore {
      */
     public void deleteByArticleId(String articleId){
         try {
-            esClient.deleteByQuery(d -> d
+            var response = esClient.deleteByQuery(d -> d
                     .index(VECTOR_INDEX)
+                    .refresh(true)
                     .query(q -> q
                             .term(m -> m
                                     .field("article_id")
@@ -184,9 +210,11 @@ public class EsVectorStore {
                             )
                     )
             );
+            if (Boolean.TRUE.equals(response.timedOut()) || !response.failures().isEmpty()) throw new BusinessException("文章文本块未完全删除");
             log.info("删除向量索引成功，articleId: {}", articleId);
         } catch (Exception e) {
             log.error("删除文章向量失败, articleId={}", articleId, e);
+            throw new BusinessException("删除文章文本块失败，需重试", e);
         }
     }
 }

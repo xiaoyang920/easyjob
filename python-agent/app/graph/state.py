@@ -3,10 +3,48 @@ Agent 状态定义
 对应 Java: OverAllState + AgentStateFactory
 """
 from typing import TypedDict, Annotated
-from operator import add
+from app.graph.staged_plan import merge_task_results
+
+
+def merge_turn_results(current: list[dict], update: list[dict] | None) -> list[dict]:
+    """None resets a new turn; worker updates within a turn accumulate."""
+    return [] if update is None else [*(current or []), *update]
 
 
 class AgentState(TypedDict):
+    run_id: str
+    execution_token: str
+    conversation_id: int
+    origin_article_id: int | None
+    article_context: dict
+    memory_context: str
+    user_profile: dict
+    active_constraints: list[dict]
+    constraint_overrides: list[str]
+    memory_source_message: str
+    memory_changes_applied: bool
+    memory_changes_queued: bool
+    pending_memory_changes: list[dict]
+    memory_write_job_id: str
+    memory_write_status: str
+    memory_change_log: list[dict]
+    main_action: str
+    execution_mode: str
+    task_id: str
+    current_task: dict
+    capabilities: list[str]
+    retrieval_status: str
+    main_round: int
+    main_decision: dict
+    action_history: list[dict]
+    observations: list[dict]
+    correction_count: int
+    business_complete: bool
+    action_task_ids: list[str]
+    plan: dict
+    stages: list[list[str]]
+    task_results: Annotated[dict, merge_task_results]
+    stop_reason: str
     """
     Agent 全局状态
     
@@ -25,6 +63,7 @@ class AgentState(TypedDict):
 
     # 历史消息 (多轮对话)
     history_messages: list[dict]
+    context_compaction: dict
     
     # Planner 输出：需要执行的 Worker 列表
     active_workers: list[str]
@@ -36,7 +75,7 @@ class AgentState(TypedDict):
     required_skills: list[str]
     
     # Worker 执行结果 (可累加)
-    worker_results: Annotated[list[dict], add]
+    worker_results: Annotated[list[dict], merge_turn_results]
     
     # 最终回复
     final_reply: str
@@ -45,7 +84,7 @@ class AgentState(TypedDict):
 
     # 文章卡片（搜索到的文章，给前端展示卡片用，不经过 LLM）
     # Annotated[list, add]：多个 worker 返回的卡片自动合并
-    article_cards: Annotated[list[dict], add]
+    article_cards: Annotated[list[dict], merge_turn_results]
 
     # 反思循环
     needs_retry: bool  # 是否需要重试
@@ -54,4 +93,4 @@ class AgentState(TypedDict):
     # 草稿文章 ID
     draft_article_id: int | None
     #引用
-    citations: Annotated[list[dict], add]
+    citations: Annotated[list[dict], merge_turn_results]

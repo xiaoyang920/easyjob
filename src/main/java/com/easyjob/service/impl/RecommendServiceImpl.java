@@ -17,6 +17,8 @@ public class RecommendServiceImpl implements RecommendService {
     private UserTagPreferenceMapper userTagPreferenceMapper;
     @Autowired
     private ArticleMapper articleMapper;
+    @Autowired private com.easyjob.service.ArticlePreferenceService profile;
+    @Autowired private com.easyjob.service.ArticleAccessService access;
     /**
      * 推荐文章
      * @param userId
@@ -25,26 +27,21 @@ public class RecommendServiceImpl implements RecommendService {
      */
     @Override
     public List<ArticleListVO> recommend(Long userId, int limit) {
-        //1.获取用户偏好的标签
-        List<Long> topTagIds = userTagPreferenceMapper.selectTopTagIds(userId, 10);
+        return recommendPage(userId, 1, limit, null, List.of()).getRecords();
+    }
 
-        if(topTagIds==null||topTagIds.isEmpty()){
-            //没有偏好数据，返回热门文章
-            log.info("用户{}没有偏好数据，返回热门文章",userId);
-            return articleMapper.selectHotArticles(limit);
-        }
-        //2.根据偏好标签推荐文章(排除已浏览的)
-        List<ArticleListVO> articles = articleMapper.selectRecommendArticles(userId, topTagIds, limit);
-        //3.如果推荐结果不足，用热门文章补充
-        if(articles.size()<limit){
-            log.info("用户{}推荐文章不足，返回热门文章",userId);
-            List<Long> existIds = new ArrayList<>();
-            existIds = articles.stream().map(ArticleListVO::getArticleId).map(Long::parseLong).toList();
-            List<ArticleListVO> hotArticles = articleMapper.selectHotArticlesExclude(
-                    existIds, limit - articles.size()
-            );
-            articles.addAll(hotArticles);
-        }
-        return articles;
+    @Override
+    public com.easyjob.vo.PageVO<ArticleListVO> recommendPage(Long userId, int page, int size, Long categoryId, List<Long> tagIds, boolean readableOnly) {
+        page = Math.max(1, Math.min(1000, page));
+        size = Math.max(1, Math.min(50, size));
+        List<Long> tags = tagIds == null ? List.of() : tagIds.stream().filter(id -> id != null && id > 0).distinct().limit(8).toList();
+        List<Long> interests = userId == null ? List.of() : userTagPreferenceMapper.selectTopTagIds(userId, 8);
+        if (interests == null) interests = List.of();
+        var reader = access.reader(userId);
+        var topics = profile.topics(userId);
+        var result = articleMapper.listRecommendedArticles(new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(page, size),
+                userId, interests, categoryId, tags, topics, topics.stream().map(com.easyjob.service.ArticlePreferenceService::titlePattern).toList(), reader.level(), reader.admin(), readableOnly);
+        result.setRecords(com.easyjob.service.RecommendationDiversity.reorder(result.getRecords()));
+        return com.easyjob.vo.PageVO.fromIPage(result);
     }
 }

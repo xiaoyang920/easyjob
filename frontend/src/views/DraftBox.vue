@@ -1,7 +1,5 @@
 <template>
   <div class="draft-box-page">
-    <StarBackground />
-    
     <!-- 导航栏 -->
     <nav class="navbar">
       <div class="nav-left">
@@ -14,20 +12,20 @@
           </svg>
           <span class="logo-text">EasyJob</span>
         </div>
-        <span class="page-title">草稿箱</span>
+        <span class="page-title">草稿与审核</span>
       </div>
-      <div class="nav-right">
-        <button class="nav-btn" @click="$router.push('/')">返回首页</button>
-      </div>
+      <AppNavigation />
     </nav>
 
     <div class="container">
       <div class="page-header">
-        <h1>草稿箱</h1>
-        <span class="draft-count">共 {{ drafts.length }} 篇草稿</span>
+        <div><h1>草稿与审核</h1><p class="page-description">继续创作，或查看文章的审核进度。审核通过后才会公开。</p></div>
+        <span v-if="!loading && !loadError" class="draft-count">{{ revisionFilter ? `${revisionLabel(Number(revisionFilter))} · ${total} 个版本` : `共 ${total} 个创作版本` }}</span>
       </div>
+      <div class="revision-filters" role="group" aria-label="按审核状态筛选"><button v-for="tab in revisionTabs" :key="tab.value" :class="{active:revisionFilter===tab.value}" :aria-pressed="revisionFilter===tab.value" @click="revisionFilter=tab.value;currentPage=1;fetchDrafts()">{{ tab.label }}</button></div>
 
-      <div v-if="loading" class="loading-state">加载中...</div>
+      <ContentState v-if="loading" kind="loading" title="正在加载草稿" />
+      <ContentState v-else-if="loadError" kind="error" title="草稿暂时无法加载" :description="loadError" @retry="fetchDrafts" />
       
       <div v-else-if="drafts.length === 0" class="empty-state">
         <div class="empty-icon">
@@ -35,12 +33,16 @@
             <path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
           </svg>
         </div>
-        <p>暂无草稿</p>
-        <button class="create-btn" @click="$router.push('/create-article')">开始创作</button>
+        <p>{{ revisionFilter ? `暂无${revisionLabel(Number(revisionFilter))}版本` : '还没有创作版本' }}</p>
+        <span class="empty-description">{{ revisionFilter ? '切换筛选，查看其他草稿与审核进度。' : '把一个想法写下来，保存草稿后随时继续。' }}</span>
+        <div class="empty-actions">
+          <button v-if="revisionFilter" class="draft-button secondary" @click="revisionFilter='';currentPage=1;fetchDrafts()">查看全部</button>
+          <button class="draft-button primary" @click="$router.push('/create-article')">开始创作 <span aria-hidden="true">↗</span></button>
+        </div>
       </div>
 
       <div v-else class="draft-list">
-        <div 
+        <article
           v-for="draft in drafts" 
           :key="draft.articleId" 
           class="draft-card"
@@ -52,31 +54,37 @@
               alt="封面"
               @error="handleCoverError($event, draft.coverImage)"
             >
-            <div 
-              v-else 
-              class="no-cover-placeholder"
-              :style="{ background: '#e8e8e8' }"
-            >
-              <span class="placeholder-title">{{ stripHtmlTags(draft.title || '无标题') }}</span>
+            <div v-else class="draft-placeholder" aria-hidden="true">
+              <span class="placeholder-label">WORK IN PROGRESS</span>
+              <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13 6h15l9 9v27H13zM28 6v10h9M19 24h12M19 30h12M19 36h7"/></svg>
+              <span class="placeholder-version">{{ draft.version ? `VERSION ${String(draft.version).padStart(2, '0')}` : 'DRAFT' }}</span>
             </div>
           </div>
           <div class="draft-content">
+            <div class="revision-label">
+              <span class="revision-badge" :class="`state-${draft.revisionState}`">{{ revisionLabel(draft.revisionState) }}</span>
+              <span v-if="draft.version">V{{ draft.version }}</span>
+              <span v-if="draft.articleStatus===1" class="public-version">旧版继续公开</span>
+            </div>
             <h3 class="draft-title">{{ draft.title || '无标题' }}</h3>
-            <p class="draft-summary">{{ draft.summary || '暂无摘要' }}</p>
-            <div class="draft-meta">
-              <span>最后编辑: {{ formatDate(draft.updateTime || draft.createTime) }}</span>
+            <p class="draft-summary">{{ stripHtmlTags(draft.summary || '还没有摘要，继续编辑来完善这篇文章。') }}</p>
+            <p v-if="draft.reviewReason && draft.revisionState===3" class="revision-reason"><strong>审核意见</strong>{{ draft.reviewReason }}</p>
+            <div class="draft-footer">
+              <span class="draft-meta">最后编辑 {{ formatDate(draft.updateTime || draft.createTime) }}</span>
+              <div class="draft-actions">
+                <button v-if="draft.revisionState!==1" class="draft-button primary" :disabled="busyIds.has(draft.articleId)" @click="editDraft(draft.articleId)">继续编辑 <span aria-hidden="true">↗</span></button>
+                <button v-if="draft.revisionState!==1" class="draft-button secondary" :disabled="busyIds.has(draft.articleId)" @click="publishDraft(draft)">提交审核</button>
+                <button v-else class="draft-button secondary" :disabled="busyIds.has(draft.articleId)" @click="withdraw(draft)">撤回审核</button>
+                <button class="draft-button quiet" :disabled="busyIds.has(draft.articleId)" @click="historyArticle=draft;showHistory=true">版本历史</button>
+                <button v-if="draft.revisionState!==1" class="draft-button quiet danger" :disabled="busyIds.has(draft.articleId)" @click="draft.articleStatus===1?discard(draft):deleteDraft(draft.articleId)">{{ draft.articleStatus===1?'丢弃修改':'删除' }}</button>
+              </div>
             </div>
           </div>
-          <div class="draft-actions">
-            <button class="action-btn edit" @click="editDraft(draft.articleId)">编辑</button>
-            <button class="action-btn publish" @click="publishDraft(draft.articleId)">发布</button>
-            <button class="action-btn delete" @click="deleteDraft(draft.articleId)">删除</button>
-          </div>
-        </div>
+        </article>
       </div>
 
       <!-- 分页 -->
-      <div v-if="drafts.length > 0" class="pagination">
+      <div v-if="!loading && !loadError && drafts.length > 0" class="pagination">
         <button 
           class="page-btn" 
           :disabled="currentPage === 1"
@@ -94,6 +102,7 @@
         </button>
       </div>
     </div>
+    <ArticleRevisionHistory v-if="historyArticle" v-model="showHistory" :article-id="historyArticle.articleId" :revision-id="historyArticle.revisionId" :initial-revision-id="historyArticle.initialRevisionId" :pending="historyArticle.revisionState===1" @restored="fetchDrafts" />
 
     <!-- 登录弹窗 -->
     <el-dialog v-model="showLoginDialog" title="" :width="dialogWidth" :close-on-click-modal="true" class="modern-dialog">
@@ -106,9 +115,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
-import StarBackground from '../components/StarBackground.vue'
+import AppNavigation from '@/components/AppNavigation.vue'
+import ArticleRevisionHistory from '@/components/ArticleRevisionHistory.vue'
+import ContentState from '@/components/ContentState.vue'
+import { notify, confirmAction, errorMessage } from '@/utils/feedback'
+import { latestRequest } from '@/utils/latestRequest'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { useRouter,useRoute } from 'vue-router'
 import LoginForm from '../components/LoginForm.vue'
 import RegisterForm from '../components/RegisterForm.vue'
 import request from '../utils/request'
@@ -116,24 +129,54 @@ import { getThumbUrl } from '../utils/image'
 import { eventBus, EVENT_AUTH_EXPIRED } from '../utils/eventBus'
 
 const router = useRouter()
+const route=useRoute(),notificationRequest=latestRequest()
 const drafts = ref<any[]>([])
 const loading = ref(false)
+const loadError = ref('')
+const total = ref(0)
+const busyIds = ref(new Set<string>())
+const requests = latestRequest()
 const currentPage = ref(1)
 const totalPages = ref(0)
+const revisionFilter=ref('')
+const revisionTabs=[{value:'',label:'全部'},{value:'0',label:'草稿'},{value:'1',label:'待审核'},{value:'3',label:'已驳回'},{value:'4',label:'已撤回'}]
+const revisionLabel=(value:number)=>({0:'草稿',1:'待审核',3:'已驳回',4:'已撤回'}[value] || '草稿')
+const historyArticle=ref<any>(),showHistory=ref(false)
+watch(()=>[route.query.articleId,route.query.revisionId],async()=>{
+  const ticket=notificationRequest.begin()
+  showHistory.value=false
+  const aid=route.query.articleId,rid=route.query.revisionId
+  if(typeof aid!=='string' || !/^\d+$/.test(aid))return
+  if(rid!==undefined && (typeof rid!=='string' || !/^\d+$/.test(rid)))return
+  try {
+    const result:any=await request.get(`/article/${aid}/edit`,{signal:ticket.signal})
+    if(!ticket.isCurrent())return
+    historyArticle.value={...result.data,articleId:aid,initialRevisionId:rid}
+    showHistory.value=true
+  }catch(e){if(ticket.isCurrent())notify.error(errorMessage(e,'该文章已删除或暂时无法查看审核结果'))}
+},{immediate:true})
+onUnmounted(()=>notificationRequest.cancel())
 
 async function fetchDrafts() {
+  const ticket = requests.begin()
+  loadError.value = ''
   loading.value = true
   try {
-    const res = await request.get(`/article/drafts?page=${currentPage.value}&size=10`)
-    console.log('草稿列表:', res)
+    const res = await request.get('/article/work', { params:{page:currentPage.value,size:10,...(revisionFilter.value!==''?{state:Number(revisionFilter.value)}:{})},signal: ticket.signal })
+    if (!ticket.isCurrent()) return
     if (res.code === 200 && res.data) {
       drafts.value = res.data.records || []
       totalPages.value = res.data.pages || 0
-    }
+      total.value = res.data.total || 0
+      if (currentPage.value > Math.max(1, totalPages.value)) {
+        currentPage.value = Math.max(1, totalPages.value)
+        await fetchDrafts()
+      }
+    } else throw new Error('草稿列表暂时不可用，请重新加载')
   } catch (error) {
-    console.error('获取草稿失败:', error)
+    if (ticket.isCurrent()) loadError.value = errorMessage(error, '请检查网络后重试')
   } finally {
-    loading.value = false
+    if (ticket.isCurrent()) loading.value = false
   }
 }
 
@@ -147,37 +190,41 @@ function editDraft(articleId: string) {
   router.push(`/edit-article?id=${articleId}`)
 }
 
-async function publishDraft(articleId: string) {
-  if (!confirm('确定要发布这篇文章吗？')) return
-  
+async function publishDraft(draft: any) {
+  const articleId=draft.articleId
+  if (busyIds.value.has(articleId)) return
+  busyIds.value.add(articleId)
   try {
-    const res = await request.post(`/article/${articleId}/publish`)
+    if (!await confirmAction(`将「${draft.title || '无标题'}」提交给管理员审核。${draft.articleStatus===1?'审核期间，当前公开版本保持不变；通过后更新正文。':'审核通过后，这篇文章才会公开。'}`, '提交审核', { confirmText:'提交审核' })) return
+    const res = await request.post(`/article/${articleId}/publish`,{expectedRevisionId:draft.revisionId})
     if (res.code === 200) {
-      alert('发布成功')
-      fetchDrafts()
-    } else {
-      alert(res.message || '发布失败')
+      notify.success('已提交审核')
+      await fetchDrafts()
     }
   } catch (error) {
-    console.error('发布失败:', error)
-    alert('发布失败')
+    notify.error(errorMessage(error, '提交审核失败，请重试'))
+  } finally {
+    busyIds.value.delete(articleId)
   }
 }
+async function withdraw(draft:any){await revisionAction(draft,'withdraw','撤回后可以修改，该版本不再接受审核。','已撤回审核')}
+async function discard(draft:any){await revisionAction(draft,'discard','丢弃这份修改草稿？公开版本保持不变，历史快照仍然保留。','已丢弃修改')}
+async function revisionAction(draft:any,action:string,message:string,success:string){if(busyIds.value.has(draft.articleId))return;busyIds.value.add(draft.articleId);try{if(!await confirmAction(message,'确认操作'))return;await request.post(`/article/${draft.articleId}/revisions/${draft.revisionId}/${action}`);notify.success(success);await fetchDrafts()}catch(error){notify.error(errorMessage(error,'操作失败，请刷新后重试'))}finally{busyIds.value.delete(draft.articleId)}}
 
 async function deleteDraft(articleId: string) {
-  if (!confirm('确定要删除这篇草稿吗？')) return
-  
+  if (busyIds.value.has(articleId)) return
+  busyIds.value.add(articleId)
   try {
+    if (!await confirmAction('确定删除这篇草稿吗？删除后无法继续编辑。', '删除草稿', { confirmText:'删除草稿', type:'error' })) return
     const res = await request.delete(`/article/${articleId}`)
     if (res.code === 200) {
-      alert('删除成功')
-      fetchDrafts()
-    } else {
-      alert(res.message || '删除失败')
+      notify.success('草稿已删除')
+      await fetchDrafts()
     }
   } catch (error) {
-    console.error('删除失败:', error)
-    alert('删除失败')
+    notify.error(errorMessage(error, '删除失败，请重试'))
+  } finally {
+    busyIds.value.delete(articleId)
   }
 }
 
@@ -210,7 +257,7 @@ function stripHtmlTags(str: string): string {
 
 function formatDate(dateStr: string): string {
   if (!dateStr) return ''
-  return new Date(dateStr).toLocaleString('zh-CN')
+  return new Date(dateStr).toLocaleString('zh-CN', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', hour12:false })
 }
 
 // 登录弹窗状态
@@ -249,12 +296,14 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  requests.cancel()
   eventBus.off(EVENT_AUTH_EXPIRED, handleAuthExpired)
 })
 </script>
 
 <style scoped>
 .draft-box-page {
+  display: flow-root;
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   min-height: 100vh;
   position: relative;
@@ -267,7 +316,7 @@ onUnmounted(() => {
   left: 0;
   right: 0;
   bottom: 0;
-  background: #f5f7fa;
+  background: var(--ej-canvas);
   z-index: -2;
 }
 
@@ -339,420 +388,81 @@ onUnmounted(() => {
   background: rgba(0, 0, 0, 0.05);
 }
 
-.container {
-  max-width: 900px;
-  margin: 100px auto 50px;
-  padding: 0 20px;
-}
 
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 30px;
-}
-
-.page-header h1 {
-  color: #333;
-  font-size: 28px;
-}
-
-.draft-count {
-  color: rgba(0, 0, 0, 0.5);
-  font-size: 14px;
-}
-
-.loading-state,
-.empty-state {
-  text-align: center;
-  padding: 80px 20px;
-  color: #666;
-  background: rgba(255, 255, 255, 0.9);
-  border-radius: 20px;
-}
-
-.empty-icon {
-  width: 60px;
-  height: 60px;
-  margin: 0 auto 20px;
-  color: #ccc;
-}
-
-.empty-icon svg {
-  width: 100%;
-  height: 100%;
-}
-
-.create-btn {
-  margin-top: 20px;
-  padding: 12px 30px;
-  background: white;
-  color: #333;
-  border: 1px solid #ddd;
-  border-radius: 20px;
-  font-size: 14px;
-  cursor: pointer;
-  transition: all 0.3s;
-}
-
-.create-btn:hover {
-  border-color: #999;
-  background: #f5f5f5;
-}
-
-.draft-list {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.draft-card {
-  background: rgba(255, 255, 255, 0.95);
-  border-radius: 16px;
-  overflow: hidden;
-  display: flex;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
-  transition: all 0.3s;
-}
-
-.draft-card:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 8px 30px rgba(102, 126, 234, 0.2);
-}
-
-.draft-cover {
-  width: 200px;
-  height: 130px;
-  flex-shrink: 0;
-  position: relative;
-  overflow: hidden;
-}
-
-.draft-cover img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  position: absolute;
-  top: 0;
-  left: 0;
-}
-
-.no-cover-placeholder {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 10px;
-  text-align: center;
-  background: #e8e8e8;
-}
-
-.placeholder-title {
-  color: #666;
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 1.3;
-  max-width: 100%;
-  word-break: break-word;
-  text-align: center;
-  padding: 0 4px;
-}
-
-.no-cover {
-  width: 100%;
-  height: 100%;
-  background: #e8e8e8;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #999;
-  font-size: 14px;
-}
-
-.draft-content {
-  flex: 1;
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-}
-
-.draft-title {
-  font-size: 18px;
-  font-weight: 600;
-  color: #333;
-  margin-bottom: 10px;
-}
-
-.draft-summary {
-  font-size: 14px;
-  color: #666;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-}
-
-.draft-meta {
-  font-size: 12px;
-  color: #999;
-  margin-top: 10px;
-}
-
-.draft-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 20px;
-  justify-content: center;
-}
-
-.action-btn {
-  padding: 8px 20px;
-  border-radius: 8px;
-  font-size: 13px;
-  cursor: pointer;
-  transition: all 0.3s;
-  background: white;
-}
-
-.action-btn.edit {
-  border: 1px solid #666;
-  color: #666;
-}
-
-.action-btn.edit:hover {
-  background: #666;
-  color: white;
-}
-
-.action-btn.publish {
-  border: 1px solid #52c41a;
-  color: #52c41a;
-}
-
-.action-btn.publish:hover {
-  background: #52c41a;
-  color: white;
-}
-
-.action-btn.delete {
-  border: 1px solid #ff4d4f;
-  color: #ff4d4f;
-}
-
-.action-btn.delete:hover {
-  background: #ff4d4f;
-  color: white;
-}
-
-/* 分页 */
-.pagination {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 20px;
-  margin-top: 30px;
-}
-
-.page-btn {
-  padding: 10px 24px;
-  background: white;
-  border: 1px solid #ddd;
-  border-radius: 20px;
-  color: #666;
-  cursor: pointer;
-  font-size: 14px;
-  transition: all 0.3s;
-}
-
-.page-btn:hover:not(:disabled) {
-  border-color: #333;
-  color: #333;
-  background: #fafafa;
-}
-
-.page-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.page-info {
-  color: #333;
-  font-size: 14px;
-}
-
-/* 移动端适配 */
+#app .draft-box-page .container { margin: 110px auto 50px; padding: 0 24px; }
+.page-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 24px; }
+.page-header h1 { font-size: 28px; }
+.page-description { color: var(--ej-muted); font-size: 13px; line-height: 1.8; margin-top: 8px; }
+.draft-count { font-size: 13px; color: var(--ej-muted); white-space: nowrap; }
+.revision-filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 26px; }
+.revision-filters button { padding: 8px 18px; border: 1px solid var(--ej-line); border-radius: 999px; color: var(--ej-ink); background: transparent; font: inherit; font-size: 13px; cursor: pointer; transition: background 180ms, border-color 180ms; }
+.revision-filters button:hover { background: var(--ej-surface); border-color: var(--ej-ink); }
+.revision-filters button.active { background: var(--studio-lime); border-color: var(--ej-ink); }
+.draft-list { display: flex; flex-direction: column; gap: 18px; }
+#app .draft-box-page .draft-card { display: grid; grid-template-columns: 150px minmax(0, 1fr); align-items: start; gap: 24px; padding: 22px; overflow: hidden; }
+.draft-cover { width: 150px; height: 130px; position: relative; overflow: hidden; border-radius: 12px; background: var(--ej-canvas); border: 1px solid var(--ej-line); }
+.draft-cover img { width: 100%; height: 100%; object-fit: cover; }
+.draft-placeholder { display: flex; flex-direction: column; align-items: center; justify-content: space-between; height: 100%; padding: 14px 8px 12px; color: var(--ej-ink); background: linear-gradient(135deg, #eff4d6 0%, #eff4d6 65%, #e3e9cc 65%); }
+.draft-placeholder svg { width: 42px; height: 42px; }
+.placeholder-label { font-size: 8px; letter-spacing: 1px; }
+.placeholder-version { font-size: 10px; letter-spacing: 1.3px; }
+.draft-content { min-width: 0; }
+.revision-label { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; font-size: 11px; color: var(--ej-muted); margin-bottom: 10px; }
+.revision-badge { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 4px 9px; color: #56613f; background: #edf1e4; font-weight: 600; }
+.revision-badge::before { content: ''; width: 5px; height: 5px; background: currentColor; border-radius: 50%; }
+.revision-badge.state-1 { background: #fff0d1; color: #8b631a; }
+.revision-badge.state-3 { background: #ffe4dc; color: #994735; }
+.revision-badge.state-4 { background: #eeebe5; color: #706d64; }
+.public-version { padding-left: 10px; border-left: 1px solid var(--ej-line); }
+#app .draft-box-page .draft-title { font-size: 18px; line-height: 1.5; margin: 0 0 8px; overflow-wrap: anywhere; }
+#app .draft-box-page .draft-summary { font-size: 13px; line-height: 1.8; color: var(--ej-muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; margin: 0; }
+.revision-reason { display: flex; gap: 10px; padding: 10px 12px; margin-top: 12px; background: #fff1e9; border-left: 2px solid var(--studio-coral); border-radius: 0 8px 8px 0; font-size: 13px; line-height: 1.7; color: #8b4939; overflow-wrap: anywhere; }
+.revision-reason strong { flex-shrink: 0; font-weight: 600; }
+.draft-footer { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px 20px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--ej-line); }
+.draft-meta { color: var(--ej-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.draft-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.draft-button { display: inline-flex; align-items: center; justify-content: center; gap: 12px; border: 1px solid transparent; border-radius: 999px; padding: 8px 14px; min-height: 36px; font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap; color: var(--ej-ink); background: transparent; transition: background 180ms, box-shadow 200ms, border-color 180ms; }
+.draft-button.primary { background: var(--ej-ink); color: var(--ej-surface); border-color: var(--ej-ink); }
+.draft-button.secondary { border-color: var(--ej-line); }
+.draft-button:not(:disabled):hover { background: var(--studio-lime); border-color: var(--ej-ink); color: var(--ej-ink); }
+.draft-button.primary:not(:disabled):hover { box-shadow: 2px 2px 0 var(--ej-ink); }
+.draft-button.quiet { color: var(--ej-muted); padding: 8px 10px; }
+.draft-button.danger:not(:disabled):hover { color: #994735; background: #ffe4dc; border-color: transparent; }
+.draft-button:disabled { opacity: .45; }
+button:focus-visible { outline: 2px solid var(--ej-ink); outline-offset: 3px; }
+.empty-state { text-align: center; padding: 70px 20px; color: var(--ej-muted); }
+.empty-icon { width: 50px; height: 50px; margin: 0 auto 18px; opacity: .4; }
+.empty-icon svg { width: 100%; height: 100%; }
+.empty-description { display: block; font-size: 13px; margin-top: 10px; }
+.empty-actions { display: flex; justify-content: center; flex-wrap: wrap; gap: 10px; margin-top: 22px; }
+.pagination { display: flex; justify-content: center; align-items: center; gap: 20px; margin-top: 30px; }
+.page-btn { padding: 9px 22px; font-size: 13px; cursor: pointer; }
+.page-info { color: var(--ej-muted); font-size: 12px; }
 @media (max-width: 768px) {
-  .navbar {
-    padding: 0 12px;
-    height: 55px;
-  }
-  
-  .logo {
-    font-size: 18px;
-    flex-shrink: 0;
-  }
-  
-  .nav-right {
-    gap: 6px;
-    flex-shrink: 0;
-  }
-  
-  .nav-btn {
-    padding: 6px 10px;
-    font-size: 12px;
-    white-space: nowrap;
-  }
-  
-  .container {
-    margin-top: 70px;
-    padding: 15px;
-  }
-  
-  .page-header {
-    margin-bottom: 20px;
-  }
-  
-  .page-header h1 {
-    font-size: 22px;
-  }
-  
-  .draft-count {
-    font-size: 13px;
-  }
-  
-  .draft-list {
-    gap: 15px;
-  }
-  
-  .draft-card {
-    padding: 15px;
-    flex-direction: column;
-  }
-  
-  .draft-cover {
-    width: 100%;
-    height: 150px;
-    margin-bottom: 12px;
-  }
-  
-  .draft-info {
-    width: 100%;
-  }
-  
-  .draft-title {
-    font-size: 16px;
-  }
-  
-  .draft-preview {
-    font-size: 13px;
-  }
-  
-  .action-btn {
-    padding: 6px 12px;
-    font-size: 12px;
-  }
+  #app .draft-box-page .container { margin-top: 86px; padding: 0 16px; }
+  .page-header { flex-wrap: wrap; gap: 10px; margin-bottom: 20px; }
+  .page-header h1 { font-size: 24px; }
+  .draft-count { font-size: 12px; }
+  #app .draft-box-page .draft-card { grid-template-columns: 90px minmax(0, 1fr); padding: 18px; gap: 16px; }
+  .draft-cover { width: 90px; height: 110px; }
+  .placeholder-label { font-size: 7px; letter-spacing: 0; }
+  #app .draft-box-page .draft-title { font-size: 16px; }
+  .draft-footer { flex-direction: column; align-items: flex-start; }
+  .draft-actions { gap: 6px; }
 }
-
 @media (max-width: 480px) {
-  .navbar {
-    padding: 0 10px;
-    height: 50px;
-  }
-  
-  .logo {
-    font-size: 16px;
-  }
-  
-  .logo-icon {
-    width: 28px;
-    height: 28px;
-  }
-  
-  .logo-text {
-    display: none;
-  }
-  
-  .nav-right {
-    gap: 4px;
-  }
-  
-  .nav-btn {
-    padding: 5px 8px;
-    font-size: 11px;
-  }
-  
-  .container {
-    margin-top: 60px;
-    padding: 12px 10px;
-  }
-  
-  .page-header {
-    margin-bottom: 15px;
-  }
-  
-  .page-header h1 {
-    font-size: 20px;
-  }
-  
-  .draft-count {
-    font-size: 12px;
-  }
-  
-  .draft-list {
-    gap: 12px;
-  }
-  
-  .draft-card {
-    padding: 12px;
-    border-radius: 10px;
-  }
-  
-  .draft-cover {
-    height: 130px;
-    border-radius: 8px;
-  }
-  
-  .draft-title {
-    font-size: 15px;
-    margin-bottom: 8px;
-  }
-  
-  .draft-preview {
-    font-size: 12px;
-    margin-bottom: 10px;
-  }
-  
-  .draft-meta {
-    flex-direction: column;
-    gap: 10px;
-  }
-  
-  .draft-time {
-    font-size: 11px;
-  }
-  
-  .draft-actions {
-    width: 100%;
-    justify-content: flex-end;
-  }
-  
-  .action-btn {
-    padding: 5px 10px;
-    font-size: 11px;
-  }
-  
-  .pagination {
-    gap: 10px;
-    margin-top: 20px;
-  }
-  
-  .page-btn {
-    padding: 8px 14px;
-    font-size: 12px;
-  }
+  .page-description { font-size: 12px; }
+  .revision-filters { gap: 6px; margin-bottom: 20px; }
+  .revision-filters button { padding: 7px 13px; font-size: 12px; }
+  #app .draft-box-page .draft-card { grid-template-columns: minmax(0, 1fr); padding: 18px; gap: 14px; }
+  .draft-cover { width: 100%; height: 120px; }
+  .draft-placeholder { flex-direction: row; padding: 18px; }
+  .placeholder-label { font-size: 9px; letter-spacing: 1px; }
+  .draft-placeholder svg { width: 46px; height: 46px; }
+  .draft-actions { width: 100%; }
+  .draft-button { padding: 8px 12px; }
+  .revision-reason { flex-direction: column; gap: 4px; }
+  .pagination { gap: 12px; }
+  .page-btn { padding: 8px 15px; }
 }
 </style>

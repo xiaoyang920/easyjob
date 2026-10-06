@@ -1,13 +1,9 @@
 <template>
   <div class="edit-profile-page">
-    <StarBackground />
-    
     <!-- 导航栏 -->
     <nav class="navbar">
       <div class="logo" @click="$router.push('/')">EasyJob</div>
-      <div class="nav-right">
-        <button class="nav-btn" @click="$router.push('/user-space')">返回空间</button>
-      </div>
+      <AppNavigation />
     </nav>
 
     <div class="container">
@@ -117,7 +113,7 @@
           
           <!-- 提交按钮 -->
           <div class="form-actions">
-            <button type="button" class="cancel-btn" @click="$router.push('/user-space')">取消</button>
+            <button type="button" class="cancel-btn" @click="goBackOr(router, '/user-space')">取消</button>
             <button type="submit" class="submit-btn" :disabled="saving">
               {{ saving ? '保存中...' : '保存修改' }}
             </button>
@@ -137,9 +133,10 @@
 </template>
 
 <script setup lang="ts">
+import AppNavigation from '@/components/AppNavigation.vue'
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
-import StarBackground from '../components/StarBackground.vue'
+import { goBackOr } from '../utils/navigation'
 import LoginForm from '../components/LoginForm.vue'
 import RegisterForm from '../components/RegisterForm.vue'
 import request from '../utils/request'
@@ -221,7 +218,8 @@ async function saveProfile() {
       localStorage.setItem('nickName', profile.value.nickName)
       localStorage.setItem('avatar', profile.value.avatar)
       alert('保存成功')
-      router.push('/user-space')
+      // 回到进入编辑前的页面，不在历史里再叠一条个人空间
+      goBackOr(router, '/user-space')
     } else {
       alert(res.message || '保存失败')
     }
@@ -344,7 +342,7 @@ onUnmounted(() => {
   left: 0;
   right: 0;
   bottom: 0;
-  background: #f5f7fa;
+  background: var(--ej-canvas);
   z-index: -2;
 }
 
@@ -367,7 +365,7 @@ onUnmounted(() => {
 .logo {
   font-size: 28px;
   font-weight: bold;
-  color: #409eff;
+  color: var(--ej-accent);
   cursor: pointer;
 }
 
@@ -457,8 +455,8 @@ onUnmounted(() => {
 .form-item textarea:focus,
 .form-item select:focus {
   outline: none;
-  border-color: #409eff;
-  box-shadow: 0 0 0 3px rgba(64, 158, 255, 0.1);
+  border-color: var(--ej-accent);
+  box-shadow: 0 0 0 3px rgba(17, 17, 15, 0.1);
 }
 
 .form-item input:disabled {
@@ -534,7 +532,7 @@ onUnmounted(() => {
 }
 
 .avatar-upload:hover .avatar-preview {
-  border-color: #409eff;
+  border-color: var(--ej-accent);
 }
 
 .file-input {
@@ -567,7 +565,7 @@ onUnmounted(() => {
   bottom: 0;
   left: 0;
   height: 100%;
-  background: rgba(64, 158, 255, 0.2);
+  background: rgba(17, 17, 15, 0.2);
   transition: width 0.3s ease;
 }
 
@@ -576,7 +574,7 @@ onUnmounted(() => {
   z-index: 1;
   font-size: 16px;
   font-weight: 600;
-  color: #409eff;
+  color: var(--ej-accent);
 }
 
 /* 按钮 */
@@ -606,7 +604,7 @@ onUnmounted(() => {
 .submit-btn {
   flex: 1;
   padding: 14px;
-  background: #409eff;
+  background: var(--ej-accent);
   border: none;
   border-radius: 12px;
   color: white;
@@ -618,7 +616,7 @@ onUnmounted(() => {
 
 .submit-btn:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(64, 158, 255, 0.3);
+  box-shadow: 0 6px 20px rgba(17, 17, 15, 0.3);
 }
 
 .submit-btn:disabled {

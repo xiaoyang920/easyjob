@@ -14,6 +14,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import com.easyjob.enums.NotificationTypeEnum;
+import com.easyjob.exception.BusinessException;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -32,8 +37,11 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
      * 关注类通知 articleId/articleTitle/targetPreview 可为 null。
      * 不给自己发通知。
      */
+    @Transactional
     public void send(NotificationMessage msg) {
-        if (msg == null || msg.getUserId() == null || msg.getUserId().equals(msg.getSenderId())) {
+        boolean review=msg!=null && (NotificationTypeEnum.REVIEW_APPROVED.getCode().equals(msg.getType())
+                || NotificationTypeEnum.REVIEW_REJECTED.getCode().equals(msg.getType()));
+        if (msg == null || msg.getUserId() == null || (!review && msg.getUserId().equals(msg.getSenderId()))) {
             return;
         }
         // 1. 写 notification 表（持久化，保证不丢）
@@ -50,18 +58,27 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
         notification.setContent(msg.getContent());
         notification.setIsRead(0);
         notification.setCreateTime(LocalDateTime.now());
-        notificationMapper.insert(notification);
+        if(notificationMapper.insert(notification)!=1) throw new IllegalStateException("通知保存失败");
 
         // 回填雪花ID再发 MQ，消费端幂等用
         msg.setNotificationId(notification.getNotificationId());
+        msg.setIsRead(notification.getIsRead());
+        msg.setCreateTime(notification.getCreateTime());
 
-        // 2. 发 MQ（异步推送给在线用户）
-        rabbitTemplate.convertAndSend(
+        // Publish only after the owning business transaction has committed.
+        Runnable push=()->{try {rabbitTemplate.convertAndSend(
                 RabbitMqConstants.TOPIC_EXCHANGE,
                 "notification.push",
                 msg
-        );
-        log.info("通知已发送: receiver={}, type={}", msg.getUserId(), msg.getType());
+        );} catch(Exception error) {
+            // The inbox row remains authoritative and is fetched on reconnection.
+            log.warn("通知已保存，实时推送失败: id={}, error={}",msg.getNotificationId(),error.getClass().getSimpleName());
+        }};
+        if(TransactionSynchronizationManager.isSynchronizationActive())
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization(){
+                @Override public void afterCommit(){push.run();}
+            });
+        else push.run();
     }
 
     /**
@@ -80,11 +97,19 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
      * 分页获取所有消息
      */
     public IPage<Notification> getAll(Long userId, Integer page, Integer size) {
+        return getAll(userId,page,size,null,false);
+    }
+    public IPage<Notification> getAll(Long userId, Integer page, Integer size,Integer type,boolean unreadOnly) {
+        if(page==null || page<1 || page>10000 || size==null || size<1 || size>100
+                || (type!=null && (type<1 || type>7))) throw new BusinessException(400,"通知查询参数无效");
+        var query=new LambdaQueryWrapper<Notification>().eq(Notification::getUserId,userId)
+                .eq(unreadOnly,Notification::getIsRead,0);
+        if(Integer.valueOf(6).equals(type)) query.in(Notification::getType,6,7);
+        else if(type!=null) query.eq(Notification::getType,type);
+        query.orderByDesc(Notification::getCreateTime).orderByDesc(Notification::getNotificationId);
         return notificationMapper.selectPage(
                 new Page<>(page, size),
-                new LambdaQueryWrapper<Notification>()
-                        .eq(Notification::getUserId, userId)
-                        .orderByDesc(Notification::getCreateTime)
+                query
         );
     }
 

@@ -10,6 +10,7 @@ import com.easyjob.vo.MessageVO;
  * 消息Service接口
  */
 public interface MessageService extends IService<Message> {
+    MessageListVO getMessagesAfter(Long conversationId, Long afterMessageId, Integer size);
     
     /**
      * 获取会话消息列表

@@ -12,6 +12,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import com.easyjob.service.ArticleReadService;
+import com.easyjob.utils.ArticleReaderIdentity;
 
 @RestController
 @RequestMapping("/api/article")
@@ -28,6 +31,24 @@ public class ArticleController {
     private RecommendService recommendService;
     @Autowired
     private ArticleMapper articleMapper;
+    @Autowired private ArticleReadService articleReadService;
+    @Autowired private ArticleReaderIdentity readerIdentity;
+    @Autowired private com.easyjob.service.ArticleAccessService articleAccess;
+    @Autowired private com.easyjob.service.ArticleRevisionService revisions;
+    public record SubmitRequest(String expectedRevisionId) {}
+    public record ReadingLevelRequest(Integer level) {}
+    @PutMapping("/{articleId}/reading-level")
+    public ResponseVO<?> readingLevel(@PathVariable Long articleId,@RequestBody ReadingLevelRequest request) {
+        articleAccess.setRequiredLevel(articleId,UserContext.getUserId(),request.level());
+        return ResponseVO.success("阅读等级已更新");
+    }
+
+    private Long optionalUser(HttpServletRequest request) {
+        try {
+            String token = jwtUtil.getTokenFromAuthorization(request.getHeader("Authorization"));
+            return token != null && jwtUtil.validateToken(token) ? jwtUtil.getUserIdFromToken(token) : null;
+        } catch (Exception ignored) { return null; }
+    }
 
     /**
      * 获取用户文章列表
@@ -51,9 +72,8 @@ public class ArticleController {
      */
     @PostMapping( "/create")
     public ResponseVO<?> create(@RequestBody ArticleCreateDTO article) {
-        articleService.saveArticle(article);
-        redisComponent.deleteUserSpaceVO(UserContext.getUserId());
-        return ResponseVO.success("发布成功");
+        Long articleId = articleService.saveArticle(article);
+        return ResponseVO.success(java.util.Map.of("articleId", articleId.toString()));
     }
     /**
      * 获取文章详情
@@ -61,7 +81,8 @@ public class ArticleController {
      * @return
      */
     @GetMapping("/detail/{articleId}")
-    public ResponseVO<?> get(@PathVariable Long articleId, HttpServletRequest request) {
+    public ResponseVO<?> get(@PathVariable Long articleId, HttpServletRequest request, HttpServletResponse response) {
+        readerIdentity.resolve(request, response, optionalUser(request));
         // 可选认证：如果有token则设置UserContext，用于获取点赞/收藏状态
         try {
             String authorization = request.getHeader("Authorization");
@@ -104,7 +125,12 @@ public class ArticleController {
     public ResponseVO<?> update(@PathVariable Long articleId, @RequestBody ArticleCreateDTO article) {
         articleService.updateArticle(articleId, article);
         redisComponent.deleteArticleDetail(articleId);
-        return ResponseVO.success("修改成功");
+        return ResponseVO.success(articleService.getEditableArticle(articleId));
+    }
+
+    @GetMapping("/{articleId}/edit")
+    public ResponseVO<?> edit(@PathVariable Long articleId) {
+        return ResponseVO.success(articleService.getEditableArticle(articleId));
     }
     /**
      * 获取草稿列表
@@ -124,10 +150,15 @@ public class ArticleController {
      * @return
      */
     @PostMapping("/{articleId}/publish")
-    public ResponseVO<?> publish(@PathVariable Long articleId) {
-        articleService.publish(articleId);
-        return ResponseVO.success("发布成功");
+    public ResponseVO<?> publish(@PathVariable Long articleId,@RequestBody SubmitRequest request) {
+        return ResponseVO.success(revisions.submit(UserContext.getUserId(),articleId,request.expectedRevisionId()));
     }
+    @GetMapping("/{articleId}/revisions") public ResponseVO<?> history(@PathVariable Long articleId){return ResponseVO.success(revisions.history(UserContext.getUserId(),articleId));}
+    @GetMapping("/{articleId}/revisions/{revisionId}") public ResponseVO<?> revision(@PathVariable Long articleId,@PathVariable Long revisionId){return ResponseVO.success(revisions.authorDetail(UserContext.getUserId(),articleId,revisionId));}
+    @PostMapping("/{articleId}/revisions/{revisionId}/restore") public ResponseVO<?> restore(@PathVariable Long articleId,@PathVariable Long revisionId,@RequestBody SubmitRequest request){return ResponseVO.success(revisions.restore(UserContext.getUserId(),articleId,revisionId,request.expectedRevisionId()));}
+    @PostMapping("/{articleId}/revisions/{revisionId}/withdraw") public ResponseVO<?> withdraw(@PathVariable Long articleId,@PathVariable Long revisionId){revisions.withdraw(UserContext.getUserId(),articleId,revisionId);return ResponseVO.success("已撤回审核");}
+    @PostMapping("/{articleId}/revisions/{revisionId}/discard") public ResponseVO<?> discard(@PathVariable Long articleId,@PathVariable Long revisionId){revisions.discard(UserContext.getUserId(),articleId,revisionId);return ResponseVO.success("修改版本已丢弃，公开内容未改变");}
+    @GetMapping("/work") public ResponseVO<?> work(@RequestParam(required=false) Integer state,@RequestParam(defaultValue="1") int page,@RequestParam(defaultValue="10") int size){return ResponseVO.success(revisions.work(UserContext.getUserId(),state,page,size));}
     /**
      * 获取文章列表（主界面/公开）
      * 不需要登录，返回已发布的文章
@@ -138,13 +169,15 @@ public class ArticleController {
             @RequestParam(defaultValue = "10") Integer size,
             @RequestParam(defaultValue = "latest") String sort,
             @RequestParam(required = false) Long categoryId,
-            @RequestParam(required = false) String keyword) {
+            @RequestParam(required = false) java.util.List<Long> tagIds,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(defaultValue = "false") boolean readableOnly, HttpServletRequest request) {
         
         // 限制 size 最大值
         if (size > 100) {
             size = 100;
         }
-        return ResponseVO.success(articleService.listArticles(page, size, sort, categoryId, keyword));
+        return ResponseVO.success(articleService.listArticles(page, size, sort, categoryId, keyword, tagIds, optionalUser(request), readableOnly));
     }
 
     /**
@@ -153,9 +186,9 @@ public class ArticleController {
      * @return
      */
     @PostMapping("/{articleId}/view")
-    public ResponseVO<?> increaseViewCount(@PathVariable Long articleId) {
-        articleService.increaseViewCount(articleId);
-        return ResponseVO.success("浏览数增加成功");
+    public ResponseVO<?> increaseViewCount(@PathVariable Long articleId, HttpServletRequest request, HttpServletResponse response) {
+        Long user = optionalUser(request);
+        return ResponseVO.success(articleReadService.record(articleId, user, readerIdentity.resolve(request, response, user)));
     }
     /**
      * 推荐文章（可选认证：登录返回个性化推荐，未登录返回热门）
@@ -164,7 +197,10 @@ public class ArticleController {
      * @return
      */
     @GetMapping("recommend")
-    public ResponseVO<?> recommend(@RequestParam(defaultValue = "20") Integer limit, HttpServletRequest request) {
+    public ResponseVO<?> recommend(@RequestParam(defaultValue = "20") Integer limit,
+            @RequestParam(required = false) Integer page, @RequestParam(defaultValue = "12") Integer size,
+            @RequestParam(required = false) Long categoryId, @RequestParam(required = false) java.util.List<Long> tagIds,
+            @RequestParam(defaultValue = "false") boolean readableOnly, HttpServletRequest request) {
         // 可选认证：如果有token则设置UserContext
         try {
             String authorization = request.getHeader("Authorization");
@@ -179,10 +215,8 @@ public class ArticleController {
         }
         try {
             Long userId = UserContext.getUserId();
-            if (userId == null) {
-                return ResponseVO.success(articleMapper.selectHotArticles(limit));
-            }
-            return ResponseVO.success(recommendService.recommend(userId, limit));
+            if (page != null) return ResponseVO.success(recommendService.recommendPage(userId, page, size, categoryId, tagIds, readableOnly));
+            return ResponseVO.success(recommendService.recommendPage(userId, 1, limit, categoryId, tagIds, readableOnly).getRecords());
         } finally {
             UserContext.clear();
         }

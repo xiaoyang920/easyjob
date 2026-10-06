@@ -48,25 +48,23 @@ public class JwtInterceptor implements HandlerInterceptor {
         }
 
         try {
-            // 验证token是否有效
-            if (!jwtUtil.validateToken(token)) {
-                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                response.setContentType("application/json;charset=UTF-8");
-                response.getWriter().write("{\"code\":401,\"message\":\"token已过期或无效\"}");
-                return false;
-            }
-
             // 提取用户信息并存入 ThreadLocal
             Long userId = jwtUtil.getUserIdFromToken(token);
+            if (userId == null) throw new io.jsonwebtoken.JwtException("Missing principal");
             UserContext.setUserId(userId);
 
             System.out.println("用户验证成功 - userId: " + userId + " [已存入ThreadLocal]");
             return true;
 
-        } catch (Exception e) {
+        } catch (io.jsonwebtoken.JwtException | IllegalArgumentException e) {
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             response.setContentType("application/json;charset=UTF-8");
-            response.getWriter().write("{\"code\":401,\"message\":\"token验证失败：" + e.getMessage() + "\"}");
+            response.getWriter().write("{\"code\":401,\"message\":\"登录已过期，请重新登录\"}");
+            return false;
+        } catch (Exception e) {
+            response.setStatus(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
+            response.setContentType("application/json;charset=UTF-8");
+            response.getWriter().write("{\"code\":503,\"message\":\"登录验证暂不可用，请稍后重试\"}");
             return false;
         }
     }

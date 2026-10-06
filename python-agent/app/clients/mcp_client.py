@@ -38,9 +38,11 @@ class McpClientManager:
         if not server_configs:
             log.info("无 MCP Server 配置，跳过")
             return
-        self._client = MultiServerMCPClient(server_configs)
+        client = MultiServerMCPClient(server_configs)
         # get_tools() 内部会自动: 连接 → initialize → list_tools → 转 LangChain Tool
-        self._tools = await self._client.get_tools()
+        tools = await client.get_tools()
+        self._client = client
+        self._tools = tools
         log.info(
             "MCP 已连接 %d 个 Server，共发现 %d 个工具: %s",
             len(server_configs),
@@ -62,9 +64,9 @@ class McpClientManager:
         await self.connect(server_configs)
         log.info("MCP 热重载完成")
     async def shutdown(self):
-        """关闭所有 MCP 连接"""
-        if self._client:
-            await self._client.__aexit__(None, None, None)
+        """清除客户端与工具缓存；get_tools/工具调用自行管理短期会话。"""
+        # MultiServerMCPClient >= 0.1 is not an async context manager.
+        # Its get_tools() and returned tools open/close their own sessions.
         self._tools.clear()
         self._client = None
         log.info("MCP 连接已关闭")

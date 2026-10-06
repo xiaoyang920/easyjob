@@ -27,6 +27,7 @@ public class WebSocketConfig implements WebSocketConfigurer {
                 .addInterceptors(handshakeInterceptor)
                 .setAllowedOrigins(
                         "http://localhost:3000",           // 前端开发环境（Vite默认端口）
+                        "http://127.0.0.1:3000",          // 本地 IPv4 开发地址
                         "http://85.137.247.222",           // 生产环境IP
                         "http://xiaoyanga.xyz",            // 你的域名（HTTP）
                         "https://xiaoyanga.xyz"            // 你的域名（HTTPS）
@@ -36,6 +37,7 @@ public class WebSocketConfig implements WebSocketConfigurer {
                 .addInterceptors(articleHandshakeInterceptor)
                 .setAllowedOrigins(
                         "http://localhost:3000",           // 前端开发环境（Vite默认端口）
+                        "http://127.0.0.1:3000",          // 本地 IPv4 开发地址
                         "http://85.137.247.222",           // 生产环境IP
                         "http://xiaoyanga.xyz",            // 你的域名（HTTP）
                         "https://xiaoyanga.xyz"            // 你的域名（HTTPS）

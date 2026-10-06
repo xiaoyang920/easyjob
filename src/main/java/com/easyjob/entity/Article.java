@@ -14,6 +14,7 @@ import java.time.LocalDateTime;
 @Data
 @TableName("article_info")
 public class Article {
+    private Integer requiredLevel;
     
     /**
      * 文章ID（主键，雪花算法）
@@ -87,7 +88,7 @@ public class Article {
     private Integer shareCount;
     
     /**
-     * 状态：0.草稿 1.已发布 2.已下架 3.审核中
+     * 可见状态：0.未公开 1.已发布 2.已下架；审核状态在 article_revision 中管理
      */
     private Integer status;
     

@@ -11,6 +11,7 @@ import java.time.LocalDateTime;
  */
 @Data
 public class ArticleSearchVO {
+    private Integer requiredLevel;
     
     /**
      * 文章ID

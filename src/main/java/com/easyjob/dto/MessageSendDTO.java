@@ -9,6 +9,7 @@ import lombok.NoArgsConstructor;
 @Data
 @NoArgsConstructor
 public class MessageSendDTO {
+    private String clientMessageId;
     
     /**
      * 会话ID

@@ -4,8 +4,9 @@
 
     <!-- 查询会话消息列表（带发送者信息） -->
     <select id="selectMessageList" resultType="com.easyjob.vo.MessageVO">
-        SELECT 
+        SELECT
             m.message_id AS messageId,
+            m.client_message_id AS clientMessageId,
             m.conversation_id AS conversationId,
             m.sender_id AS senderId,
             u.nick_name AS senderName,
@@ -21,7 +22,28 @@
         <if test="lastMessageId != null">
             AND m.message_id &lt; #{lastMessageId}
         </if>
-        ORDER BY m.create_time DESC
+        ORDER BY m.message_id DESC
+        LIMIT #{size}
+    </select>
+
+    <select id="selectMessagesAfter" resultType="com.easyjob.vo.MessageVO">
+        SELECT
+            m.message_id AS messageId,
+            m.client_message_id AS clientMessageId,
+            m.conversation_id AS conversationId,
+            m.sender_id AS senderId,
+            u.nick_name AS senderName,
+            u.avatar AS senderAvatar,
+            m.message_type AS messageType,
+            m.content,
+            m.create_time AS createTime,
+            m.status,
+            m.reply_to_message_id AS replyToMessageId
+        FROM message m
+        LEFT JOIN user_info u ON m.sender_id = u.user_id
+        WHERE m.conversation_id = #{conversationId}
+        AND m.message_id &gt; #{afterMessageId}
+        ORDER BY m.message_id ASC
         LIMIT #{size}
     </select>
 

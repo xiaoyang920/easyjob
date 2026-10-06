@@ -71,6 +71,12 @@ public class ConversationController {
         return ResponseVO.success(vo);
     }
 
+    @GetMapping("/messages/after")
+    public ResponseVO<MessageListVO> messagesAfter(@RequestParam Long conversationId,
+            @RequestParam Long afterMessageId, @RequestParam(defaultValue="50") Integer size) {
+        return ResponseVO.success(messageService.getMessagesAfter(conversationId, afterMessageId, size));
+    }
+
     /**
      * 标记会话已读
      * POST /api/chat/conversation/{conversationId}/read

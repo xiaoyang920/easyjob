@@ -45,8 +45,10 @@ public class NotificationController {
      */
     @GetMapping("/list")
     public ResponseVO<?> list(@RequestParam(defaultValue = "1") Integer page,
-                              @RequestParam(defaultValue = "20") Integer size) {
-        return ResponseVO.success(notificationService.getAll(UserContext.getUserId(), page, size));
+                              @RequestParam(defaultValue = "20") Integer size,
+                              @RequestParam(required=false) Integer type,
+                              @RequestParam(defaultValue="false") boolean unreadOnly) {
+        return ResponseVO.success(notificationService.getAll(UserContext.getUserId(), page, size,type,unreadOnly));
     }
 
     /**

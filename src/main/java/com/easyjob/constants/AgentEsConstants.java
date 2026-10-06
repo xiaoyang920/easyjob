@@ -4,6 +4,16 @@ package com.easyjob.constants;
  * ES向量索引常量
  */
 public class AgentEsConstants {
+    public static final String CHUNK_METADATA_MAPPING = """
+        {"properties": {
+            "source_hash": {"type": "keyword"},
+            "chunker_version": {"type": "keyword"},
+            "chunk_type": {"type": "keyword"},
+            "section_path": {"type": "text", "analyzer": "ik_smart"},
+            "category_id": {"type": "long"},
+            "publish_time": {"type": "date"}
+        }}
+        """;
     
     /**
      * 向量索引名称
@@ -34,7 +44,7 @@ public class AgentEsConstants {
      * 索引Mapping
      * 
      * 【核心字段说明】
-     * - chunk_id: 文档块唯一ID (article_id + chunk_index)
+     * - chunk_id: 文档块唯一ID (article_id + chunker_version + source_hash + chunk_index)
      * - article_id: 原文章ID，用于关联
      * - chunk_content: 文档块文本内容
      * - content_vector: 文本的向量表示 (dense_vector类型)

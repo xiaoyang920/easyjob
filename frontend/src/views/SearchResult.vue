@@ -1,42 +1,23 @@
 <template>
   <div class="search-page">
-    <StarBackground />
-    
     <!-- 导航栏 -->
     <nav class="navbar">
       <div class="logo" @click="$router.push('/')">EasyJob</div>
       
       <div class="nav-center">
         <!-- 搜索框 -->
-        <div class="search-box">
-          <input 
-            v-model="keyword"
-            type="search" 
-            placeholder="搜索文章、作者..."
-            @keyup.enter="handleSearch"
-            @keydown.enter="handleSearch"
-            @search="handleSearch"
-            enterkeyhint="search"
-          >
-          <button class="search-btn" @click="handleSearch">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
-            </svg>
-          </button>
-        </div>
+        <SearchBox v-model="keyword" @search="handleSearch" />
       </div>
       
-      <div class="nav-right">
-        <button class="nav-btn" @click="$router.push('/')">首页</button>
-      </div>
+      <AppNavigation />
     </nav>
 
     <div class="container">
       <!-- 搜索信息 -->
       <div class="search-header">
         <h1>搜索结果</h1>
-        <p class="search-info" v-if="keyword">
-          关键词 "<span class="highlight">{{ keyword }}</span>" 共找到 <span class="highlight">{{ total }}</span> 条结果
+        <p class="search-info" v-if="submittedKeyword">
+          关键词 "<span class="highlight">{{ submittedKeyword }}</span>"<template v-if="!loading && !searchError"> 共找到 <span class="highlight">{{ total }}</span> {{ currentTab === 'article' ? '篇文章' : '位用户' }}</template>
         </p>
       </div>
 
@@ -52,7 +33,7 @@
             {{ tab.label }}
           </button>
         </div>
-        <div class="sort-options">
+        <div v-if="currentTab === 'article'" class="sort-options">
           <span>排序：</span>
           <select v-model="sortBy" @change="doSearch">
             <option value="">相关度</option>
@@ -65,12 +46,13 @@
       </div>
 
       <!-- 搜索结果 -->
-      <div v-if="loading" class="loading-state">搜索中...</div>
+      <ContentState v-if="loading" kind="loading" title="正在搜索" />
+      <ContentState v-else-if="searchError" kind="error" title="搜索暂时未完成" :description="searchError" @retry="doSearch" />
       
       <div v-else-if="results.length === 0 && !loading" class="empty-state">
         <div class="empty-icon">🔍</div>
-        <p>未找到相关内容</p>
-        <p class="empty-tip">换个关键词试试吧</p>
+        <p>{{ submittedKeyword ? (currentTab === 'article' ? '未找到相关文章' : '未找到相关用户') : '输入关键词开始搜索' }}</p>
+        <p v-if="submittedKeyword" class="empty-tip">换个关键词试试吧</p>
       </div>
 
       <div v-else class="result-list">
@@ -103,17 +85,17 @@
               </div>
             </div>
             <div class="article-content">
-              <h3 class="article-title" v-html="item.title"></h3>
-              <p class="article-summary" v-html="item.summary || ''"></p>
+              <h3 class="article-title"><SearchHighlight :text="item.title" :keyword="submittedKeyword" es-markers /></h3>
+              <p class="article-summary"><SearchHighlight :text="item.summary || ''" :keyword="submittedKeyword" /></p>
               <div class="article-tags" v-if="item.tags">
                 <span 
                   v-for="(tag, index) in parseTags(item.tags)" 
                   :key="index" 
                   class="tag"
-                  v-html="tag"
-                ></span>
+                ><SearchHighlight :text="tag" :keyword="submittedKeyword" /></span>
               </div>
               <div class="article-meta">
+                <span v-if="item.requiredLevel > 0" class="reading-level-badge">L{{ item.requiredLevel }} 阅读</span>
                 <div class="author-info" @click.stop="viewUser(item.userId)">
                   <img :src="getAvatarUrl(item.authorAvatar)" class="author-avatar" @error="handleAvatarError">
                   <span class="author-name">{{ item.authorName || '匿名' }}</span>
@@ -138,15 +120,15 @@
           >
             <img :src="getAvatarUrl(item.avatar)" class="user-avatar" @error="handleAvatarError">
             <div class="user-info">
-              <h3 class="user-name" v-html="highlightKeyword(item.nickName)"></h3>
+              <h3 class="user-name"><SearchHighlight :text="item.nickName" :keyword="submittedKeyword" /></h3>
               <p class="user-intro">{{ item.personIntroduction || '这个人很懒，什么都没有留下~' }}</p>
               <div class="user-stats">
                 <span>{{ item.followerCount || 0 }} 粉丝</span>
                 <span>{{ item.articleCount || 0 }} 文章</span>
               </div>
             </div>
-            <button class="follow-btn" @click.stop="toggleFollow(item)">
-              {{ item.isFollowing ? '已关注' : '关注' }}
+            <button v-if="String(item.userId) !== currentUserId" class="follow-btn" :disabled="followingIds.has(String(item.userId))" @click.stop="toggleFollow(item)">
+              {{ followingIds.has(String(item.userId)) ? '处理中…' : item.isFollowing ? '已关注' : '关注' }}
             </button>
           </div>
         </template>
@@ -175,9 +157,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import AppNavigation from '@/components/AppNavigation.vue'
+import SearchBox from '@/components/SearchBox.vue'
+import ContentState from '@/components/ContentState.vue'
+import { ref, computed, watch, onUnmounted } from 'vue'
+import { latestRequest } from '@/utils/latestRequest'
+import { notify, errorMessage } from '@/utils/feedback'
+import SearchHighlight from '@/components/SearchHighlight.vue'
+import { eventBus, EVENT_AUTH_CHANGED, EVENT_AUTH_EXPIRED } from '@/utils/eventBus'
 import { useRoute, useRouter } from 'vue-router'
-import StarBackground from '../components/StarBackground.vue'
 import request from '../utils/request'
 import { getThumbUrl } from '../utils/image'
 
@@ -185,6 +173,11 @@ const route = useRoute()
 const router = useRouter()
 
 const keyword = ref('')
+const submittedKeyword = ref('')
+const searchError = ref('')
+const requests = latestRequest()
+const currentUserId = ref(localStorage.getItem('token') ? localStorage.getItem('userId') || '' : '')
+const followingIds = ref(new Set<string>())
 const results = ref<any[]>([])
 const loading = ref(false)
 const total = ref(0)
@@ -202,42 +195,39 @@ const totalPages = computed(() => Math.ceil(total.value / pageSize.value))
 
 // 搜索
 async function doSearch() {
-  if (!keyword.value.trim()) return
-  
-  loading.value = true
+  const ticket = requests.begin()
+  searchError.value = ''
   results.value = []
+  total.value = 0
+  if (!submittedKeyword.value) { loading.value = false; return }
+  loading.value = true
   
   try {
     const params: any = {
-      keyword: keyword.value.trim(),
+      keyword: submittedKeyword.value,
       pageNo: currentPage.value,
       pageSize: pageSize.value,
       highlight: true
     }
     
     // 排序类型: 0=点赞, 1=时间, 2=评论, 3=收藏, 空=相关度
-    if (sortBy.value !== '') {
+    if (currentTab.value === 'article' && sortBy.value !== '') {
       params.orderType = parseInt(sortBy.value)
     }
     
-    console.log('发送搜索请求, 参数:', params)
-    console.log('请求URL:', window.location.origin + '/api/search')
-    const startTime = Date.now()
-    const res = await request.get('/search', { params })
-    console.log('搜索结果:', res, '耗时:', Date.now() - startTime, 'ms')
+    const res = await request.get(currentTab.value === 'user' ? '/search/users' : '/search', { params, signal: ticket.signal })
+    if (!ticket.isCurrent()) return
     
     if (res.code === 200 && res.data) {
       results.value = res.data.records || res.data.list || []
       total.value = res.data.total || 0
-      console.log('解析后结果数:', results.value.length, '总数:', total.value)
     } else {
-      console.warn('响应异常:', res)
+      throw new Error('搜索结果暂时不可用，请重新加载')
     }
   } catch (error) {
-    console.error('搜索失败:', error)
-    alert('搜索请求失败: ' + (error as Error).message)
+    if (ticket.isCurrent()) searchError.value = errorMessage(error, '网络连接失败，请稍后重试')
   } finally {
-    loading.value = false
+    if (ticket.isCurrent()) loading.value = false
   }
 }
 
@@ -245,14 +235,17 @@ async function doSearch() {
 function handleSearch() {
   if (!keyword.value.trim()) return
   currentPage.value = 1
-  router.push(`/search?keyword=${encodeURIComponent(keyword.value.trim())}`)
+  if (String(route.query.keyword || '') === keyword.value.trim()) {
+    doSearch()
+    return
+  }
+  router.push({ path: '/search', query: { keyword: keyword.value.trim(), type: currentTab.value } })
 }
 
 // 切换标签
 function changeTab(tab: string) {
-  currentTab.value = tab
-  currentPage.value = 1
-  doSearch()
+  if (currentTab.value === tab) return
+  router.replace({ query: { ...route.query, type: tab } })
 }
 
 // 切换页码
@@ -260,13 +253,6 @@ function changePage(page: number) {
   currentPage.value = page
   doSearch()
   window.scrollTo(0, 0)
-}
-
-// 高亮关键词
-function highlightKeyword(text: string): string {
-  if (!text || !keyword.value) return text || ''
-  const regex = new RegExp(`(${keyword.value})`, 'gi')
-  return text.replace(regex, '<mark>$1</mark>')
 }
 
 // 解析标签
@@ -290,6 +276,11 @@ function viewUser(userId: string | number | undefined) {
 
 // 关注/取关
 async function toggleFollow(user: any) {
+  if (!localStorage.getItem('token')) { router.push({ path: '/', query: { login: 'true', redirect: route.fullPath } }); return }
+  const id = String(user.userId)
+  if (followingIds.value.has(id)) return
+  followingIds.value.add(id)
+  const actingUser = currentUserId.value
   try {
     const url = user.isFollowing 
       ? `/user/${user.userId}/unfollow`
@@ -297,10 +288,12 @@ async function toggleFollow(user: any) {
     
     const res = await request.post(url)
     if (res.code === 200) {
-      user.isFollowing = !user.isFollowing
+      if (actingUser === currentUserId.value) user.isFollowing = !user.isFollowing
     }
   } catch (error) {
-    console.error('操作失败:', error)
+    notify.error(errorMessage(error, '关注操作失败，请重试'))
+  } finally {
+    followingIds.value.delete(id)
   }
 }
 
@@ -362,20 +355,26 @@ function formatDate(dateStr: string): string {
 }
 
 // 监听路由变化
-watch(() => route.query.keyword, (newKeyword) => {
-  if (newKeyword) {
-    keyword.value = String(newKeyword)
+watch(() => [route.query.keyword, route.query.type], ([newKeyword, type]) => {
+    currentTab.value = type === 'user' ? 'user' : 'article'
+    keyword.value = String(newKeyword || '').trim()
+    submittedKeyword.value = keyword.value
     currentPage.value = 1
     doSearch()
-  }
 }, { immediate: true })
 
-onMounted(() => {
-  if (route.query.keyword) {
-    keyword.value = String(route.query.keyword)
-    doSearch()
-  }
+function authChanged() {
+  currentUserId.value = localStorage.getItem('token') ? localStorage.getItem('userId') || '' : ''
+  if (currentTab.value === 'user') doSearch()
+}
+eventBus.on(EVENT_AUTH_CHANGED, authChanged)
+eventBus.on(EVENT_AUTH_EXPIRED, authChanged)
+onUnmounted(() => {
+  requests.cancel()
+  eventBus.off(EVENT_AUTH_CHANGED, authChanged)
+  eventBus.off(EVENT_AUTH_EXPIRED, authChanged)
 })
+
 </script>
 
 <style scoped>
@@ -392,7 +391,7 @@ onMounted(() => {
   left: 0;
   right: 0;
   bottom: 0;
-  background: #f5f7fa;
+  background: var(--ej-canvas);
   z-index: -2;
 }
 
@@ -414,7 +413,7 @@ onMounted(() => {
 .logo {
   font-size: 28px;
   font-weight: bold;
-  color: #409eff;
+  color: var(--ej-accent);
   cursor: pointer;
   flex-shrink: 0;
 }
@@ -463,7 +462,7 @@ onMounted(() => {
 }
 
 .search-box input:focus {
-  border-color: #409eff;
+  border-color: var(--ej-accent);
   background: white;
 }
 
@@ -474,7 +473,7 @@ onMounted(() => {
   transform: translateY(-50%);
   width: 34px;
   height: 34px;
-  background: #409eff;
+  background: var(--ej-accent);
   border: none;
   border-radius: 50%;
   color: white;
@@ -485,7 +484,7 @@ onMounted(() => {
 }
 
 .search-btn:hover {
-  background: #66b1ff;
+  background: var(--ej-ink);
 }
 
 .nav-right {
@@ -761,15 +760,15 @@ onMounted(() => {
 .article-tags .tag {
   display: inline-block;
   padding: 4px 12px;
-  background: rgba(102, 126, 234, 0.1);
-  color: #667eea;
+  background: rgba(17, 17, 15, 0.1);
+  color: var(--ej-accent);
   border-radius: 12px;
   font-size: 12px;
   transition: all 0.3s;
 }
 
 .article-tags .tag:hover {
-  background: rgba(102, 126, 234, 0.2);
+  background: rgba(17, 17, 15, 0.2);
 }
 
 .article-meta {

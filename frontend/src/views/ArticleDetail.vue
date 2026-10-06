@@ -1,7 +1,5 @@
 <template>
-  <div class="article-detail-page">
-    <StarBackground />
-    
+  <div :class="['article-detail-page', { 'ai-question-open': showAiQuestion }]">
     <!-- 导航栏 -->
     <nav class="navbar">
       <div class="logo" @click="$router.push('/')">
@@ -14,7 +12,7 @@
         <span class="logo-text">EasyJob</span>
       </div>
       <div class="nav-right">
-        <button class="nav-btn" @click="$router.push('/')">返回首页</button>
+        <button class="nav-btn" @click="goBackOr(router, '/')">返回</button>
         <button v-if="isAuthor" class="nav-btn primary" @click="editArticle">编辑</button>
         <button v-if="isAuthor" class="nav-btn danger" @click="deleteArticle">删除</button>
       </div>
@@ -23,7 +21,12 @@
     <!-- 主容器 -->
     <div class="main-container">
       <!-- 左侧目录 -->
-      <aside class="toc-sidebar">
+      <aside
+        ref="tocRef"
+        class="toc-sidebar"
+        @pointerenter="tocHovered = true"
+        @pointerleave="tocHovered = false"
+      >
         <div class="toc-title">文章目录</div>
         <ul v-if="tocItems.length > 0" class="toc-list">
           <li
@@ -104,7 +107,21 @@
           </div>
 
           <!-- 文章内容 -->
-          <div class="article-content" v-html="article.content" ref="contentRef"></div>
+          <div v-if="article.canReadFull !== false" class="article-content" v-html="safeHtml(article.content)" ref="contentRef"></div>
+          <div v-else class="reading-lock">
+            <span class="reading-level-badge">L{{ article.requiredLevel }} 阅读内容</span>
+            <h2>继续阅读，解锁这篇文章</h2>
+            <p>你的阅读等级为 L{{ article.readerLevel || 0 }}，还需累计有效阅读 {{ readingDuration(article.secondsToUnlock || 0) }}。</p>
+            <button class="nav-btn primary" @click="myUserId ? router.push('/') : showLoginDialog = true">{{ myUserId ? '去阅读公开文章' : '登录并开始累计' }}</button>
+          </div>
+          <div v-if="article.viewerAdmin" class="reading-admin">
+            <label for="article-reading-level">最低阅读等级</label>
+            <select id="article-reading-level" v-model.number="selectedReadingLevel" :disabled="savingReadingLevel">
+              <option v-for="rule in article.readingProgress?.rules || []" :key="rule.level" :value="rule.level">L{{ rule.level }}{{ rule.level === 0 ? ' · 公开' : '' }}</option>
+            </select>
+            <button class="nav-btn" :disabled="savingReadingLevel || selectedReadingLevel === article.requiredLevel" @click="saveReadingLevel">{{ savingReadingLevel ? '保存中…' : '保存' }}</button>
+            <span role="status">{{ readingLevelFeedback }}</span>
+          </div>
         </article>
 
         <!-- 互动区域 -->
@@ -153,7 +170,8 @@
       </main>
 
       <!-- 右侧在线用户 -->
-      <aside class="online-sidebar">
+      <aside ref="onlineSidebarRef" :class="['online-sidebar', { 'ai-rail-reserved': showAiQuestion }]" :aria-hidden="showAiQuestion">
+        <ReadingProgress :progress="readingProgress" :status="readingStatus" class="article-reading-progress" />
         <div class="online-header">
           <h3>在线观看</h3>
           <span class="online-count">{{ onlineUsers.length }}人</span>
@@ -178,18 +196,31 @@
             暂无其他用户
           </div>
         </div>
+        <button class="ask-article-ai-btn" @click="openAiQuestion" :disabled="!article.articleId || article.requiredLevel > 0" :title="article.requiredLevel > 0 ? '等级文章暂不支持 AI 问答' : ''">
+          <span class="ask-ai-mark">✎</span> 问 AI <span class="ask-ai-arrow">↗</span>
+        </button>
         <button class="open-chatroom-btn" @click="openChatroom">
           <svg viewBox="0 0 1024 1024" fill="currentColor" class="chat-icon">
             <path d="M535.552 796.444444H739.555556q70.712889 0 120.661333-50.005333Q910.222222 696.490667 910.222222 625.777778V341.333333q0-70.712889-50.005333-120.661333Q810.268444 170.666667 739.555556 170.666667H284.444444q-70.712889 0-120.661333 50.005333Q113.777778 270.620444 113.777778 341.333333v284.444445q0 70.712889 50.005333 120.661333Q213.731556 796.444444 284.444444 796.444444h13.084445q4.266667 8.533333 9.898667 16.497778 21.219556 30.151111 55.751111 44.487111 34.531556 14.279111 70.883555 7.964445 39.310222-6.826667 68.152889-35.612445L535.552 796.444444zM739.555556 682.666667H512a56.888889 56.888889 0 0 0-40.220444 16.668444l-50.005334 50.005333q-6.485333 6.485333-15.018666 2.958223Q398.222222 748.771556 398.222222 739.555556a56.888889 56.888889 0 0 0-56.888889-56.888889H284.444444q-23.552 0-40.220444-16.668445T227.555556 625.777778V341.333333q0-23.552 16.668444-40.220444T284.444444 284.444444h455.111112q23.552 0 40.220444 16.668445T796.444444 341.333333v284.444445q0 23.552-16.668444 40.220444T739.555556 682.666667zM341.333333 540.444444a56.888889 56.888889 0 1 0 0-113.777777 56.888889 56.888889 0 0 0 0 113.777777z m170.666667 0a56.888889 56.888889 0 1 0 0-113.777777 56.888889 56.888889 0 0 0 0 113.777777z m170.666667 0a56.888889 56.888889 0 1 0 0-113.777777 56.888889 56.888889 0 0 0 0 113.777777z"/>
           </svg>
-          打开聊天室
+          读者聊天室
           <span v-if="hasNewMessage" class="new-msg-dot"></span>
         </button>
       </aside>
+      <Transition name="article-ai">
+        <aside v-if="aiQuestionMounted" v-show="showAiQuestion" class="article-ai-drawer" :style="aiDrawerStyle" aria-label="文章问答">
+          <AiChat :key="`${route.params.id}:${myUserId}`" embedded :origin-article-id="String(route.params.id)" :origin-article-title="article.title"
+                  :reader-count="onlineUsers.length" :reader-unread="hasNewMessage"
+                  @close="showAiQuestion = false" @open-chatroom="openChatroom" @login-required="handleAuthExpired" />
+        </aside>
+      </Transition>
     </div>
 
+    <div v-if="showAiQuestion && !aiDocked" class="article-ai-backdrop" @click="showAiQuestion = false"></div>
+
     <!-- 移动端浮动按钮 -->
-    <div class="mobile-float-btn">
+    <div v-show="!showAiQuestion" class="mobile-float-btn">
+      <button class="float-btn mobile-ai-btn" aria-label="问 AI" @click="openAiQuestion">✎</button>
       <button class="float-btn" @click="openChatroom">
         <svg viewBox="0 0 1024 1024" fill="currentColor">
           <path d="M535.552 796.444444H739.555556q70.712889 0 120.661333-50.005333Q910.222222 696.490667 910.222222 625.777778V341.333333q0-70.712889-50.005333-120.661333Q810.268444 170.666667 739.555556 170.666667H284.444444q-70.712889 0-120.661333 50.005333Q113.777778 270.620444 113.777778 341.333333v284.444445q0 70.712889 50.005333 120.661333Q213.731556 796.444444 284.444444 796.444444h13.084445q4.266667 8.533333 9.898667 16.497778 21.219556 30.151111 55.751111 44.487111 34.531556 14.279111 70.883555 7.964445 39.310222-6.826667 68.152889-35.612445L535.552 796.444444zM739.555556 682.666667H512a56.888889 56.888889 0 0 0-40.220444 16.668444l-50.005334 50.005333q-6.485333 6.485333-15.018666 2.958223Q398.222222 748.771556 398.222222 739.555556a56.888889 56.888889 0 0 0-56.888889-56.888889H284.444444q-23.552 0-40.220444-16.668445T227.555556 625.777778V341.333333q0-23.552 16.668444-40.220444T284.444444 284.444444h455.111112q23.552 0 40.220444 16.668445T796.444444 341.333333v284.444445q0 23.552-16.668444 40.220444T739.555556 682.666667zM341.333333 540.444444a56.888889 56.888889 0 1 0 0-113.777777 56.888889 56.888889 0 0 0 0 113.777777z m170.666667 0a56.888889 56.888889 0 1 0 0-113.777777 56.888889 56.888889 0 0 0 0 113.777777z m170.666667 0a56.888889 56.888889 0 1 0 0-113.777777 56.888889 56.888889 0 0 0 0 113.777777z"/>
@@ -267,16 +298,23 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick, computed } from 'vue'
+import { trackEffectiveReading } from '@/utils/effectiveReading'
+import ReadingProgress from '@/components/ReadingProgress.vue'
+import { ReadingHeartbeatPump, readingDuration, type ReadingProgress as Progress } from '@/utils/readingGrowth'
+import { ref, onMounted, onUnmounted, nextTick, computed, watch, defineAsyncComponent } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import StarBackground from '../components/StarBackground.vue'
+import { goBackOr, goBackUnless } from '../utils/navigation'
 import ArticleComment from '../components/ArticleComment.vue'
 import LoginForm from '../components/LoginForm.vue'
 import RegisterForm from '../components/RegisterForm.vue'
 import request from '../utils/request'
+import { ensureAccessToken } from '../utils/authSession'
 import { eventBus, EVENT_AUTH_EXPIRED } from '../utils/eventBus'
-import hljs from 'highlight.js'
-import 'highlight.js/styles/atom-one-dark.css'
+// 只用 highlight.js 打 token 标记；配色在 styles/theme.css 中与编辑器共用
+import hljs from '@/utils/highlight'
+import { safeHtml } from '@/utils/safeHtml'
+
+const AiChat = defineAsyncComponent(() => import('./AiChat.vue'))
 
 const route = useRoute()
 const router = useRouter()
@@ -301,6 +339,33 @@ const article = ref<any>({
 
 const tocItems = ref<any[]>([])
 const activeHeading = ref('')
+const tocRef = ref<HTMLElement>()
+// 鼠标停在目录上时用户可能在手动浏览目录，不自动滚动以免和用户抢位置
+const tocHovered = ref(false)
+// 当前项距目录可视区上下边缘至少保留这么多空间，否则把它滚到可视区上部三分之一处
+const TOC_EDGE_MARGIN = 48
+
+// 阅读正文时目录跟随：当前标题对应的目录项始终保持在目录可视区内。
+// 只滚动目录容器自身，不使用 scrollIntoView，避免连带滚动整页。
+function keepActiveTocItemVisible() {
+  const container = tocRef.value
+  if (!container || tocHovered.value) return
+  const item = container.querySelector<HTMLElement>('.toc-item.active')
+  if (!item) return
+  const containerRect = container.getBoundingClientRect()
+  const itemRect = item.getBoundingClientRect()
+  const itemTop = itemRect.top - containerRect.top + container.scrollTop
+  const visibleTop = container.scrollTop + TOC_EDGE_MARGIN
+  const visibleBottom = container.scrollTop + container.clientHeight - TOC_EDGE_MARGIN
+  if (itemTop >= visibleTop && itemTop + itemRect.height <= visibleBottom) return
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  container.scrollTo({
+    top: Math.max(0, itemTop - container.clientHeight / 3),
+    behavior: reduceMotion ? 'auto' : 'smooth',
+  })
+}
+
+watch(activeHeading, () => nextTick(keepActiveTocItemVisible))
 const contentRef = ref<HTMLElement>()
 
 // 图片预览
@@ -309,6 +374,33 @@ const previewImage = ref('')
 // 在线用户和聊天室
 const onlineUsers = ref<any[]>([])
 const showChatroom = ref(false)
+const showAiQuestion = ref(false)
+const aiQuestionMounted = ref(false)
+const onlineSidebarRef = ref<HTMLElement>()
+const aiDocked = ref(false)
+const aiDockLeft = ref(0)
+let aiLayoutObserver: ResizeObserver | undefined
+const aiDrawerStyle = computed(() => aiDocked.value
+  ? { left: `${aiDockLeft.value}px`, right: '20px', width: 'auto' }
+  : {})
+
+function updateAiLayout() {
+  const rail = onlineSidebarRef.value?.getBoundingClientRect()
+  const available = rail ? document.documentElement.clientWidth - rail.left - 20 : 0
+  // Anchor to the original reader rail; reserve its layout space so neither
+  // the reading column nor outline changes position when opening the panel.
+  aiDocked.value = !!rail && rail.width > 0 && available >= 360
+  aiDockLeft.value = rail?.left ?? 0
+}
+
+watch(showAiQuestion, () => nextTick(updateAiLayout))
+
+function openAiQuestion() {
+  if (article.value.requiredLevel > 0) return
+  if (!localStorage.getItem('token')) { showLoginDialog.value = true; return }
+  aiQuestionMounted.value = true
+  showAiQuestion.value = true
+}
 const chatroomMessages = ref<any[]>([])
 const chatroomInput = ref('')
 const chatroomMessagesRef = ref<HTMLElement>()
@@ -323,12 +415,64 @@ let shouldReconnect = true
 let heartbeatTimer: number | null = null
 // 组件挂载时保存articleId，避免onUnmounted时route.params.id已变化
 const currentArticleId = route.params.id as string
+let detailDisposed = false
 
 // 判断是否是作者
 const isAuthor = computed(() => {
   const userId = localStorage.getItem('userId')
   return userId && (article.value.authorId === userId || article.value.userId === userId)
 })
+const readingProgress = ref<Progress>()
+const readingStatus = ref('')
+const selectedReadingLevel = ref(0)
+const savingReadingLevel = ref(false)
+const readingLevelFeedback = ref('')
+let stopGrowth: (() => void) | undefined
+async function saveReadingLevel() {
+  savingReadingLevel.value = true; readingLevelFeedback.value = ''
+  try {
+    await request.put(`/article/${article.value.articleId}/reading-level`, { level: selectedReadingLevel.value })
+    readingLevelFeedback.value = '已保存'; await fetchArticle()
+  } catch (error) { readingLevelFeedback.value = error instanceof Error ? error.message : '保存失败' }
+  finally { savingReadingLevel.value = false }
+}
+async function startGrowth(articleId: string) {
+  if (!localStorage.getItem('token') || isAuthor.value || article.value.canReadFull === false) return
+  let disposed = false
+  let lastActivity = Date.now()
+  const isActive = () => !document.hidden && document.hasFocus() && Date.now() - lastActivity < 120000
+  const activity = () => { lastActivity = Date.now() }
+  const events = ['pointerdown', 'pointermove', 'keydown', 'scroll', 'touchstart']
+  for (const event of events) window.addEventListener(event, activity, { passive: true })
+  let pump: ReadingHeartbeatPump | undefined
+  let timer: ReturnType<typeof setInterval> | undefined
+  const check = () => { if (!disposed) { const active = isActive(); readingStatus.value = active ? '正在累计有效阅读' : '计时暂停 · 页面在后台或暂时没有操作'; void pump?.update(active, Date.now()) } }
+  const stop = () => {
+    if (!disposed) void pump?.update(false, Date.now())
+    disposed = true; pump?.stop(); clearInterval(timer)
+    for (const event of events) window.removeEventListener(event, activity)
+    document.removeEventListener('visibilitychange', check); window.removeEventListener('focus', check); window.removeEventListener('blur', check)
+  }
+  stopGrowth = stop
+  try {
+    const activeAtStart = isActive()
+    const res = await request.post('/reading/sessions', { articleId, active: activeAtStart })
+    if (disposed || detailDisposed) { stop(); return }
+    readingProgress.value = res.data
+    pump = new ReadingHeartbeatPump(res.data.sessionId, activeAtStart, Date.now(), async beat => {
+      const result = await request.post('/reading/heartbeat', beat); return result.data
+    }, progress => { readingProgress.value = progress }, error => {
+      const message = error instanceof Error ? error.message : '网络暂不可用'
+      readingStatus.value = message
+      const terminal = /其他页面|等级|不存在|登录|账号/.test(message)
+      if (terminal) stop()
+      return terminal
+    })
+    timer = setInterval(check, 5000)
+    document.addEventListener('visibilitychange', check); window.addEventListener('focus', check); window.addEventListener('blur', check)
+    check()
+  } catch (error) { stop(); readingStatus.value = error instanceof Error ? error.message : '阅读计时暂不可用' }
+}
 
 // 获取文章详情
 async function fetchArticle() {
@@ -337,6 +481,7 @@ async function fetchArticle() {
     console.log('获取文章详情:', articleId)
     
     const res = await request.get(`/article/detail/${articleId}`)
+    if (detailDisposed || String(route.params.id) !== String(articleId)) return
     console.log('文章详情响应:', res)
     
     if (res.code === 200 && res.data) {
@@ -349,14 +494,23 @@ async function fetchArticle() {
       }
       // 初始化分享数
       shareCount.value = res.data.shareCount || 0
+      readingProgress.value = localStorage.getItem('token') ? res.data.readingProgress : undefined
+      selectedReadingLevel.value = res.data.requiredLevel || 0
+      stopGrowth?.()
       console.log('文章数据:', article.value)
       console.log('点赞状态:', article.value.hasLiked, '收藏状态:', article.value.hasCollected, '分享数:', shareCount.value)
       
       // 等待DOM更新后生成目录和代码高亮
       await nextTick()
+      if (detailDisposed || String(route.params.id) !== String(articleId)) return
       generateTOC()
       highlightCode()
       bindImagePreview()  // 绑定图片点击预览
+      stopReading?.()
+      if (article.value.canReadFull !== false) {
+        stopReading = trackEffectiveReading(() => increaseViewCount(String(articleId)))
+        void startGrowth(String(articleId))
+      }
     } else {
       alert(res.message || '获取文章失败')
     }
@@ -368,6 +522,7 @@ async function fetchArticle() {
 
 // 生成目录
 function generateTOC() {
+  tocItems.value = []
   if (!contentRef.value) return
   
   const headings = contentRef.value.querySelectorAll('h1, h2, h3, h4, h5, h6')
@@ -413,18 +568,34 @@ function bindImagePreview() {
   console.log('图片预览绑定完成，共', images.length, '张图片')
 }
 
-// 滚动到标题
+// 标题与固定导航栏之间保留的间距
+const HEADING_GAP = 16
+// 点击目录后，等待平滑滚动结束再恢复滚动高亮
+const SCROLL_SETTLE_MS = 150
+let pendingHeading = ''
+let settleTimer: ReturnType<typeof setTimeout> | undefined
+
+// 导航栏高度随断点变化，按实际渲染位置计算偏移
+function getHeadingOffset(): number {
+  const navbar = document.querySelector<HTMLElement>('.article-detail-page .navbar')
+  return (navbar?.getBoundingClientRect().bottom ?? 0) + HEADING_GAP
+}
+
+// 滚动到标题：一次性计算目标位置，避免两段平滑滚动互相打断
 function scrollToHeading(id: string) {
   const element = document.getElementById(id)
-  if (element) {
-    // 使用 scrollIntoView，兼容性更好
-    element.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    // 补偿导航栏高度
-    setTimeout(() => {
-      window.scrollBy({ top: -100, behavior: 'smooth' })
-    }, 100)
-    activeHeading.value = id
-  }
+  if (!element) return
+  const top = element.getBoundingClientRect().top + window.scrollY - getHeadingOffset()
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  pendingHeading = id
+  activeHeading.value = id
+  window.scrollTo({ top: Math.max(0, top), behavior: reduceMotion ? 'auto' : 'smooth' })
+  scheduleSettle()
+}
+
+function scheduleSettle() {
+  clearTimeout(settleTimer)
+  settleTimer = setTimeout(() => { pendingHeading = '' }, SCROLL_SETTLE_MS)
 }
 
 // 点赞
@@ -525,7 +696,7 @@ function showShareSuccess() {
   const toast = document.createElement('div')
   toast.className = 'share-toast'
   toast.innerHTML = `
-    <svg viewBox="0 0 24 24" width="20" height="20" fill="#00aeec">
+    <svg viewBox="0 0 24 24" width="20" height="20" style="fill: var(--ej-accent)">
       <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/>
     </svg>
     <span>链接已复制到剪贴板</span>
@@ -546,15 +717,25 @@ function editArticle() {
   router.push(`/edit-article?id=${article.value.articleId || route.params.id}`)
 }
 
+// 判断路径是否为指定文章的详情页或编辑页（精确比较 ID，避免 12 误匹配 123）
+function isPageOfArticle(path: string, articleId: string): boolean {
+  const url = new URL(path, window.location.origin)
+  return url.pathname === `/article/${articleId}`
+    || (url.pathname === '/edit-article' && url.searchParams.get('id') === articleId)
+}
+
 // 删除文章
 async function deleteArticle() {
   if (!confirm('确定要删除这篇文章吗？')) return
   
+  const articleId = String(article.value.articleId || route.params.id)
   try {
-    const res = await request.delete(`/article/${article.value.articleId || route.params.id}`)
+    const res = await request.delete(`/article/${articleId}`)
     if (res.code === 200) {
       alert('删除成功')
-      router.push('/')
+      // 回到进入文章前的页面（个人空间、搜索结果、首页等）；
+      // 上一页是这篇文章的详情或编辑页时已失效，改回作者自己的个人空间
+      goBackUnless(router, previous => isPageOfArticle(previous, articleId), '/user-space')
     } else {
       alert(res.message || '删除失败')
     }
@@ -615,9 +796,11 @@ function switchToLogin() {
 }
 
 // 初始化文章 WebSocket
-function initArticleWebSocket() {
-  const token = localStorage.getItem('token')
+async function initArticleWebSocket() {
+  let token: string | null
+  try { token = await ensureAccessToken() } catch { return }
   if (!token) return
+  if (articleWs && (articleWs.readyState === WebSocket.OPEN || articleWs.readyState === WebSocket.CONNECTING)) return
   
   shouldReconnect = true
   
@@ -789,24 +972,32 @@ function handleCoverError(e: Event) {
 // 增加浏览数（浏览15秒后调用）
 async function increaseViewCount(articleId: string) {
   try {
-    await request.post(`/article/${articleId}/view`)
-    console.log('浏览数已增加')
+    const response = await request.post(`/article/${articleId}/view`)
+    if (String(route.params.id) === articleId && Number.isFinite(response.data?.viewCount)) article.value.viewCount = response.data.viewCount
   } catch (error) {
     console.error('增加浏览数失败:', error)
   }
 }
 
 // 浏览计时器
-let viewTimer: NodeJS.Timeout | null = null
+let stopReading: (() => void) | undefined
 
 // 监听滚动更新目录激活项
 function handleScroll() {
+  // 点击目录触发的滚动过程中保持点击项高亮，
+  // 否则文末标题因无法滚到顶部而永远不会被选中
+  if (pendingHeading) {
+    scheduleSettle()
+    return
+  }
   const headings = document.querySelectorAll('[id^="heading-"]')
+  // 与跳转偏移使用同一基准，跳转后的标题即为当前高亮项
+  const threshold = getHeadingOffset() + 1
   let currentActive = ''
   
   headings.forEach((heading) => {
     const rect = heading.getBoundingClientRect()
-    if (rect.top <= 150) {
+    if (rect.top <= threshold) {
       currentActive = heading.id
     }
   })
@@ -816,6 +1007,8 @@ function handleScroll() {
 
 // 登录过期处理
 function handleAuthExpired() {
+  showAiQuestion.value = false
+  aiQuestionMounted.value = false
   showLoginDialog.value = true
 }
 
@@ -823,14 +1016,11 @@ onMounted(() => {
   eventBus.on(EVENT_AUTH_EXPIRED, handleAuthExpired)
   fetchArticle()
   window.addEventListener('scroll', handleScroll)
+  window.addEventListener('resize', updateAiLayout)
+  updateAiLayout()
+  aiLayoutObserver = new ResizeObserver(updateAiLayout)
+  if (onlineSidebarRef.value?.parentElement) aiLayoutObserver.observe(onlineSidebarRef.value.parentElement)
   
-  // 15秒后增加浏览数（仅登录用户）
-  const articleId = route.params.id as string
-  if (localStorage.getItem('token')) {
-    viewTimer = setTimeout(() => {
-      increaseViewCount(articleId)
-    }, 15000)
-  }
   
   // 初始化文章 WebSocket
   initArticleWebSocket()
@@ -838,12 +1028,15 @@ onMounted(() => {
 
 // 清理事件监听
 onUnmounted(() => {
+  detailDisposed = true
   eventBus.off(EVENT_AUTH_EXPIRED, handleAuthExpired)
   window.removeEventListener('scroll', handleScroll)
+  window.removeEventListener('resize', updateAiLayout)
+  aiLayoutObserver?.disconnect()
+  clearTimeout(settleTimer)
   // 清理计时器
-  if (viewTimer) {
-    clearTimeout(viewTimer)
-  }
+  stopReading?.()
+  stopGrowth?.()
   // 离开文章
   leaveArticle()
 })
@@ -854,7 +1047,8 @@ onUnmounted(() => {
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   min-height: 100vh;
   position: relative;
-  overflow-x: hidden;
+  /* clip 只裁剪横向溢出，不会像 hidden 那样形成滚动容器；否则左侧目录和右侧在线栏的 sticky 会失效 */
+  overflow-x: clip;
 }
 
 .article-detail-page::before {
@@ -864,7 +1058,7 @@ onUnmounted(() => {
   left: 0;
   right: 0;
   bottom: 0;
-  background: #f5f7fa;
+  background: var(--ej-canvas);
   z-index: -2;
 }
 
@@ -894,7 +1088,7 @@ onUnmounted(() => {
   gap: 8px;
   font-size: 28px;
   font-weight: bold;
-  color: #409eff;
+  color: var(--ej-accent);
   cursor: pointer;
   transition: all 0.3s;
 }
@@ -936,7 +1130,7 @@ onUnmounted(() => {
 }
 
 .nav-btn.primary {
-  background: #409eff;
+  background: var(--ej-accent);
   color: white;
 }
 
@@ -1005,16 +1199,16 @@ onUnmounted(() => {
 }
 
 .toc-item a:hover {
-  background: rgba(102, 126, 234, 0.1);
-  color: #667eea;
-  border-left-color: #667eea;
+  background: rgba(17, 17, 15, 0.1);
+  color: var(--ej-accent);
+  border-left-color: var(--ej-accent);
   transform: translateX(5px);
 }
 
 .toc-item.active a {
-  background: rgba(102, 126, 234, 0.15);
-  color: #667eea;
-  border-left-color: #667eea;
+  background: rgba(17, 17, 15, 0.15);
+  color: var(--ej-accent);
+  border-left-color: var(--ej-accent);
   font-weight: 600;
 }
 
@@ -1075,7 +1269,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 6px;
   padding: 6px 16px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, var(--ej-accent) 0%, #53664b 100%);
   color: white;
   border-radius: 20px;
   font-size: 13px;
@@ -1086,8 +1280,8 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   padding: 6px 16px;
-  background: rgba(102, 126, 234, 0.1);
-  color: #667eea;
+  background: rgba(17, 17, 15, 0.1);
+  color: var(--ej-accent);
   border-radius: 20px;
   font-size: 13px;
   font-weight: 500;
@@ -1095,7 +1289,7 @@ onUnmounted(() => {
 }
 
 .tag-badge:hover {
-  background: rgba(102, 126, 234, 0.2);
+  background: rgba(17, 17, 15, 0.2);
   transform: translateY(-2px);
 }
 
@@ -1118,13 +1312,13 @@ onUnmounted(() => {
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  border: 2px solid rgba(102, 126, 234, 0.3);
+  border: 2px solid rgba(17, 17, 15, 0.3);
   cursor: pointer;
   object-fit: cover;
 }
 
 .author-name {
-  color: #667eea;
+  color: var(--ej-accent);
   cursor: pointer;
   font-weight: 500;
 }
@@ -1167,7 +1361,7 @@ onUnmounted(() => {
   margin-bottom: 30px;
   padding: 20px;
   background: #f7f9fc;
-  border-left: 4px solid #667eea;
+  border-left: 4px solid var(--ej-accent);
   border-radius: 5px;
 }
 
@@ -1179,33 +1373,7 @@ onUnmounted(() => {
   word-wrap: break-word;
 }
 
-.article-content :deep(h1),
-.article-content :deep(h2),
-.article-content :deep(h3),
-.article-content :deep(h4),
-.article-content :deep(h5) {
-  margin: 25px 0 15px;
-  color: #1a1a1a;
-  font-weight: 600;
-  line-height: 1.4;
-  scroll-margin-top: 100px;
-}
-
-.article-content :deep(h1) {
-  font-size: 32px;
-  border-bottom: 2px solid #e8e8e8;
-  padding-bottom: 10px;
-}
-
-.article-content :deep(h2) {
-  font-size: 28px;
-  border-bottom: 1px solid #f0f0f0;
-  padding-bottom: 8px;
-}
-
-.article-content :deep(h3) { font-size: 24px; }
-.article-content :deep(h4) { font-size: 20px; }
-.article-content :deep(h5) { font-size: 18px; }
+/* 正文各级标题的样式统一在 styles/theme.css 中定义，与编辑器共用 */
 
 .article-content :deep(p) {
   margin-bottom: 16px;
@@ -1221,80 +1389,7 @@ onUnmounted(() => {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
-.article-content :deep(pre) {
-  background: #282c34;
-  border-radius: 8px;
-  padding: 20px;
-  overflow-x: auto;
-  margin: 20px 0;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-}
-
-.article-content :deep(pre code) {
-  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-  font-size: 14px;
-  line-height: 1.6;
-  color: #abb2bf;
-  background: transparent;
-  display: block;
-  white-space: pre;
-}
-
-.article-content :deep(code) {
-  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-  font-size: 14px;
-  line-height: 1.6;
-  background: #f5f5f5;
-  color: #e83e8c;
-  padding: 2px 6px;
-  border-radius: 4px;
-}
-
-/* 代码高亮颜色 */
-.article-content :deep(.hljs-keyword),
-.article-content :deep(.hljs-selector-tag),
-.article-content :deep(.hljs-literal),
-.article-content :deep(.hljs-section),
-.article-content :deep(.hljs-link) {
-  color: #c678dd;
-}
-
-.article-content :deep(.hljs-string),
-.article-content :deep(.hljs-title),
-.article-content :deep(.hljs-name),
-.article-content :deep(.hljs-type),
-.article-content :deep(.hljs-attribute),
-.article-content :deep(.hljs-symbol),
-.article-content :deep(.hljs-bullet),
-.article-content :deep(.hljs-addition),
-.article-content :deep(.hljs-variable),
-.article-content :deep(.hljs-template-tag),
-.article-content :deep(.hljs-template-variable) {
-  color: #98c379;
-}
-
-.article-content :deep(.hljs-comment),
-.article-content :deep(.hljs-quote),
-.article-content :deep(.hljs-deletion),
-.article-content :deep(.hljs-meta) {
-  color: #5c6370;
-  font-style: italic;
-}
-
-.article-content :deep(.hljs-number),
-.article-content :deep(.hljs-regexp),
-.article-content :deep(.hljs-literal),
-.article-content :deep(.hljs-built_in) {
-  color: #d19a66;
-}
-
-.article-content :deep(.hljs-function) {
-  color: #61afef;
-}
-
-.article-content :deep(.hljs-class) {
-  color: #e6c07b;
-}
+/* 代码块与行内代码的样式统一在 styles/theme.css 中定义，与编辑器共用 */
 
 .article-content :deep(ul),
 .article-content :deep(ol) {
@@ -1335,7 +1430,7 @@ onUnmounted(() => {
 }
 
 .action-btn:hover {
-  color: #409eff;
+  color: var(--ej-accent);
 }
 
 /* 点赞 */
@@ -1361,7 +1456,7 @@ onUnmounted(() => {
 
 /* 分享 */
 .action-btn.share-btn:hover {
-  color: #00aeec;
+  color: var(--ej-accent);
 }
 
 .action-btn.active .action-icon {
@@ -1402,21 +1497,21 @@ onUnmounted(() => {
   width: 56px;
   height: 56px;
   border-radius: 50%;
-  background: #409eff;
+  background: var(--ej-accent);
   color: white;
   border: none;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 4px 12px rgba(64, 158, 255, 0.4);
+  box-shadow: 0 4px 12px rgba(17, 17, 15, 0.4);
   transition: all 0.3s;
   position: relative;
 }
 
 .float-btn:hover {
   transform: scale(1.1);
-  box-shadow: 0 6px 16px rgba(64, 158, 255, 0.5);
+  box-shadow: 0 6px 16px rgba(17, 17, 15, 0.5);
 }
 
 .float-btn svg {
@@ -1651,20 +1746,6 @@ onUnmounted(() => {
     line-height: 1.8;
   }
   
-  .article-content :deep(h1) { font-size: 22px; }
-  .article-content :deep(h2) { font-size: 20px; }
-  .article-content :deep(h3) { font-size: 18px; }
-  .article-content :deep(h4) { font-size: 16px; }
-  
-  .article-content :deep(pre) {
-    padding: 15px;
-    border-radius: 6px;
-  }
-  
-  .article-content :deep(pre code) {
-    font-size: 12px;
-  }
-  
   .action-btn-group {
     gap: 12px;
     flex-wrap: wrap;
@@ -1783,7 +1864,7 @@ onUnmounted(() => {
 }
 
 .online-count {
-  background: #409eff;
+  background: var(--ej-accent);
   color: white;
   padding: 2px 10px;
   border-radius: 12px;
@@ -1829,7 +1910,7 @@ onUnmounted(() => {
 }
 
 .online-user-name:hover {
-  color: #409eff;
+  color: var(--ej-accent);
 }
 
 .online-empty {
@@ -1842,7 +1923,7 @@ onUnmounted(() => {
 .open-chatroom-btn {
   width: 100%;
   padding: 12px;
-  background: #409eff;
+  background: var(--ej-accent);
   color: white;
   border: none;
   border-radius: 8px;
@@ -1857,7 +1938,7 @@ onUnmounted(() => {
 }
 
 .open-chatroom-btn:hover {
-  background: #66b1ff;
+  background: var(--ej-ink);
 }
 
 .chat-icon {
@@ -2023,7 +2104,7 @@ onUnmounted(() => {
 }
 
 .chatroom-msg-name.clickable:hover {
-  color: #409eff;
+  color: var(--ej-accent);
 }
 
 .chatroom-msg-bubble {
@@ -2036,7 +2117,7 @@ onUnmounted(() => {
 }
 
 .chatroom-message.self .chatroom-msg-bubble {
-  background: #409eff;
+  background: var(--ej-accent);
   color: white;
 }
 
@@ -2058,12 +2139,12 @@ onUnmounted(() => {
 }
 
 .chatroom-input input:focus {
-  border-color: #409eff;
+  border-color: var(--ej-accent);
 }
 
 .chatroom-send-btn {
   padding: 10px 24px;
-  background: #409eff;
+  background: var(--ej-accent);
   color: white;
   border: none;
   border-radius: 20px;
@@ -2073,7 +2154,7 @@ onUnmounted(() => {
 }
 
 .chatroom-send-btn:hover:not(:disabled) {
-  background: #66b1ff;
+  background: var(--ej-ink);
 }
 
 .chatroom-send-btn:disabled {
@@ -2098,7 +2179,7 @@ onUnmounted(() => {
   animation: slideDown 0.3s ease;
   font-size: 14px;
   color: #333;
-  border: 2px solid #00aeec;
+  border: 1.5px solid var(--ej-ink);
 }
 
 .share-toast.fade-out {
@@ -2211,4 +2292,23 @@ onUnmounted(() => {
     transform: none;
   }
 }
+.ask-article-ai-btn { display: flex; align-items: center; justify-content: center; gap: 9px; width: 100%; margin-bottom: 10px; padding: 11px 14px; background: var(--ej-lime, #caff4d); border: 1px solid var(--ej-ink); border-radius: 999px; font-size: 14px; color: var(--ej-ink); cursor: pointer; transition: transform .18s ease, box-shadow .18s ease; }
+.ask-article-ai-btn:hover { transform: translateY(-2px); box-shadow: 0 3px 0 #11110f1a; }
+.ask-article-ai-btn:disabled { opacity: .5; cursor: default; }
+.ask-ai-mark { font-size: 18px; }
+.ask-ai-arrow { margin-left: auto; }
+.article-ai-drawer { position: fixed; z-index: 2000; top: 96px; bottom: 20px; right: 20px; width: min(480px, calc(100% - 40px)); overflow: hidden; background: var(--ej-surface); border: 1.5px solid var(--ej-ink); border-radius: 20px; box-shadow: 0 5px 0 #11110f12; }
+.article-ai-backdrop { position: fixed; inset: 72px 0 0; z-index: 1900; background: #11110f20; }
+:global(#app .article-detail-page.ai-question-open .main-container) { z-index: auto; }
+:global(#app .article-detail-page .online-sidebar.ai-rail-reserved) { visibility: hidden; pointer-events: none; }
+.article-ai-enter-active, .article-ai-leave-active { transition: opacity .22s ease, transform .22s ease; }
+.article-ai-enter-from, .article-ai-leave-to { opacity: 0; transform: translateX(14px); }
+@media (max-width: 1050px) {
+  .article-ai-drawer { position: fixed; z-index: 2000; top: 84px; bottom: 14px; right: 14px; width: min(480px, calc(100% - 28px)); height: auto; }
+  .article-ai-backdrop { display: block; position: fixed; inset: 70px 0 0; z-index: 1900; background: #11110f20; }
+}
+@media (max-width: 480px) {
+  .article-ai-drawer { top: 78px; right: 8px; bottom: 8px; width: calc(100% - 16px); border-radius: 18px; }
+}
+@media (prefers-reduced-motion: reduce) { .article-ai-enter-active, .article-ai-leave-active, .ask-article-ai-btn { transition: none; } }
 </style>

@@ -250,22 +250,22 @@ async function handleRegister() {
 .register-form :deep(.el-input__wrapper) {
   padding: 0 16px;
   height: 52px;
-  background: #f8fafc !important;
-  border: 1.5px solid #e5e7eb;
+  background: var(--ej-canvas) !important;
+  border: 1px solid var(--ej-line);
   box-shadow: none !important;
   border-radius: 14px;
   transition: all 0.25s ease;
 }
 
 .register-form :deep(.el-input__wrapper:hover) {
-  border-color: #d1d5db;
-  background: #fff !important;
+  border-color: var(--ej-ink);
+  background: var(--ej-surface) !important;
 }
 
 .register-form :deep(.el-input__wrapper.is-focus) {
-  background: #fff !important;
-  border-color: #00a1d6;
-  box-shadow: none !important;
+  background: var(--ej-surface) !important;
+  border-color: var(--ej-ink);
+  box-shadow: 3px 3px 0 #11110f14 !important;
 }
 
 /* 彻底清除输入框内部蓝色 */
@@ -278,7 +278,7 @@ async function handleRegister() {
 }
 
 .register-form :deep(.el-input) {
-  --el-input-focus-border-color: #00a1d6;
+  --el-input-focus-border-color: var(--ej-accent);
   --el-input-bg-color: transparent;
 }
 
@@ -298,8 +298,8 @@ async function handleRegister() {
 }
 
 .register-form :deep(.el-button--primary) {
-  background: #00a1d6;
-  border-color: #00a1d6;
+  background: var(--ej-accent);
+  border-color: var(--ej-accent);
   height: 52px;
   font-size: 15px;
   font-weight: 600;
@@ -308,8 +308,8 @@ async function handleRegister() {
 }
 
 .register-form :deep(.el-button--primary:hover) {
-  background: #00b5e5;
-  border-color: #00b5e5;
+  background: var(--ej-ink);
+  border-color: var(--ej-ink);
 }
 
 .register-form :deep(.el-button--primary:active) {
@@ -328,7 +328,7 @@ async function handleRegister() {
 }
 
 .form-footer a {
-  color: #00a1d6;
+  color: var(--ej-accent);
   cursor: pointer;
   margin-left: 6px;
   text-decoration: none;
@@ -337,7 +337,7 @@ async function handleRegister() {
 }
 
 .form-footer a:hover {
-  color: #00b5e5;
+  color: var(--ej-ink);
 }
 
 /* 装饰图片 */

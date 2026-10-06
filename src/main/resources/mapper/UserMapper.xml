@@ -1,6 +1,21 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.easyjob.mapper.UserMapper">
+    <sql id="searchUserFilter">
+        u.status = 1 AND (u.nick_name LIKE #{pattern} ESCAPE '!' OR u.person_introduction LIKE #{pattern} ESCAPE '!')
+    </sql>
+    <select id="countSearchUsers" resultType="long">
+        SELECT COUNT(*) FROM user_info u WHERE <include refid="searchUserFilter"/>
+    </select>
+    <select id="searchUsers" resultType="com.easyjob.vo.UserSearchVO">
+        SELECT CAST(u.user_id AS CHAR) AS userId, u.nick_name AS nickName, u.avatar,
+               u.person_introduction AS personIntroduction, u.follower_count AS followerCount,
+               (SELECT COUNT(*) FROM article_info a WHERE a.user_id = u.user_id AND a.status = 1) AS articleCount,
+               EXISTS(SELECT 1 FROM user_focus f WHERE f.user_id = #{viewerId} AND f.focus_user_id = u.user_id) AS isFollowing
+        FROM user_info u WHERE <include refid="searchUserFilter"/>
+        ORDER BY CASE WHEN u.nick_name = #{keyword} THEN 0 ELSE 1 END, u.user_id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
     <!-- MyBatis-Plus 会自动处理 CRUD 操作，无需手动定义 -->
     <update id="changeArticleCount">
         update user_info

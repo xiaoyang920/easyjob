@@ -1,35 +1,22 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
-        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.easyjob.mapper.UserTagPreferenceMapper">
+    <sql id="recentPreference">
+        SELECT ua.user_id,atr.tag_id,
+            SUM((CASE ua.action_type WHEN 7 THEN 1 WHEN 2 THEN 3 WHEN 3 THEN 5 WHEN 4 THEN 8 WHEN 5 THEN 4 ELSE 0 END)
+                / (1 + GREATEST(TIMESTAMPDIFF(DAY,ua.action_time,NOW()),0) / 7.0)) AS score
+        FROM user_action ua JOIN article_tag_relation atr ON ua.article_id=atr.article_id
+        JOIN article_info a ON a.article_id=ua.article_id AND a.status=1 AND a.deleted=0
+        WHERE ua.action_time > DATE_SUB(NOW(),INTERVAL 30 DAY)
+        <if test="userId != null">AND ua.user_id=#{userId}</if>
+        GROUP BY ua.user_id,atr.tag_id HAVING score > 0
+    </sql>
     <update id="refreshAllPreferences">
-        TRUNCATE TABLE user_tag_preference;
         INSERT INTO user_tag_preference(user_id,tag_id,score,update_time)
-        SELECT
-            ua.user_id,
-            atr.tag_id,
-            SUM(CASE ua.action_type
-                WHEN 7 THEN 1
-                WHEN 2 THEN 3
-                WHEN 3 THEN 5
-                WHEN 4 THEN 8
-                WHEN 5 THEN 4
-                ELSE 0
-            END) AS score,
-            NOW() AS update_time
-        FROM user_action ua
-        JOIN article_tag atr ON ua.article_id = atr.article_id
-        WHERE ua.action_time > DATE_SUB(NOW(), INTERVAL 30 DAY)
-        GROUP BY ua.user_id,atr.tag_id;
-        HAVING score > 0
+        SELECT p.user_id,p.tag_id,p.score,NOW() FROM (<include refid="recentPreference"/>) p
+        ON DUPLICATE KEY UPDATE score=VALUES(score),update_time=VALUES(update_time)
     </update>
-    <!-- 获取用户 top N 偏好标签 -->
     <select id="selectTopTagIds" resultType="java.lang.Long">
-        SELECT tag_id
-        FROM user_tag_preference
-        WHERE user_id = #{userId}
-        ORDER BY score DESC
-            LIMIT #{limit}
+        SELECT p.tag_id FROM (<include refid="recentPreference"/>) p ORDER BY p.score DESC,p.tag_id LIMIT #{limit}
     </select>
-
-</mapper>    
+</mapper>

@@ -114,13 +114,16 @@ async def planner_node(state: AgentState) -> dict:
             return {
                 "active_workers": ["search"],
                 "task_descriptions": {"search": text},
+                "required_skills": [],
             }
         if any(k in text for k in ["写", "生成文章", "起草", "草稿"]):
             return {
                 "active_workers": ["writing"],
                 "task_descriptions": {"writing": text},
+                "required_skills": [],
             }
         return {
             "active_workers": ["chat"],
             "task_descriptions": {"chat": text},
+            "required_skills": [],
         }

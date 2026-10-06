@@ -8,11 +8,17 @@ import java.util.List;
  */
 @Data
 public class AiChatParam {
+    private String requestId;
     
     /**
      * 会话ID（可选，新会话不传）
      */
     private Long conversationId;
+
+    /**
+     * 发起问答的文章（可选）；来源上下文，不限制后续检索范围。
+     */
+    private Long originArticleId;
     
     /**
      * 用户消息

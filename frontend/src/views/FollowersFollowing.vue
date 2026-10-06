@@ -1,14 +1,9 @@
 <template>
   <div class="follow-page">
-    <StarBackground />
-    
     <!-- 导航栏 -->
     <nav class="navbar">
       <div class="logo" @click="$router.push('/')">EasyJob</div>
-      <div class="nav-right">
-        <button class="nav-btn" @click="$router.push('/')">首页</button>
-        <button class="nav-btn" @click="goBack">返回</button>
-      </div>
+      <AppNavigation />
     </nav>
 
     <div class="container">
@@ -93,9 +88,10 @@
 </template>
 
 <script setup lang="ts">
+import AppNavigation from '@/components/AppNavigation.vue'
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import StarBackground from '../components/StarBackground.vue'
+import { goBackOr } from '../utils/navigation'
 import LoginForm from '../components/LoginForm.vue'
 import RegisterForm from '../components/RegisterForm.vue'
 import request from '../utils/request'
@@ -215,9 +211,9 @@ function goToUserSpace(id: string) {
   router.push(`/user-space/${id}`)
 }
 
-// 返回
+// 返回进入列表前的页面；切换关注/粉丝标签用的是 replace，不会多出历史记录
 function goBack() {
-  router.push(`/user-space/${userId.value}`)
+  goBackOr(router, `/user-space/${userId.value}`)
 }
 
 // 是否是自己
@@ -300,7 +296,7 @@ onUnmounted(() => {
   left: 0;
   right: 0;
   bottom: 0;
-  background: #f5f7fa;
+  background: var(--ej-canvas);
   z-index: -2;
 }
 
@@ -323,7 +319,7 @@ onUnmounted(() => {
 .logo {
   font-size: 28px;
   font-weight: bold;
-  color: #409eff;
+  color: var(--ej-accent);
   cursor: pointer;
 }
 

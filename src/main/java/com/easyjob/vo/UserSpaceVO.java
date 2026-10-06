@@ -14,6 +14,7 @@ import java.time.LocalDateTime;
  */
 @Data
 public class UserSpaceVO implements Serializable {
+    private java.util.Map<String,Object> readingProgress;
 
     private static final long serialVersionUID = 1L;
     
@@ -116,7 +117,7 @@ public class UserSpaceVO implements Serializable {
     private Integer theme;
     
     /**
-     * 角色：1普通用户 2作者 3管理员
+     * 角色：1普通用户 2管理员（与当前应用约定一致）
      */
     private Integer role;
 }

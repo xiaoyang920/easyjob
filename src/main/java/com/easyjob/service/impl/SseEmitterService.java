@@ -90,7 +90,7 @@ public class SseEmitterService {
         try {
             emitter.send(SseEmitter.event()
                     .name("notification")
-                    .data(JSON.toJSONString(msg))
+                    .data(JSON.toJSONString(msg,com.alibaba.fastjson2.JSONWriter.Feature.WriteLongAsString))
             );
         } catch (Exception e) {
             log.warn("SSE 推送失败，移除连接: userId={}, err={}", userId, e.getMessage());

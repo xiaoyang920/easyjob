@@ -31,15 +31,67 @@
         from article_info a, user_info u
         where article_id = #{articleId} and a.user_id = u.user_id
     </select>
+    <sql id="interestMatches">
+        <choose><when test="topTagIds != null and topTagIds.size() > 0">
+            (SELECT COUNT(DISTINCT pr.tag_id) FROM article_tag_relation pr WHERE pr.article_id=a.article_id AND pr.tag_id IN
+            <foreach collection="topTagIds" item="tid" open="(" close=")" separator=",">#{tid}</foreach>)
+        </when><otherwise>0</otherwise></choose>
+    </sql>
+    <select id="listRecommendedArticles" resultType="com.easyjob.vo.ArticleListVO">
+        SELECT a.article_id AS articleId,a.user_id AS userId,CAST(a.category_id AS CHAR) AS categoryId,a.title,a.summary,a.cover_image AS coverImage,
+            u.nick_name AS authorName,u.avatar AS authorAvatar,a.view_count AS viewCount,a.like_count AS likeCount,
+            a.collect_count AS collectCount,a.publish_time AS publishTime,a.required_level AS requiredLevel,
+            <include refid="readableArticle"/> AS readableNow,
+            CASE WHEN <include refid="topicMatch"/> THEN '与你明确关注的领域相关'
+                 WHEN <include refid="interestMatches"/> > 0 THEN '与你近期阅读和互动相关'
+                 WHEN a.publish_time >= DATE_SUB(NOW(),INTERVAL 3 DAY) THEN '近期发布'
+                 ELSE '社区优质内容' END AS recommendationReason
+        FROM article_info a LEFT JOIN user_info u ON u.user_id=a.user_id
+        WHERE a.status=1 AND a.deleted=0
+        <if test="readableOnly">AND <include refid="readableArticle"/></if>
+        <if test="categoryId != null">AND a.category_id=#{categoryId}</if>
+        <if test="tagIds != null and tagIds.size() > 0">
+            AND EXISTS (SELECT 1 FROM article_tag_relation tr WHERE tr.article_id=a.article_id AND tr.tag_id IN
+                <foreach collection="tagIds" item="tid" open="(" close=")" separator=",">#{tid}</foreach>)
+        </if>
+        ORDER BY <include refid="readableArticle"/> DESC, (
+            (CASE WHEN <include refid="topicMatch"/> THEN 3 ELSE 0 END +
+            LEAST(3 * <include refid="interestMatches"/>, 6) +
+            (0.7 * LN(1+COALESCE(a.view_count,0)) + 2 * LN(1+COALESCE(a.like_count,0)) +
+             3 * LN(1+COALESCE(a.collect_count,0)) + 1.5 * LN(1+COALESCE(a.comment_count,0))) /
+                POW(1+GREATEST(TIMESTAMPDIFF(HOUR,a.publish_time,NOW()),0)/72.0,0.6) +
+            2 / (1+GREATEST(TIMESTAMPDIFF(HOUR,a.publish_time,NOW()),0)/24.0))
+            <if test="userId != null">
+                * CASE WHEN EXISTS (SELECT 1 FROM user_action rv WHERE rv.user_id=#{userId} AND rv.article_id=a.article_id
+                    AND rv.action_type=7 AND rv.action_time >= DATE_SUB(NOW(),INTERVAL 7 DAY)) THEN 0.35 ELSE 1 END
+            </if>
+        ) DESC, a.publish_time DESC,a.article_id DESC
+    </select>
+    <sql id="readableArticle">
+        (COALESCE(a.required_level,0) &lt;= #{readerLevel} OR #{viewerAdmin}
+            OR (#{userId} IS NOT NULL AND a.user_id=#{userId}))
+    </sql>
+    <sql id="topicMatch">
+        <choose><when test="topics != null and topics.size() > 0">
+            (<foreach collection="topicPatterns" item="pattern" separator=" OR ">
+                REGEXP_LIKE(a.title, #{pattern}, 'i')
+            </foreach>
+            OR EXISTS (SELECT 1 FROM article_tag_relation ptr JOIN article_tag pt ON ptr.tag_id=pt.tag_id
+                WHERE ptr.article_id=a.article_id AND LOWER(TRIM(pt.tag_name)) IN
+                <foreach collection="topics" item="topic" open="(" close=")" separator=",">LOWER(#{topic})</foreach>))
+        </when><otherwise>FALSE</otherwise></choose>
+    </sql>
     <select id="listArticles" resultType="com.easyjob.vo.ArticleListVO">
         SELECT
             a.article_id as articleId,
             a.title,
+            a.required_level AS requiredLevel,
+            <include refid="readableArticle"/> AS readableNow,
             a.summary,
             a.cover_image as coverImage,
             a.user_id as userId,
-            u.nick_name as nickName,
-            u.avatar,
+            u.nick_name as authorName,
+            u.avatar as authorAvatar,
             a.view_count as viewCount,
             a.like_count as likeCount,
             a.collect_count as collectCount,
@@ -49,23 +101,28 @@
             a.is_original as isOriginal
         FROM article_info a
         LEFT JOIN user_info u ON a.user_id = u.user_id
-        WHERE a.status = 1
+        WHERE a.status = 1 AND a.deleted = 0
+        <if test="readableOnly">AND <include refid="readableArticle"/></if>
         <if test="keyword != null and keyword != ''">
             AND (a.title LIKE CONCAT('%', #{keyword}, '%') OR a.summary LIKE CONCAT('%', #{keyword}, '%'))
         </if>
         <if test="categoryId != null">
             AND a.category_id = #{categoryId}
         </if>
+        <if test="tagIds != null and tagIds.size() > 0">
+            AND EXISTS (SELECT 1 FROM article_tag_relation tr WHERE tr.article_id=a.article_id AND tr.tag_id IN
+                <foreach collection="tagIds" item="tid" open="(" close=")" separator=",">#{tid}</foreach>)
+        </if>
         ORDER BY
         <choose>
             <when test="sort == 'hottest'">
-                a.view_count DESC
+                a.view_count DESC, a.publish_time DESC, a.article_id DESC
             </when>
             <when test="sort == 'liked'">
-                a.like_count DESC
+                a.like_count DESC, a.publish_time DESC, a.article_id DESC
             </when>
             <otherwise>
-                a.publish_time DESC
+                a.publish_time DESC, a.article_id DESC
             </otherwise>
         </choose>
     </select>
@@ -73,11 +130,12 @@
         SELECT
             a.article_id as articleId,
             a.title,
+            a.required_level AS requiredLevel,
             a.summary,
             a.cover_image as coverImage,
             a.user_id as userId,
-            u.nick_name as nickName,
-            u.avatar,
+            u.nick_name as authorName,
+            u.avatar as authorAvatar,
             a.view_count as viewCount,
             a.like_count as likeCount,
             a.collect_count as collectCount,
@@ -88,20 +146,20 @@
         FROM article_info a
         LEFT JOIN user_info u ON a.user_id = u.user_id
         LEFT JOIN user_action ua ON a.article_id = ua.article_id AND ua.user_id = #{userId}
-        WHERE ua.action_type = #{type}
+        WHERE ua.action_type = #{type} AND a.status = 1 AND a.deleted = 0
         ORDER BY
         <choose>
             <when test="order == 'hottest'">
-                a.view_count DESC
+                a.view_count DESC, a.publish_time DESC, a.article_id DESC
             </when>
             <when test="order == 'liked'">
-                a.like_count DESC
+                a.like_count DESC, a.publish_time DESC, a.article_id DESC
             </when>
             <when test="order == 'collect'">
-                a.collect_count DESC
+                a.collect_count DESC, a.publish_time DESC, a.article_id DESC
             </when>
             <otherwise>
-                a.publish_time DESC
+                a.publish_time DESC, a.article_id DESC
             </otherwise>
         </choose>
     </select>
@@ -122,7 +180,7 @@
         <foreach item="item" collection="articleIds" separator="," open="(" close=")">
             #{item}
         </foreach>
-        AND a.status = 1
+        AND a.status = 1 AND a.deleted = 0
     </select>
     <select id="selectHotArticles" resultType="com.easyjob.vo.ArticleListVO" parameterType="int">
         SELECT
@@ -138,7 +196,7 @@
             u.avatar AS authorAvatar
         FROM article_info a
         JOIN user_info u ON a.user_id = u.user_id
-        WHERE a.status = 1
+        WHERE a.status = 1 AND a.deleted = 0
         ORDER BY (a.like_count * 2 + a.collect_count * 3 + a.view_count) DESC
         LIMIT #{limit}
     </select>
@@ -157,7 +215,7 @@
         FROM article_info a
         JOIN article_tag_relation atr ON a.article_id = atr.article_id
         JOIN user_info u ON a.user_id = u.user_id
-        WHERE a.status = 1 AND atr.tag_id IN
+        WHERE a.status = 1 AND a.deleted = 0 AND atr.tag_id IN
         <foreach item="item" collection="topTagIds" separator="," open="(" close=")">
             #{item}
         </foreach>
@@ -166,11 +224,11 @@
                               WHERE user_id = #{userId} AND action_type = 7
         )
         GROUP BY a.article_id
-        ORDER BY(
-            COUNT(atr.tag_id) * 10 +  -- 匹配的偏好标签越多，分越高
-            (a.like_count * 2 + a.collect_count * 3 + a.view_count) /
-            (1 + DATEDIFF(NOW(), a.publish_time) * 0.1) DESC
-        )
+        ORDER BY (COUNT(DISTINCT atr.tag_id) * 3 +
+            (LN(1 + COALESCE(a.like_count,0)) * 2 + LN(1 + COALESCE(a.collect_count,0)) * 3 +
+             LN(1 + COALESCE(a.view_count,0)) * 0.7) /
+            POW(1 + GREATEST(TIMESTAMPDIFF(HOUR,a.publish_time,NOW()),0) / 72.0, 0.6)) DESC,
+            a.publish_time DESC, a.article_id DESC
         LIMIT #{limit}
     </select>
     <select id="selectHotArticlesExclude" resultType="com.easyjob.vo.ArticleListVO">
@@ -187,7 +245,7 @@
             u.avatar AS authorAvatar
         FROM article_info a
         JOIN user_info u ON a.user_id = u.user_id
-        WHERE a.status = 1
+        WHERE a.status = 1 AND a.deleted = 0
             <if test="excludeIds != null and excludeIds.size() > 0">
                 AND a.article_id NOT IN
                 <foreach item="item" collection="excludeIds" separator="," open="(" close=")">

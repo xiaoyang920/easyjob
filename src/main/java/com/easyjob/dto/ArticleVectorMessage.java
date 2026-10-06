@@ -1,12 +1,10 @@
 package com.easyjob.dto;
 
-import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
 @Data
 @NoArgsConstructor
-@AllArgsConstructor
 public class ArticleVectorMessage {
     
     /**
@@ -18,4 +16,10 @@ public class ArticleVectorMessage {
      * 操作类型: PUBLISH / UPDATE / DELETE
      */
     private String action;
+    private String indexJobId;
+
+    public ArticleVectorMessage(Long articleId, String action) {
+        this.articleId = articleId;
+        this.action = action;
+    }
 }

@@ -13,6 +13,9 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.server.ResponseStatusException;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.MediaType;
 
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -23,6 +26,14 @@ import jakarta.servlet.http.HttpServletRequest;
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<ResponseVO<?>> handleStatusException(ResponseStatusException e, HttpServletRequest request) {
+        log.warn("请求状态冲突或失败 [{}]: code={}", request.getRequestURI(), e.getStatusCode().value());
+        return ResponseEntity.status(e.getStatusCode()).contentType(MediaType.APPLICATION_JSON)
+                .body(ResponseVO.error(e.getStatusCode().value(),
+                        e.getReason() == null ? "请求未完成，请刷新后重试" : e.getReason()));
+    }
     
     /**
      * 业务异常处理

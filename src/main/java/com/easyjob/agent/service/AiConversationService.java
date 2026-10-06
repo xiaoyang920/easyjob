@@ -8,6 +8,7 @@ import com.easyjob.entity.AiMessage;
 import com.easyjob.mapper.AiConversationMapper;
 import com.easyjob.mapper.AiMessageMapper;
 import com.easyjob.vo.ArticleCardVO;
+import com.easyjob.utils.UserContext;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -202,7 +203,10 @@ public class AiConversationService {
 //    public List<AiConversation> getUserConversationsWithCursor(Long userId, LocalDateTime lastUpdateTime, Long lastId, int limit) {
 //        return aiConversationMapper.selectByUserIdWithCursor(userId, lastUpdateTime, lastId, limit);
 //    }
-    private static final String PYTHON_AGENT_URL = "http://localhost:8000";
+    @Value("${agent.python-url:http://localhost:8000}")
+    private String pythonUrl = "http://localhost:8000";
+        @Autowired
+        private com.easyjob.agent.security.AgentServiceAuth serviceAuth;
         private final RestTemplate restTemplate = new RestTemplate();
 
         /**
@@ -210,20 +214,54 @@ public class AiConversationService {
          */
         public List<AiConversation> getUserConversationsWithCursor(Long userId, LocalDateTime lastUpdateTime,
                                                                    Long lastId, int limit) {
-            String url = PYTHON_AGENT_URL + "/conversations?user_id=" + userId + "&limit=" + limit;
-            if (lastUpdateTime != null) url += "&last_update_time=" + lastUpdateTime;
-            if (lastId != null) url += "&last_id=" + lastId;
+            return getUserConversationsWithCursor(userId, lastUpdateTime, lastId, limit, "all", null);
+        }
 
-            String response = restTemplate.getForObject(url, String.class);
+        public List<AiConversation> getUserConversationsWithCursor(Long userId, LocalDateTime lastUpdateTime,
+                                                                   Long lastId, int limit, String scope,
+                                                                   Long originArticleId) {
+            if (!List.of("all", "general", "article").contains(scope)) {
+                throw new IllegalArgumentException("会话范围必须是 all、general 或 article");
+            }
+            if (originArticleId != null && originArticleId <= 0) {
+                throw new IllegalArgumentException("来源文章 ID 必须为正数");
+            }
+            if (originArticleId != null && "general".equals(scope)) {
+                throw new IllegalArgumentException("普通会话不能指定来源文章");
+            }
+            var uri = org.springframework.web.util.UriComponentsBuilder.fromUriString(pythonUrl)
+                    .path("/conversations").queryParam("user_id", userId)
+                    .queryParam("limit", limit).queryParam("scope", scope);
+            if (lastUpdateTime != null) uri.queryParam("last_update_time", lastUpdateTime);
+            if (lastId != null) uri.queryParam("last_id", lastId);
+            if (originArticleId != null) uri.queryParam("origin_article_id", originArticleId);
+            String url = uri.build().encode().toUriString();
+
+            String response = restTemplate.exchange(url, org.springframework.http.HttpMethod.GET,
+                    new org.springframework.http.HttpEntity<>(serviceAuth.headers(userId)), String.class).getBody();
             return JSON.parseObject(response).getList("data", AiConversation.class);
+        }
+
+        /**
+         * 会话元数据，由 Python 校验归属后返回。
+         */
+        public AiConversation getConversation(Long conversationId) {
+            Long userId = UserContext.getUserId();
+            String response = restTemplate.exchange(
+                    pythonUrl + "/conversations/" + conversationId + "?user_id=" + userId,
+                    org.springframework.http.HttpMethod.GET,
+                    new org.springframework.http.HttpEntity<>(serviceAuth.headers(userId)), String.class).getBody();
+            return JSON.parseObject(response).getObject("data", AiConversation.class);
         }
 
         /**
          * 历史消息 → 转发 Python GET /conversations/{id}/messages
          */
         public List<AiMessage> getContext(Long conversationId) {
-            String response = restTemplate.getForObject(
-                    PYTHON_AGENT_URL + "/conversations/" + conversationId + "/messages", String.class);
+            String response = restTemplate.exchange(
+                    pythonUrl + "/conversations/" + conversationId + "/messages?user_id=" + UserContext.getUserId(),
+                    org.springframework.http.HttpMethod.GET,
+                    new org.springframework.http.HttpEntity<>(serviceAuth.headers(UserContext.getUserId())), String.class).getBody();
             return JSON.parseObject(response).getList("data", AiMessage.class);
         }
 
@@ -231,6 +269,8 @@ public class AiConversationService {
          * 删除会话 → 转发 Python DELETE /conversations/{id}
          */
         public void clearContext(Long conversationId) {
-            restTemplate.delete(PYTHON_AGENT_URL + "/conversations/" + conversationId);
+            restTemplate.exchange(pythonUrl + "/conversations/" + conversationId + "?user_id=" + UserContext.getUserId(),
+                    org.springframework.http.HttpMethod.DELETE,
+                    new org.springframework.http.HttpEntity<>(serviceAuth.headers(UserContext.getUserId())), String.class);
         }
 }

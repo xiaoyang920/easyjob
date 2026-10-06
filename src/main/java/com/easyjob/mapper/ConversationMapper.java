@@ -13,6 +13,8 @@ import java.util.List;
  */
 @Mapper
 public interface ConversationMapper extends BaseMapper<Conversation> {
+    @org.apache.ibatis.annotations.Select("SELECT conversation_id FROM conversation WHERE conversation_id=#{id} FOR UPDATE")
+    Long lockConversation(@Param("id") Long id);
     
     /**
      * 查询用户的会话列表

@@ -15,6 +15,7 @@ log = logging.getLogger(__name__)
 
 # user_memories 索引定义
 USER_MEMORIES_INDEX = "user_memories"
+ARTICLE_CHUNK_VERSION = "html-dom-v1"
 USER_MEMORIES_MAPPING = {
     "settings": {"number_of_shards": 1, "number_of_replicas": 0},
     "mappings": {
@@ -30,6 +31,9 @@ USER_MEMORIES_MAPPING = {
             },
             "importance": {"type": "float"},
             "create_time": {"type": "date"},
+            "memory_type": {"type": "keyword"},
+            "scope": {"type": "keyword"},
+            "scope_conversation_id": {"type": "long"},
         }
     },
 }
@@ -45,7 +49,10 @@ class BaseEsClient:
         """启动时检查 user_memories 索引，不存在则创建"""
         exists = await self.client.indices.exists(index=USER_MEMORIES_INDEX)
         if exists:
-            log.info("ES 索引 [%s] 已存在，跳过创建", USER_MEMORIES_INDEX)
+            await self.client.indices.put_mapping(index=USER_MEMORIES_INDEX, properties={
+                name: USER_MEMORIES_MAPPING["mappings"]["properties"][name]
+                for name in ("memory_type", "scope", "scope_conversation_id")})
+            log.info("ES 索引 [%s] 已存在，补充记忆范围字段", USER_MEMORIES_INDEX)
             return
         await self.client.indices.create(
             index=USER_MEMORIES_INDEX,
@@ -63,28 +70,27 @@ class EsVectorStore(BaseEsClient):
         super().__init__()
         self.embedding_service = EmbeddingService()
 
-    async def search(self, query: str, top_k: int, threshold: float) -> list[dict]:
+    async def search(self, query: str, top_k: int, threshold: float, filters: dict | None = None) -> list[dict]:
         """
-        向量搜索 + 热度混合评分
-        对应 Java: EsVectorStore.search()
+        KNN 相似度排序；RRF 只融合名次，不叠加热度分。
         """
         query_vector = await self.embedding_service.aembed(query)
 
         candidates = max(top_k * 3, 20)
 
-        try:
-            resp = await self.client.search(
-                index=self.INDEX,
-                knn={
-                    "field": "content_vector",
-                    "query_vector": query_vector,
-                    "k": candidates,
-                    "num_candidates": candidates * 2,
-                },
-                size=candidates,
-            )
-        except Exception:
-            return []
+        knn = {
+            "field": "content_vector",
+            "query_vector": query_vector,
+            "k": candidates,
+            "num_candidates": candidates * 2,
+        }
+        if filters:
+            knn["filter"] = filters
+        resp = await self.client.search(
+            index=self.INDEX,
+            knn=knn,
+            size=candidates,
+        )
 
         results: list[dict] = []
         for hit in resp.get("hits", {}).get("hits", []):
@@ -93,19 +99,22 @@ class EsVectorStore(BaseEsClient):
                 continue
 
             src = hit.get("_source", {})
-            like_count = int(src.get("like_count", 0) or 0)
-            collect_count = int(src.get("collect_count", 0) or 0)
-
-            popularity_score = min(((like_count * 2 + collect_count) + 1) / 100.0, 1.0)
-            final_score = score * 0.7 + popularity_score * 0.3
-
             results.append(
                 {
                     "article_id": src.get("article_id"),
                     "title": src.get("title", ""),
                     "content": src.get("chunk_content", ""),
                     "chunk_index": src.get("chunk_index", 0),
-                    "score": final_score,
+                    "score": score,
+                    "chunk_id": src.get("chunk_id"),
+                    "source_hash": src.get("source_hash"),
+                    "chunker_version": src.get("chunker_version"),
+                    "section_path": src.get("section_path", []),
+                    "chunk_type": src.get("chunk_type"),
+                    "user_id": src.get("user_id"),
+                    "category_id": src.get("category_id"),
+                    "publish_time": src.get("publish_time"),
+                    "tags": src.get("tags", []),
                 }
             )
 
@@ -113,12 +122,26 @@ class EsVectorStore(BaseEsClient):
         return results[:top_k]
 
 
+class EsChunkSearch(BaseEsClient):
+    """RAG lexical retrieval uses the exact chunk corpus as KNN; article search stays separate."""
+    INDEX = EsVectorStore.INDEX
+
+    async def search(self, keyword: str, page_size: int = 20, filters: dict | None = None) -> list[dict]:
+        query = {"multi_match": {"query": keyword, "fields": ["chunk_content^3", "section_path", "title^0.5"]}}
+        if filters:
+            query = {"bool": {"must": [query], "filter": [filters]}}
+        response = await self.client.search(index=self.INDEX, body={"query": query, "size": page_size,
+                                                                   "sort": [{"_score": {"order": "desc"}}]})
+        return [{**hit.get("_source", {}), "content": hit.get("_source", {}).get("chunk_content", ""),
+                 "score": float(hit.get("_score") or 0)} for hit in response.get("hits", {}).get("hits", [])]
+
+
 class EsComponent(BaseEsClient):
     """全文检索客户端（article）"""
 
     INDEX = "article"
 
-    async def search(self, keyword: str, page_size: int = 5) -> list[dict]:
+    async def search(self, keyword: str, page_size: int = 5, filters: dict | None = None) -> list[dict]:
         """
         全文检索（title + tags）
         对应 Java: EsComponent.search()
@@ -134,10 +157,9 @@ class EsComponent(BaseEsClient):
             "sort": [{"_score": {"order": "desc"}}],
         }
 
-        try:
-            resp = await self.client.search(index=self.INDEX, body=body)
-        except Exception:
-            return []
+        if filters:
+            body["query"] = {"bool": {"must": [body["query"]], "filter": [filters]}}
+        resp = await self.client.search(index=self.INDEX, body=body)
 
         records: list[dict] = []
         for hit in resp.get("hits", {}).get("hits", []):

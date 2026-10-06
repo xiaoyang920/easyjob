@@ -4,6 +4,7 @@ import lombok.Builder;
 import lombok.Data;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * AI聊天响应VO（非流式）
@@ -11,6 +12,7 @@ import java.util.List;
 @Data
 @Builder
 public class AiChatVO {
+    private String runId;
     
     /**
      * 会话ID
@@ -26,4 +28,8 @@ public class AiChatVO {
      * 相关文章卡片（Tool执行时收集的）
      */
     private List<ArticleCardVO> articles;
+
+    private List<Map<String, Object>> citations;
+
+    private String draftArticleId;
 }

@@ -1,7 +1,5 @@
 <template>
   <div class="notify-page">
-    <StarBackground />
-
     <!-- 导航栏 -->
     <nav class="navbar">
       <div class="logo" @click="$router.push('/')">
@@ -14,9 +12,7 @@
         <span class="logo-text">EasyJob</span>
       </div>
       <div class="page-title">消息通知</div>
-      <div class="nav-right">
-        <button class="nav-btn" @click="$router.push('/')">返回首页</button>
-      </div>
+      <AppNavigation />
     </nav>
 
     <div class="main">
@@ -60,6 +56,7 @@
           :key="n.notificationId"
           :class="['notify-card', { unread: n.isRead === 0 }]"
           @click="openNotify(n)"
+          role="button" tabindex="0" @keydown.enter="openNotify(n)" @keydown.space.prevent="openNotify(n)"
         >
           <img
             :src="getAvatarUrl(n.senderAvatar)"
@@ -80,8 +77,9 @@
               《{{ n.articleTitle }}》
             </div>
             <div v-if="n.targetPreview" class="line-2 target-preview">
-              "{{ n.targetPreview }}"
+              {{ isReviewNotification(n.type) ? '审核意见：' : '“' }}{{ n.targetPreview }}{{ isReviewNotification(n.type) ? '' : '”' }}
             </div>
+            <div v-if="isReviewNotification(n.type)" class="review-action" :class="{ rejected:n.type===7 }">{{ n.type===6 ? '查看已发布文章 ↗' : '查看完整意见与审核版本 ↗' }}</div>
           </div>
           <span v-if="n.isRead === 0" class="unread-dot"></span>
         </div>
@@ -98,10 +96,12 @@
 </template>
 
 <script setup lang="ts">
+import AppNavigation from '@/components/AppNavigation.vue'
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { notificationPath,isReviewNotification } from '@/utils/notificationTarget'
+import { latestRequest } from '@/utils/latestRequest'
 import { ElMessage } from 'element-plus'
-import StarBackground from '@/components/StarBackground.vue'
 import request from '@/utils/request'
 import {
   notifyUnreadCount,
@@ -119,7 +119,8 @@ const tabs = [
   { label: '评论/回复', value: 1 },
   { label: '点赞', value: 2 },
   { label: '收藏', value: 3 },
-  { label: '关注', value: 4 }
+  { label: '关注', value: 4 },
+  { label: '审核', value: 6 }
 ]
 const activeTab = ref<number | null>(null)
 
@@ -129,6 +130,7 @@ const page = ref(1)
 const size = 20
 const total = ref(0)
 const totalPages = computed(() => Math.ceil(total.value / size) || 1)
+const listRequests=latestRequest()
 
 const emptyText = computed(() => {
   if (activeTab.value === 0) return '暂无未读通知'
@@ -151,31 +153,24 @@ function changePage(p: number) {
 }
 
 async function loadList() {
+  const ticket=listRequests.begin()
+  const selected=activeTab.value
   loading.value = true
   try {
-    // 未读走 /unread（最多 50，不分页），其它走 /list 分页
-    if (activeTab.value === 0) {
-      const res: any = await request.get('/notification/unread')
-      items.value = (res.data || []) as NotifyMessage[]
-      total.value = items.value.length
-    } else {
       const res: any = await request.get('/notification/list', {
-        params: { page: page.value, size }
+        params: { page: page.value, size, ...(selected===0?{unreadOnly:true}:selected!==null?{type:selected}:{}) },
+        signal:ticket.signal
       })
+      if(!ticket.isCurrent())return
       const pageData = res.data || {}
-      let records: NotifyMessage[] = pageData.records || []
-      // 按 type 过滤（全部 type=null 不过滤）
-      if (activeTab.value !== null) {
-        records = records.filter(r => r.type === activeTab.value)
-      }
-      items.value = records
-      total.value = Number(pageData.total) || records.length
-    }
+      items.value = pageData.records || []
+      total.value = Number(pageData.total) || 0
   } catch (e: any) {
+    if(!ticket.isCurrent())return
     console.error('加载通知失败', e)
     ElMessage.error(e?.message || '加载通知失败')
   } finally {
-    loading.value = false
+    if(ticket.isCurrent())loading.value = false
   }
 }
 
@@ -190,15 +185,8 @@ async function openNotify(n: NotifyMessage) {
       // 标记失败不影响跳转
     }
   }
-  // 跳转
-  if (n.articleId) {
-    // 有评论定位到评论锚点
-    const hash = n.targetId && (n.type === 1 || n.type === 2) ? `#comment-${n.targetId}` : ''
-    router.push(`/article/${n.articleId}${hash}`)
-  } else if (n.type === 4 && n.targetId) {
-    // 关注通知跳对方主页
-    router.push(`/user-space/${n.targetId}`)
-  }
+  const path=notificationPath(n)
+  if(path)void router.push(path)
 }
 
 async function markAllRead() {
@@ -256,8 +244,10 @@ watch(latestNotify, (msg) => {
   const matchTab =
     activeTab.value === null ||
     activeTab.value === 0 ||  // 未读分类，新消息一定未读
+    (activeTab.value === 6 && isReviewNotification(msg.type)) ||
     activeTab.value === msg.type
   if (matchTab && page.value === 1) {
+    if(items.value.some(n=>String(n.notificationId)===String(msg.notificationId)))return
     items.value = [{ ...msg, isRead: 0 }, ...items.value]
     total.value += 1
   }
@@ -269,12 +259,16 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  listRequests.cancel()
   // 离开本页时把本页未读也同步一下（避免其它地方读到过期数据）
   fetchNotifyUnreadCount()
 })
 </script>
 
 <style scoped>
+.review-action { margin-top:10px;font-size:12px;color:#52744e; }
+.review-action.rejected { color:#9b503f; }
+.notify-card:focus-visible { outline:2px solid var(--ej-ink);outline-offset:3px; }
 .notify-page {
   min-height: 100vh;
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -285,7 +279,7 @@ onUnmounted(() => {
   content: '';
   position: fixed;
   inset: 0;
-  background: #f5f7fa;
+  background: var(--ej-canvas);
   z-index: -2;
 }
 
@@ -313,7 +307,7 @@ onUnmounted(() => {
   gap: 8px;
   font-size: 28px;
   font-weight: bold;
-  color: #409eff;
+  color: var(--ej-accent);
   cursor: pointer;
 }
 
@@ -341,7 +335,7 @@ onUnmounted(() => {
 
 .nav-btn:hover {
   background: #eee;
-  color: #409eff;
+  color: var(--ej-accent);
 }
 
 /* 主容器 */
@@ -383,12 +377,12 @@ onUnmounted(() => {
 }
 
 .tab:hover {
-  background: #f0f7ff;
-  color: #409eff;
+  background: var(--ej-accent-soft);
+  color: var(--ej-accent);
 }
 
 .tab.active {
-  background: #409eff;
+  background: var(--ej-accent);
   color: white;
   font-weight: 600;
 }
@@ -407,13 +401,13 @@ onUnmounted(() => {
 
 .tab.active .tab-badge {
   background: white;
-  color: #409eff;
+  color: var(--ej-accent);
 }
 
 .btn-mark-all {
   background: white;
-  color: #409eff;
-  border: 1px solid #409eff;
+  color: var(--ej-accent);
+  border: 1px solid var(--ej-accent);
   padding: 6px 14px;
   border-radius: 18px;
   font-size: 13px;
@@ -422,7 +416,7 @@ onUnmounted(() => {
 }
 
 .btn-mark-all:hover:not(:disabled) {
-  background: #409eff;
+  background: var(--ej-accent);
   color: white;
 }
 
@@ -433,10 +427,10 @@ onUnmounted(() => {
 
 /* 列表 */
 .list {
-  background: white;
-  border-radius: 16px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.05);
-  overflow: hidden;
+  display: grid;
+  gap: 12px;
+  background: transparent;
+  box-shadow: none;
 }
 
 .notify-card {
@@ -458,7 +452,7 @@ onUnmounted(() => {
 }
 
 .notify-card.unread {
-  background: #f0f7ff;
+  background: var(--ej-accent-soft);
 }
 
 .notify-card.unread:hover {
@@ -477,7 +471,7 @@ onUnmounted(() => {
 
 .avatar:hover {
   transform: scale(1.05);
-  border-color: #409eff;
+  border-color: var(--ej-accent);
 }
 
 .body {
@@ -501,7 +495,7 @@ onUnmounted(() => {
 }
 
 .sender:hover {
-  color: #409eff;
+  color: var(--ej-accent);
 }
 
 .verb {
@@ -527,7 +521,7 @@ onUnmounted(() => {
 }
 
 .article-title {
-  color: #409eff;
+  color: var(--ej-accent);
 }
 
 .target-preview {
@@ -581,8 +575,8 @@ onUnmounted(() => {
 }
 
 .page-btn:hover:not(:disabled) {
-  border-color: #409eff;
-  color: #409eff;
+  border-color: var(--ej-accent);
+  color: var(--ej-accent);
 }
 
 .page-btn:disabled {

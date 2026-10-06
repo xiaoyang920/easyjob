@@ -6,16 +6,19 @@ Reranker 服务
 https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank
 """
 import logging
+import math
 import httpx
 
 log = logging.getLogger(__name__)
 
 from app.config import settings
+from app.services.dependency_policy import rerank_policy, DependencyHTTPError
 
 
 class RerankerService:
     API_URL = "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank"
     MODEL = "qwen3-vl-rerank"
+    MAX_CHUNKS_PER_ARTICLE = 3
 
     def __init__(self):
         self.client = httpx.AsyncClient(timeout=15.0)
@@ -40,7 +43,7 @@ class RerankerService:
                 "documents": documents,
             },
             "parameters": {
-                "top_n": min(settings.RERANK_TOP_K, len(documents)),
+                "top_n": min(settings.RERANK_TOP_K * self.MAX_CHUNKS_PER_ARTICLE, len(documents)),
             },
         }
 
@@ -50,17 +53,28 @@ class RerankerService:
         }
 
         try:
-            resp = await self.client.post(self.API_URL, headers=headers, json=payload)
-            resp.raise_for_status()
+            async def request():
+                response = await self.client.post(self.API_URL, headers=headers, json=payload)
+                response.raise_for_status()
+                return response
+            resp = await rerank_policy.run(request)
             body = resp.json()
 
-            result_items = body.get("output", {}).get("results", [])
+            if not isinstance(body.get('output'), dict) or 'results' not in body['output']:
+                raise ValueError('Missing rerank results')
+            result_items = body['output']['results']
+            if not isinstance(result_items, list):
+                raise ValueError('Malformed rerank results')
             ranked = []
+            seen_indices = set()
             for item in result_items:
                 idx = item.get("index")
                 score = item.get("relevance_score", 0.0)
-                if idx is None or idx < 0 or idx >= len(candidates):
-                    continue
+                if (isinstance(idx, bool) or not isinstance(idx, int) or not 0 <= idx < len(candidates)
+                        or idx in seen_indices or isinstance(score, bool) or not isinstance(score, (int, float))
+                        or not math.isfinite(score) or not 0 <= score <= 1):
+                    raise ValueError('Malformed rerank index or relevance score')
+                seen_indices.add(idx)
 
                 doc = dict(candidates[idx])
                 doc["score"] = score
@@ -68,20 +82,35 @@ class RerankerService:
 
             ranked = [d for d in ranked if d.get("score", 0.0) >= settings.RELEVANCE_THRESHOLD]
             if ranked:
-                return ranked
+                return self._select_diverse(sorted(ranked, key=lambda d: d["score"], reverse=True))
 
-            # 阈值过滤后为空，回退 topK
-            fallback = sorted(candidates, key=lambda x: x.get("score", 0.0), reverse=True)
-            return fallback[: settings.RERANK_TOP_K]
+            # A successful relevance rejection is not an infrastructure outage.
+            return []
 
         except Exception as e:
             log.warning("Reranker API 调用失败，使用粗排结果: %s", e)
             fallback = sorted(candidates, key=lambda x: x.get("score", 0.0), reverse=True)
-            return fallback[: settings.RERANK_TOP_K]
+            return [{**doc, "rerank_status": "degraded", "rerank_reason": "reranker_unavailable"}
+                    for doc in self._select_diverse(fallback)]
+
+    @classmethod
+    def _select_diverse(cls, ranked: list[dict]) -> list[dict]:
+        selected, counts, seen = [], {}, set()
+        for doc in ranked:
+            article_id = str(doc.get("article_id") or "")
+            key = doc.get("chunk_id") or (article_id, doc.get("chunk_index", 0))
+            if key in seen or counts.get(article_id, 0) >= cls.MAX_CHUNKS_PER_ARTICLE:
+                continue
+            seen.add(key)
+            counts[article_id] = counts.get(article_id, 0) + 1
+            selected.append(doc)
+            if len(selected) >= settings.RERANK_TOP_K:
+                break
+        return selected
 
     @staticmethod
     def _to_rerank_text(doc: dict) -> str:
-        title = doc.get("title", "")
+        title = " > ".join(doc.get("section_path") or []) or doc.get("title", "")
         content = doc.get("content", "")
         if title:
             return f"标题：{title}\n内容：{content}"

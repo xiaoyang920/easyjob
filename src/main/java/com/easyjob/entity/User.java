@@ -113,7 +113,7 @@ public class User {
     private Integer theme;
     
     /**
-     * 角色：1普通用户 2作者 3管理员
+     * 角色：1普通用户 2管理员（与当前登录及空间页面约定一致）
      */
     private Integer role;
 }

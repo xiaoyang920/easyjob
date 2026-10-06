@@ -1,5 +1,6 @@
 import { ref } from 'vue'
 import request from './request'
+import { ensureAccessToken } from './authSession'
 
 /**
  * 通知消息体（对应后端 NotificationMessage DTO）
@@ -10,7 +11,7 @@ export interface NotifyMessage {
   senderId: number | string
   senderNickname?: string
   senderAvatar?: string
-  type: number // 1评论/回复 2点赞 3收藏 4关注 5系统
+  type: number // 1评论/回复 2点赞 3收藏 4关注 5系统 6审核通过 7审核驳回
   articleId?: number | string | null
   articleTitle?: string | null
   targetId?: number | string | null
@@ -34,9 +35,11 @@ let reconnectTimer: number | null = null
  * EventSource 不支持自定义 Header，所以 token 随 URL query 传；后端 /api/notification/stream 需要支持 ?token=xxx 鉴权，
  * 或者在 Nginx 同源 + Cookie 鉴权场景下省略该参数。
  */
-export function connectNotifyStream() {
+export async function connectNotifyStream() {
   if (eventSource) return
-  const token = localStorage.getItem('token')
+  let token: string | null
+  try { token = await ensureAccessToken() } catch { return }
+  if (eventSource) return
   if (!token) return
 
   const url = `/api/notification/stream?token=${encodeURIComponent(token)}`
@@ -56,10 +59,11 @@ export function connectNotifyStream() {
       console.error('[notify] 解析消息失败', err, e.data)
     }
   })
+  eventSource.addEventListener('connected', () => { void fetchNotifyUnreadCount() })
 
   eventSource.onerror = () => {
     // 浏览器 EventSource 会自动重连，这里只在完全断开时做兜底重连
-    if (eventSource && eventSource.readyState === EventSource.CLOSED) {
+    if (eventSource) {
       closeNotifyStream()
       if (!reconnectTimer) {
         reconnectTimer = window.setTimeout(() => {

@@ -31,6 +31,7 @@ public class UserController {
     UserFocusService userFoucsService;
     @Autowired
     private RedisComponent redisComponent;
+    @Autowired private com.easyjob.service.ReadingGrowthService readingGrowth;
 
     /**
      * 获取用户信息
@@ -49,6 +50,7 @@ public class UserController {
             userSpaceVO = BeanUtil.copyProperties(userService.getById(userId),UserSpaceVO.class);
             redisComponent.saveUserSpaceVO(userId, userSpaceVO);
         }
+        userSpaceVO.setReadingProgress(readingGrowth.summary(userId));
         return ResponseVO.success(userSpaceVO);
     }
     /**

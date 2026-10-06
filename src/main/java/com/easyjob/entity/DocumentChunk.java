@@ -46,6 +46,31 @@ public class DocumentChunk {
      */
     @JsonProperty("chunk_index")
     private Integer chunkIndex;
+    @JsonProperty("chunk_count")
+    private Integer chunkCount;
+
+    @JsonProperty("section_path")
+    private List<String> sectionPath = List.of();
+    @JsonProperty("chunk_type")
+    private String chunkType;
+    @JsonProperty("source_hash")
+    private String sourceHash;
+    @JsonProperty("chunker_version")
+    private String chunkerVersion;
+    @JsonProperty("category_id")
+    private Long categoryId;
+    @JsonProperty("publish_time")
+    private LocalDateTime publishTime;
+
+    @JsonIgnore
+    public String getChunkId() {
+        return articleId + "_" + chunkerVersion + "_" + sourceHash + "_" + chunkIndex;
+    }
+
+    @JsonIgnore
+    public String getEmbeddingText() {
+        return String.join(" > ", sectionPath) + "\n\n" + content;
+    }
     
     /**
      * 内容向量
@@ -93,16 +118,23 @@ public class DocumentChunk {
      */
     public Map<String, Object> toEsDocument() {
         Map<String, Object> doc = new HashMap<>();
-        doc.put("chunk_id", articleId + "_" + chunkIndex);
+        doc.put("chunk_id", getChunkId());
+        doc.put("section_path", sectionPath);
+        doc.put("chunk_type", chunkType);
+        doc.put("source_hash", sourceHash);
+        doc.put("chunker_version", chunkerVersion);
+        doc.put("category_id", categoryId);
+        doc.put("publish_time", publishTime);
         doc.put("article_id", articleId);
         doc.put("user_id", userId);
         doc.put("title", title);
         doc.put("chunk_content", content);
         doc.put("chunk_index", chunkIndex);
+        doc.put("chunk_count", chunkCount);
         doc.put("content_vector", vector);
         doc.put("source_type", sourceType);
         doc.put("tags", tags);
-        doc.put("create_time", createTime);
+        doc.put("create_time", createTime == null ? null : createTime.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
         doc.put("like_count", likeCount != null ? likeCount : 0);
         doc.put("collect_count", collectCount != null ? collectCount : 0);
         return doc;

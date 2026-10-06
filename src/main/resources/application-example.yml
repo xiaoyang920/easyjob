@@ -100,3 +100,8 @@ file:
 
 reranker:
   model: ${RERANKER_MODEL:qwen3-vl-rerank}
+
+# Explicit one-time HTML chunk rebuild; calls the configured Embedding service.
+rag:
+  reindex:
+    enabled: ${RAG_REINDEX_ENABLED:false}

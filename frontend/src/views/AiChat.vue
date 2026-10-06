@@ -1,7 +1,7 @@
 <template>
-  <div class="ai-chat-page">
+  <div :class="['ai-chat-page', { 'embedded-chat': embedded }]">
     <!-- 导航栏 -->
-    <nav class="navbar">
+    <nav v-if="!embedded" class="navbar">
       <div class="logo" @click="$router.push('/')">
         <svg class="logo-icon" viewBox="0 0 1024 1024" fill="currentColor">
           <path d="M512 1024c282.771692 0 512-229.228308 512-512S794.771692 0 512 0 0 229.228308 0 512s229.228308 512 512 512z m0-59.076923C261.858462 964.923077 59.076923 762.141538 59.076923 512S261.858462 59.076923 512 59.076923s452.923077 202.781538 452.923077 452.923077-202.781538 452.923077-452.923077 452.923077z"/>
@@ -12,18 +12,27 @@
         <span class="logo-text">EasyJob</span>
       </div>
       <div class="page-title">智能助手</div>
-      <div class="nav-right">
-        <button class="nav-btn" @click="$router.push('/')">返回首页</button>
-      </div>
+      <AppNavigation />
     </nav>
+
+    <header v-if="embedded" class="article-chat-header">
+      <div class="article-chat-heading"><span class="article-chat-mark">✎</span><div><strong>文章问答</strong><span>自己的对话，随时继续</span></div></div>
+      <div class="article-chat-controls">
+        <button @click="createNewConversation" :disabled="uploadingImage" title="围绕当前文章开启新话题">新话题</button>
+        <button class="article-chat-close" aria-label="收起文章问答" @click="emit('close')">×</button>
+      </div>
+    </header>
+    <button v-if="embedded" class="article-reader-link" @click="emit('openChatroom')">
+      读者聊天室 · {{ readerCount }} 人在线<span v-if="readerUnread" class="reader-unread-dot"></span><span class="reader-link-arrow">↗</span>
+    </button>
 
     <!-- 主容器 -->
     <div class="chat-container">
       <!-- 左侧会话列表 -->
-      <div :class="['conversation-sidebar', { hidden: !showSidebar }]">
+      <div v-if="!embedded" :class="['conversation-sidebar', { hidden: !showSidebar }]">
         <div class="sidebar-header">
           <h3>对话历史</h3>
-          <button class="new-chat-btn" @click="createNewConversation">
+          <button class="new-chat-btn" @click="createNewConversation" :disabled="uploadingImage">
             <svg viewBox="0 0 24 24" width="18" height="18">
               <path fill="currentColor" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
             </svg>
@@ -31,9 +40,15 @@
           </button>
         </div>
         
+        <RouterLink to="/ai-memory" style="padding: 12px 20px; color: #69725b; font-size: 13px; text-decoration: none;">管理长期记忆 ↗</RouterLink>
         <div class="conversation-list" ref="conversationListRef" @scroll="handleConversationScroll">
-          <div 
-            v-for="conv in conversations" 
+          <section v-for="group in conversationGroups" :key="group.scope" class="conversation-group">
+          <button class="conversation-group-toggle" @click="group.scope === 'article' ? articleGroupOpen = !articleGroupOpen : generalGroupOpen = !generalGroupOpen" :aria-expanded="group.open">
+            <span>{{ group.title }}</span><span>{{ group.open ? '−' : '+' }}</span>
+          </button>
+          <template v-if="group.open">
+          <div
+            v-for="conv in group.items"
             :key="conv.conversationId"
             :class="['conversation-item', { active: currentConversationId === conv.conversationId }]"
             @click="switchConversation(conv)"
@@ -44,15 +59,20 @@
               </svg>
             </div>
             <div class="conv-info">
+              <div v-if="conv.originArticleId" class="conv-article-title">{{ conv.originArticleTitle || '原文章已不可用' }}</div>
               <div class="conv-title">{{ conv.title || '新对话' }}</div>
-              <div class="conv-time">{{ formatTime(conv.updateTime) }}</div>
+              <div class="conv-time"><span v-if="conversationStatus(conv.conversationId)" class="conv-run-status" role="status">{{ conversationStatus(conv.conversationId) }}</span><span v-else>{{ formatTime(conv.updateTime) }}</span></div>
             </div>
-            <button class="delete-btn" @click.stop="deleteConversation(conv.conversationId)">
+            <button class="delete-btn" aria-label="删除对话" :disabled="!!sessions.get(String(conv.conversationId))?.loading" @click.stop="deleteConversation(conv.conversationId)">
               <svg viewBox="0 0 24 24" width="16" height="16">
                 <path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
               </svg>
             </button>
           </div>
+          <div v-if="group.items.length === 0 && !loadingConversations" class="no-conversations">{{ group.scope === 'article' ? '在文章页提问后，对话会出现在这里' : '暂无普通聊天' }}</div>
+          <button v-if="hasMoreByScope[group.scope] && group.items.length" class="conversation-load-more" :disabled="loadingMoreConversations" @click="loadMoreConversations(group.scope)">加载更多</button>
+          </template>
+          </section>
           
           <div v-if="conversations.length === 0 && !loadingConversations" class="no-conversations">
             暂无对话历史
@@ -68,8 +88,13 @@
 
       <!-- 右侧聊天区域 -->
       <div class="chat-main">
+        <div v-if="currentOriginArticleId" class="article-context-strip">
+          <span>来源文章</span><button @click="openArticle(currentOriginArticleId)" :title="currentOriginArticleTitle">{{ currentOriginArticleTitle || '当前文章' }}</button>
+          <small v-if="!embedded">也可以检索其他文章、进行对比</small>
+        </div>
+        <div v-if="historyLoadFailed" class="history-error">对话暂时无法加载。<button @click="initializeConversation">重新加载</button></div>
         <!-- 移动端返回按钮 -->
-        <button class="mobile-back-btn" @click="showSidebar = true" v-if="!showSidebar">
+        <button class="mobile-back-btn" @click="showSidebar = true" v-if="!embedded && !showSidebar">
           <svg viewBox="0 0 24 24" width="24" height="24">
             <path fill="currentColor" d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/>
           </svg>
@@ -88,13 +113,13 @@
         <!-- 欢迎区域 -->
         <div v-else-if="messages.length === 0" class="welcome-area">
           <div class="welcome-inner">
-            <div class="welcome-eyebrow">EasyJob · 智能助手</div>
-            <h2 class="welcome-title">有什么可以帮你的？</h2>
-            <p class="welcome-desc">搜索文章、撰写草稿、联网检索。</p>
+            <div class="welcome-eyebrow"><span class="quiet-dot"></span> {{ embedded ? '围绕文章，接着聊' : 'EasyJob · 写作助手' }}</div>
+            <h2 class="welcome-title">{{ embedded ? '哪里想再弄明白一点？' : '从一个想法开始。' }}</h2>
+            <p class="welcome-desc">{{ embedded ? '解释文章里的内容，也可以找其他文章一起对比。' : '找资料、理思路，或一起完成下一篇文章。' }}</p>
 
             <!-- 快捷问题 -->
             <div class="quick-questions">
-              <div
+              <button
                 v-for="(q, index) in quickQuestions"
                 :key="index"
                 class="quick-question-item"
@@ -104,22 +129,22 @@
                 <svg class="qq-arrow" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M7 17L17 7M17 7H9M17 7V15"/>
                 </svg>
-              </div>
+              </button>
             </div>
           </div>
         </div>
 
         <!-- 消息列表 -->
         <div v-else class="message-list" ref="messageListRef" @scroll="handleMessageScroll">
+          <button v-if="messages.length > renderedMessageLimit" class="load-earlier-btn" @click="showEarlierMessages">加载更早的消息（{{ messages.length - renderedMessageLimit }}）</button>
           <div 
-            v-for="(msg, index) in messages" 
+            v-for="{ msg, index } in visibleMessages"
             :key="index"
             :class="['message-item', msg.role]"
+            :data-msg-index="index"
           >
             <div class="message-avatar">
-              <svg v-if="msg.role === 'assistant'" viewBox="0 0 1024 1024" fill="currentColor">
-                <path d="M966.392 448.741L851.745 249.689a27.039 27.039 0 0 0-23.431-13.544h-42.126l-78.386-135.769a27.04 27.04 0 0 0-23.417-13.52H454.539a27.039 27.039 0 0 0-23.4 13.49l-20.99 36.249-156.729 0.025a27.04 27.04 0 0 0-23.413 13.52L115.084 349.191a27.041 27.041 0 0 0 0 27.04l20.925 36.243-78.386 135.769a27.041 27.041 0 0 0 0 27.04l114.923 199.052a27.04 27.04 0 0 0 23.417 13.52h41.85l78.386 135.769a27.04 27.04 0 0 0 23.417 13.52h229.845a27.04 27.04 0 0 0 23.417-13.52l20.925-36.243h156.773a27.04 27.04 0 0 0 23.417-13.52l114.923-199.052a27.041 27.041 0 0 0 0-27.04l-20.925-36.243 78.386-135.769a27.04 27.04 0 0 0 0.015-27.016zM767.96 557.282l-219.424-0.026 82.291-142.529a4.517 4.517 0 0 0 0-4.507L462.345 118.403h219.439l84.889 147.035 0.003 0.004 84.888 147.032-83.604 144.808z m62.68-90.538h104.516l-78.388 135.767L804.51 512l26.13-45.256z m-208.921-54.27L540.73 552.748 517.204 512l27.429-47.509c0.031-0.054 0.042-0.115 0.07-0.17 0.125-0.24 0.228-0.49 0.31-0.753 0.028-0.091 0.062-0.179 0.084-0.271 0.082-0.341 0.139-0.693 0.139-1.059a4.46 4.46 0 0 0-0.139-1.059c-0.022-0.092-0.056-0.181-0.084-0.272a4.565 4.565 0 0 0-0.31-0.753c-0.029-0.055-0.039-0.116-0.07-0.17L429.711 260.932a4.509 4.509 0 0 0-3.904-2.254h-49.653l78.384-135.768 167.181 289.564zM365.744 258.678h-52.255l-52.259-90.514 156.787-0.024-52.273 90.538z m-62.664 0h-49.655a4.508 4.508 0 0 0-3.904 2.254l-82.29 142.528-23.526-40.748 109.719-190.038 49.656 86.004z m-131.946 156.05l84.891-147.036h54.856l0.009 0.001 0.009-0.001h112.307l109.718 190.039H368.347a4.508 4.508 0 0 0-3.904 2.254L195.961 751.802 86.244 561.763l84.89-147.035z m199.814 52.016h161.975l-23.527 40.749h-54.859c-0.037 0-0.073 0.014-0.11 0.015a4.484 4.484 0 0 0-2.044 0.548c-0.08 0.044-0.154 0.093-0.231 0.142a4.454 4.454 0 0 0-0.652 0.499c-0.068 0.063-0.139 0.122-0.203 0.189a4.439 4.439 0 0 0-0.662 0.86L335.712 708.799a4.515 4.515 0 0 0 0 4.506l24.828 43.003H203.769l167.179-289.564z m-5.205 298.578l26.129 45.257-52.258 90.511-78.384-135.768h104.513z m31.334 54.272l24.826 43.001a4.508 4.508 0 0 0 3.904 2.253h164.579l-23.524 40.749h-219.44l49.655-86.003z m31.331 36.241L344.82 711.052l109.719-190.038 82.288 142.528a4.508 4.508 0 0 0 3.904 2.253h336.963l-109.718 190.04H428.408z m114.923-199.053l-80.987-140.276h47.055l27.427 47.51c0.044 0.076 0.103 0.137 0.152 0.21 0.087 0.134 0.177 0.264 0.279 0.389 0.095 0.115 0.197 0.221 0.301 0.326 0.1 0.1 0.2 0.197 0.311 0.288 0.13 0.107 0.266 0.201 0.406 0.292 0.069 0.046 0.128 0.102 0.2 0.144 0.034 0.02 0.073 0.025 0.107 0.044 0.314 0.17 0.64 0.315 0.984 0.406 0.035 0.01 0.071 0.009 0.107 0.018 0.302 0.072 0.61 0.11 0.92 0.119 0.044 0.001 0.088 0.017 0.132 0.017 0.051 0 0.099-0.018 0.15-0.019 0.062 0.002 0.119 0.018 0.18 0.018l229.505 0.027a4.509 4.509 0 0 0 3.904-2.253l24.841-43.027 53.556 92.759 0.001 0.003 24.83 43.005H543.331z m292.512-199.051l24.828-43.003a4.517 4.517 0 0 0 0-4.507l-82.289-142.529h47.325l109.457 190.039h-99.321z"/>
-              </svg>
+              <svg v-if="msg.role === 'assistant'" viewBox="0 0 24 24" fill="currentColor"><path d="m14 4 6 6-9 9-7 1 1-7 9-9Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="m12 6 6 6M5 19l4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
               <img v-else :src="getAvatarUrl(userAvatar)" @error="handleAvatarError">
             </div>
             <div class="message-content">
@@ -133,44 +158,32 @@
                 fit="contain"
                 :preview-teleported="true"
               />
-              <!-- 执行进度步骤条 -->
-              <div v-if="msg.progressSteps && msg.progressSteps.length > 0 && !msg.content" class="progress-steps">
-                <div 
-                  v-for="step in msg.progressSteps" 
-                  :key="step.key"
-                  :class="['progress-step', step.status]"
-                >
-                  <div class="step-indicator">
-                    <svg v-if="step.status === 'done'" viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
-                      <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
-                    </svg>
-                    <div v-else-if="step.status === 'active'" class="step-spinner"></div>
-                    <div v-else class="step-dot"></div>
+              <AgentActivity v-if="msg.agent" :state="msg.agent" />
+              <div v-if="msg.role === 'assistant' && !msg.content && !msg.agent" class="typing-indicator">
+                <span></span><span></span><span></span>
+              </div>
+              <article v-if="msg.isDraft" class="draft-review-card">
+                <header class="draft-review-header">
+                  <div><span class="draft-review-eyebrow">草稿预览</span><h3>{{ msg.interruptPayload?.title || '待确认草稿' }}</h3></div>
+                  <span class="draft-review-status">{{ msg.interrupted ? '等待确认' : '预览' }}</span>
+                </header>
+                <div class="draft-review-body" v-html="renderMarkdown(msg.content, msg.citations)"></div>
+                <p v-if="msg.approvalNotice" class="interrupt-hint" role="status">{{ msg.approvalNotice }}</p>
+                <footer v-if="msg.interrupted" class="draft-review-footer">
+                  <p>{{ msg.interruptPayload?.message || '确认后保存到草稿箱，你也可以先提出修改意见。' }}</p>
+                  <div class="interrupt-buttons">
+                    <button class="interrupt-btn approve" @click="handleResume('approve', msg)" :disabled="resuming">保存草稿</button>
+                    <button class="interrupt-btn reject" @click="handleResume('reject', msg)" :disabled="resuming">放弃保存</button>
                   </div>
-                  <span class="step-label">{{ step.label }}</span>
-                  <span v-if="step.detail" class="step-detail">{{ step.detail }}</span>
-                </div>
-              </div>
-              <!-- 消息为空且无进度时显示加载动画 -->
-              <div v-if="msg.role === 'assistant' && !msg.content && (!msg.progressSteps || msg.progressSteps.length === 0)" class="typing-indicator">
-                <span></span>
-                <span></span>
-                <span></span>
-              </div>
-              <div v-else-if="msg.content" class="message-bubble" :class="{ 'draft-bubble': msg.isDraft }">
-                <div v-if="msg.isDraft" class="draft-badge">
-                  <svg viewBox="0 0 1024 1024" width="14" height="14" fill="currentColor"><path d="M864 96H288c-17.7 0-32 14.3-32 32v64h-64c-17.7 0-32 14.3-32 32v640c0 17.7 14.3 32 32 32h576c17.7 0 32-14.3 32-32v-64h64c17.7 0 32-14.3 32-32V128c0-17.7-14.3-32-32-32zM736 832H224V256h512v576zm128-128H800V224c0-17.7-14.3-32-32-32H320v-64h544v576z"/></svg>
-                  草稿预览
-                </div>
-                <div v-html="renderMarkdown(msg.content)"></div>
-              </div>
-              <!-- 流式生成中指示器 -->
-              <div v-if="msg.role === 'assistant' && streaming && index === messages.length - 1 && msg.content" class="generating-indicator">
-                <div class="generating-dot-pulse"></div>
-                <span>正在生成...</span>
-              </div>
-              <!-- Human-in-the-loop 审批区域 -->
-              <div v-if="msg.interrupted" class="interrupt-actions">
+                  <div class="draft-revision">
+                    <textarea v-model="msg.draftRevision" placeholder="需要调整？写下修改意见，修改后重新确认。" maxlength="2000" rows="2" :disabled="resuming"></textarea>
+                    <button @click="handleResume(msg.draftRevision!.trim(), msg)" :disabled="resuming || !msg.draftRevision?.trim()">修改草稿</button>
+                  </div>
+                </footer>
+              </article>
+              <div v-else-if="msg.content" class="message-bubble"><div v-html="renderMarkdown(msg.content, msg.provisional ? [] : msg.citations)"></div></div>
+              <div v-if="msg.agent?.answerReceiving" class="generating-indicator"><div class="generating-dot-pulse"></div><span>{{ msg.provisional ? '正在生成，完成后确认正文…' : '正在接收回答…' }}</span></div>
+              <div v-if="msg.interrupted && !msg.isDraft" class="interrupt-actions">
                 <div class="interrupt-hint">{{ msg.interruptPayload?.message || '需要您确认后继续' }}</div>
                 <div class="interrupt-buttons">
                   <button class="interrupt-btn approve" @click="handleResume('approve', msg)" :disabled="resuming">确认</button>
@@ -186,15 +199,22 @@
                   <line x1="16" y1="17" x2="8" y2="17"/>
                 </svg>
                 <span class="draft-link-text">
-                  已保存至草稿箱
+                  文章已保存
                   <span v-if="msg.draftTitle" class="draft-link-title">《{{ msg.draftTitle }}》</span>
                 </span>
                 <span class="draft-link-action">
-                  编辑草稿
+                  打开文章
                   <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M7 17L17 7M17 7H9M17 7V15"/>
                   </svg>
                 </span>
+              </div>
+              <div v-if="msg.citations?.length" class="citation-list">
+                <button v-for="(citation, citationIndex) in msg.citations" :key="citation.id"
+                        class="citation-link" :title="citation.excerpt"
+                        @click="openCitation(citation)">
+                  {{ citationIndex + 1 }}. {{ citation.title }}
+                </button>
               </div>
               <!-- 文章卡片列表 -->
               <div v-if="msg.articles && msg.articles.length > 0" class="article-cards">
@@ -235,6 +255,13 @@
           
         </div>
 
+        <!-- 提问快速定位：消息区左侧的刻度导航 -->
+        <QuestionRail
+          v-if="!embedded && messageListRef && messages.length"
+          :messages="messages"
+          :container="messageListRef"
+        />
+
         <!-- 输入区域 -->
         <div class="input-area">
           <!-- 图片预览（支持多图） -->
@@ -258,7 +285,7 @@
           </div>
           <div class="input-wrapper">
             <!-- 图片上传按钮 -->
-            <button class="upload-btn" @click="triggerImageUpload" :disabled="loading || uploadingImage">
+            <button class="upload-btn" aria-label="添加图片" title="添加图片" @click="triggerImageUpload" :disabled="loading || uploadingImage">
               <svg viewBox="0 0 1024 1024" width="22" height="22">
                 <path fill="currentColor" d="M853.161077 892.549156 362.595248 892.549156l-209.432916-0.413416c-0.605797-0.001023-1.210571-0.031722-1.813299-0.092098-24.848944-2.484587-47.825238-14.060227-64.696488-32.594349-16.990976-18.665105-26.349111-42.85504-26.349111-68.112284L60.303434 264.62596c0-55.80805 45.403073-101.211123 101.211123-101.211123l691.645496 0c55.80805 0 101.2101 45.403073 101.2101 101.211123l0 225.51315c0 0.275269-0.00614 0.551562-0.01842 0.825808-0.021489 0.494257-1.971911 51.723012 15.481599 85.46244 4.716418 9.118682 1.14815 20.335141-7.970532 25.052582-9.116635 4.714372-20.335141 1.149173-25.052582-7.970532-21.300119-41.176818-19.844977-97.642854-19.618826-103.738689L917.191392 264.62596c0-35.307134-28.724205-64.031339-64.031339-64.031339L161.51558 200.594621c-35.307134 0-64.031339 28.724205-64.031339 64.031339l0 526.71105c0 32.755008 24.320918 59.957557 56.717769 63.61997l208.4311 0.412392 490.528989 0c35.307134 0 64.031339-28.725228 64.031339-64.032362l-0.382717-93.676519c-0.104377-1.749854-1.587148-19.548218-19.549242-42.499953-0.050142-0.063445-0.098237-0.125867-0.147356-0.190335L875.401614 626.481358 758.174726 471.362464c-0.415462-0.550539-38.995129-50.852178-86.271876-45.534056-38.335097 4.314259-75.954903 45.163619-108.789729 118.131491-17.615193 39.141462-34.650171 68.26885-52.082192 89.046059-17.607006 20.985964-35.679617 33.519418-55.251372 38.316677-43.422975 10.638291-81.049944-18.99461-120.886231-50.372248l-5.057179-3.980661c-46.555315-36.57808-68.750827-28.223808-158.330028 59.60247-7.330966 7.187703-19.101033 7.071046-26.288736-0.25992-7.187703-7.330966-7.071046-19.101033 0.25992-26.287713 46.658669-45.74588 77.544097-72.726372 107.085924-84.282568 33.357735-13.048177 64.274886-6.266727 100.242052 21.99392l5.092995 4.00829c33.9226 26.719548 63.219857 49.795103 89.028663 43.466977 25.618471-6.279007 53.30095-42.114167 82.279958-106.508779 39.139415-86.97591 85.837994-134.027529 138.79716-139.849118 68.454068-7.515161 117.823476 57.404408 119.891578 60.171428l117.122511 154.980747 21.599947 28.343535c26.276457 33.630958 27.333532 61.638849 27.367301 64.72514 0.001023 0.042979 0.001023 0.084934 0.001023 0.127913l0.38374 94.059236C954.371176 847.146083 908.969127 892.549156 853.161077 892.549156z"/>
                 <path fill="currentColor" d="M312.328401 446.967868c-42.324968 0-76.759221-34.434254-76.759221-76.759221s34.434254-76.759221 76.759221-76.759221 76.759221 34.434254 76.759221 76.759221S354.654392 446.967868 312.328401 446.967868zM312.328401 330.628186c-21.824051 0-39.579437 17.755386-39.579437 39.579437s17.755386 39.579437 39.579437 39.579437 39.579437-17.755386 39.579437-39.579437S334.153476 330.628186 312.328401 330.628186z"/>
@@ -273,18 +300,20 @@
             />
             <textarea 
               v-model="userInput"
-              placeholder="输入你的问题，按 Enter 发送，Shift + Enter 换行，支持图片"
-              @keydown.enter.exact.prevent="sendMessage"
-              @keydown.enter.shift.exact="newLine"
+              :placeholder="embedded ? '针对这篇文章继续提问…' : '写下问题，或一个还没成形的想法…'"
+              aria-label="消息内容"
+              @keydown.enter.exact="handleEnterKey"
               rows="1"
               ref="inputRef"
-              :disabled="loading"
+              :disabled="loading || loadingMessages || historyLoadFailed"
             ></textarea>
             <button 
               v-if="streaming"
               class="stop-btn" 
               @click="handleCancel"
-              title="暂停生成"
+              title="停止当前对话的生成"
+              aria-label="停止生成"
+              :disabled="!currentConversationId || activeSession.cancelling"
             >
               <svg viewBox="0 0 24 24" fill="currentColor">
                 <rect x="6" y="6" width="12" height="12" rx="2"/>
@@ -293,8 +322,9 @@
             <button 
               v-else
               class="send-btn" 
+              aria-label="发送消息"
               @click="sendMessage" 
-              :disabled="(!userInput.trim() && selectedImages.length === 0) || loading"
+              :disabled="(!userInput.trim() && selectedImages.length === 0) || loading || loadingMessages || historyLoadFailed"
             >
               <svg v-if="!loading" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
@@ -303,8 +333,10 @@
             </button>
           </div>
           <div class="input-tips">
-            <span class="tip-text">回复仅供参考，请核实重要信息</span>
+            <span class="tip-text">Enter 发送 · Shift + Enter 换行</span>
+            <span class="tip-note">重要信息请核实来源</span>
           </div>
+          <button v-if="embedded" class="expand-assistant-link" @click="expandInAssistant" :disabled="!currentConversationId" title="在智能助手中继续同一个对话">在智能助手中展开 ↗</button>
         </div>
       </div>
     </div>
@@ -320,13 +352,26 @@
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
+import AppNavigation from '@/components/AppNavigation.vue'
+import { aiConversationStatus, setViewedAiConversation, trackAiRun, refreshAiRuns } from '@/utils/aiRuns'
+import { createChatSession, bindConversationId, beginChatOperation, finishChatOperation, releaseChatSessions, type ChatSession } from '@/utils/chatSessions'
+import { authenticatedFetch } from '@/utils/authSession'
+import { approvalRecovery } from '@/utils/approvalRecovery'
+import { ref, shallowRef, shallowReactive, reactive, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
+import { goBackOr } from '@/utils/navigation'
 import { ElMessage } from 'element-plus'
 import { marked } from 'marked'
+import { safeHtml } from '@/utils/safeHtml'
+import { linkCitations, type SourceLink } from '../utils/citationLinks'
 import LoginForm from '@/components/LoginForm.vue'
 import RegisterForm from '@/components/RegisterForm.vue'
+import AgentActivity from '@/components/AgentActivity.vue'
+import QuestionRail from '@/components/QuestionRail.vue'
+import { createAgentState, applyAgentEvent, applyAnswerChunk, readSse, setRunStatus } from '@/utils/agentStream'
+import type { AgentStreamState } from '@/utils/agentStream'
 import request from '@/utils/request'
+import { savedArticlePath } from '@/utils/articleLifecycle'
 import { getThumbUrl } from '@/utils/image'
 import { eventBus, EVENT_AUTH_EXPIRED } from '@/utils/eventBus'
 
@@ -337,19 +382,73 @@ marked.setOptions({
 })
 
 const router = useRouter()
+const route = useRoute()
+const props = withDefaults(defineProps<{
+  embedded?: boolean
+  originArticleId?: string
+  originArticleTitle?: string
+  readerCount?: number
+  readerUnread?: boolean
+}>(), { embedded: false, originArticleId: '', originArticleTitle: '', readerCount: 0, readerUnread: false })
+const emit = defineEmits<{ close: []; openChatroom: []; loginRequired: [] }>()
 
 // 用户信息
 const userAvatar = ref(localStorage.getItem('avatar') || '')
 
 // 会话状态
 const conversations = ref<any[]>([])
-const savedConvId = localStorage.getItem('ai_conversation_id')
-const currentConversationId = ref<string | null>(savedConvId && savedConvId !== 'null' ? savedConvId : null)
+// Selection belongs to the signed-in account. Embedded article chats never use the
+// general page's selection, so opening an article cannot reuse an unrelated chat.
+function selectionStorageKey() {
+  const userId = localStorage.getItem('userId')
+  return userId ? `ai_conversation_id:${userId}` : null
+}
+function persistSelection(id: string | null) {
+  if (props.embedded) return
+  const key = selectionStorageKey()
+  if (!key) return
+  if (id) localStorage.setItem(key, id)
+  else localStorage.removeItem(key)
+}
+type Session = ChatSession<ChatMessage, SelectedImage>
+const sessions = shallowReactive(new Map<string, Session>())
+function newSession(id: string | null = null): Session {
+  const session = reactive(createChatSession<ChatMessage, SelectedImage>(id || crypto.randomUUID(), id))
+  sessions.set(session.key, session)
+  return session
+}
+const activeSession = shallowRef<Session>(newSession())
+function sessionField<K extends keyof Session>(key: K) {
+  return computed({ get: () => activeSession.value[key], set: (value: Session[K]) => { activeSession.value[key] = value } })
+}
+const currentConversationId = sessionField('conversationId')
+const selectedConversation = ref<any | null>(null)
+const currentOriginArticleId = sessionField('originArticleId')
+currentOriginArticleId.value = props.originArticleId || null
+const currentOriginArticleTitle = sessionField('originArticleTitle')
+currentOriginArticleTitle.value = props.originArticleTitle
 const loadingConversations = ref(false)
 const loadingMoreConversations = ref(false)  // 加载更多中
-const hasMoreConversations = ref(true)  // 是否还有更多
+type ConversationScope = 'general' | 'article'
+const hasMoreByScope = ref<Record<ConversationScope, boolean>>({ general: true, article: true })
+const generalGroupOpen = ref(true)
+const articleGroupOpen = ref(false)
+function groupItems(scope: ConversationScope) {
+  const items = conversations.value.filter(c => scope === 'article' ? !!c.originArticleId : !c.originArticleId)
+  const selected = selectedConversation.value
+  if (selected && (scope === 'article' ? !!selected.originArticleId : !selected.originArticleId)
+      && !items.some(c => c.conversationId === selected.conversationId)) return [selected, ...items]
+  return items
+}
+const conversationGroups = computed(() => [
+  { scope: 'general' as const, title: '普通聊天', open: generalGroupOpen.value, items: groupItems('general') },
+  { scope: 'article' as const, title: '文章问答', open: articleGroupOpen.value, items: groupItems('article') }
+])
 const conversationListRef = ref<HTMLElement>()  // 会话列表容器
 const showSidebar = ref(true)
+const historyLoadFailed = sessionField('historyLoadFailed')
+let historyLoadVersion = 0
+let mounted = false
 
 // 消息状态
 interface ArticleCard {
@@ -362,31 +461,63 @@ interface ArticleCard {
   likeCount: number
 }
 
-interface ProgressStep {
-  key: string       // planner | dispatcher | synthesizer
-  label: string     // 显示文本
-  status: 'pending' | 'active' | 'done'
-  detail?: string   // 额外信息（如 Worker 列表）
+interface Citation {
+  id: string
+  articleId: string
+  title: string
+  chunkIndex: number
+  excerpt: string
+  url?: string
+}
+
+function openCitation(citation: Citation) {
+  if (citation.articleId) openArticle(citation.articleId)
+  else if (citation.url && /^https?:\/\//i.test(citation.url)) window.open(citation.url, '_blank', 'noopener,noreferrer')
 }
 
 interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
+  provisional?: boolean
   image?: string | null
   articles?: ArticleCard[]  // 文章卡片数据
-  progressSteps?: ProgressStep[]  // 执行进度步骤
+  citations?: Citation[]
+  agent?: AgentStreamState
+  runId?: string
+  draftRevision?: string
+  approvalNotice?: string
   interrupted?: boolean  // 是否被 interrupt 暂停
   interruptPayload?: Record<string, any>  // interrupt 携带的数据（如草稿内容）
   isDraft?: boolean  // 当前内容是否为草稿
   draftArticleId?: string  // HITL 草稿确认后关联的 article_info.article_id，用 string 避免 JS 精度丢失
   draftTitle?: string  // 草稿标题，显示在"编辑草稿"按钮旁边
 }
-const messages = ref<ChatMessage[]>([])
-const userInput = ref('')
-const loading = ref(false)
-const streaming = ref(false)  // AI正在流式生成中
-const resuming = ref(false)   // Human-in-the-loop 恢复中
-let currentAbortController: AbortController | null = null  // 用于中断SSE流
+const renderedMessageLimit = ref(80)
+const visibleMessages = computed(() => messages.value.map((msg, index) => ({ msg, index })).slice(-renderedMessageLimit.value))
+async function showEarlierMessages() {
+  const el = messageListRef.value
+  const height = el?.scrollHeight || 0
+  const top = el?.scrollTop || 0
+  renderedMessageLimit.value += 60
+  await nextTick()
+  if (el) el.scrollTop = top + el.scrollHeight - height
+}
+
+function toChatMessage(msg: any): ChatMessage {
+  return {
+    role: msg.role, content: msg.content,
+    image: msg.imagePaths?.length ? `/uploads/${msg.imagePaths[0]}` : null,
+    articles: msg.articleCards || [], citations: msg.citations || [],
+    interrupted: msg.interrupted || false, interruptPayload: msg.interruptPayload,
+    isDraft: msg.isDraft || false, draftArticleId: msg.draftArticleId || undefined,
+    draftTitle: msg.draftTitle || '', draftRevision: ''
+  }
+}
+const messages = sessionField('messages')
+const userInput = sessionField('userInput')
+const loading = computed(() => activeSession.value.loading || activeSession.value.cancelling)
+const streaming = sessionField('streaming')
+const resuming = sessionField('resuming')
 const loadingMessages = ref(false)  // 切换会话时的加载状态
 
 // 自动跟随滚动到底部（用户手动往上滚后暂停，回到底部附近恢复）
@@ -404,56 +535,63 @@ interface SelectedImage {
   preview: string
   path: string  // 上传后的服务器路径
 }
-const selectedImages = ref<SelectedImage[]>([])  // 支持多图
+const selectedImages = sessionField('selectedImages')  // 支持多图
 const imageInput = ref<HTMLInputElement>()
 const uploadingImage = ref(false)  // 图片上传中状态
 const uploadProgress = ref(0)  // 上传进度 0-100
 const uploadingPreview = ref('')  // 上传中图片的预览URL
 
 // 快捷问题
-const quickQuestions = [
+const quickQuestions = computed(() => props.embedded ? [
+  '帮我梳理这篇文章的核心思路',
+  '解释一下文章里的关键概念',
+  '找一篇相关文章，和本文对比一下'
+] : [
   '整理几篇 Spring Boot 入门文章',
   '最近有哪些值得关注的技术文章',
   '帮我写一篇聊聊前端工程化的草稿',
   '用简明语言解释一下 RAG'
-]
+])
 
 // 加载会话列表（首次加载）
 async function loadConversations() {
+  if (props.embedded) return
   loadingConversations.value = true
-  hasMoreConversations.value = true
   try {
-    const res = await request.get('/agent/conversations', { params: { limit: 20 } })
-    if (res.code === 200 && res.data) {
-      conversations.value = res.data
-      // 返回数量小于limit说明没有更多了
-      hasMoreConversations.value = res.data.length >= 20
-    }
+    const scopes: ConversationScope[] = ['general', 'article']
+    const results = await Promise.all(scopes.map(scope => request.get('/agent/conversations', { params: { scope, limit: 20 } })))
+    if (!mounted) return
+    conversations.value = results.flatMap(res => res.code === 200 && Array.isArray(res.data) ? res.data : [])
+    results.forEach((res, index) => { hasMoreByScope.value[scopes[index]] = res.code === 200 && res.data?.length >= 20 })
   } catch (error) {
-    console.error('加载会话列表失败:', error)
+    ElMessage.error('加载对话列表失败，请稍后重试')
   } finally {
     loadingConversations.value = false
   }
 }
 
 // 加载更多会话（滚动触发）
-async function loadMoreConversations() {
-  if (loadingMoreConversations.value || !hasMoreConversations.value || conversations.value.length === 0) return
+async function loadMoreConversations(scope: ConversationScope) {
+  // A deep-linked old conversation may be displayed above the current page;
+  // only actual page results may define the next cursor.
+  const items = conversations.value.filter(c => scope === 'article' ? !!c.originArticleId : !c.originArticleId)
+  if (loadingMoreConversations.value || !hasMoreByScope.value[scope] || items.length === 0) return
   
   loadingMoreConversations.value = true
   try {
     // 获取最后一条的 updateTime 和 conversationId 作为复合游标
-    const lastConv = conversations.value[conversations.value.length - 1]
+    const lastConv = items[items.length - 1]
     const lastUpdateTime = lastConv.updateTime
     const lastId = lastConv.conversationId
     
-    const res = await request.get('/agent/conversations', { params: { lastUpdateTime, lastId, limit: 20 } })
+    const res = await request.get('/agent/conversations', { params: { scope, lastUpdateTime, lastId, limit: 20 } })
     if (res.code === 200 && res.data) {
-      conversations.value.push(...res.data)
-      hasMoreConversations.value = res.data.length >= 20
+      const ids = new Set(conversations.value.map(c => c.conversationId))
+      conversations.value.push(...res.data.filter((c: any) => !ids.has(c.conversationId)))
+      hasMoreByScope.value[scope] = res.data.length >= 20
     }
   } catch (error) {
-    console.error('加载更多会话失败:', error)
+    ElMessage.error('加载更多对话失败')
   } finally {
     loadingMoreConversations.value = false
   }
@@ -467,15 +605,28 @@ function handleConversationScroll() {
   // 距离底部小于50px时触发加载
   const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 50
   if (isNearBottom) {
-    loadMoreConversations()
+    const group = conversationGroups.value.find(group => group.open && hasMoreByScope.value[group.scope])
+    if (group) loadMoreConversations(group.scope)
   }
 }
 
 // 创建新会话
 function createNewConversation() {
+  if (uploadingImage.value) return
+  historyLoadVersion += 1
+  loadingMessages.value = false
+  activeSession.value = newSession()
   currentConversationId.value = null
-  localStorage.removeItem('ai_conversation_id')
+  selectedConversation.value = null
+  persistSelection(null)
+  currentOriginArticleId.value = props.embedded ? props.originArticleId || null : null
+  currentOriginArticleTitle.value = props.embedded ? props.originArticleTitle : ''
   messages.value = []
+  renderedMessageLimit.value = 80
+  userInput.value = ''
+  selectedImages.value = []
+  historyLoadFailed.value = false
+  if (!props.embedded && (route.query.conversationId || route.query.originArticleId)) router.replace({ path: '/ai-chat' })
   if (window.innerWidth <= 768) {
     showSidebar.value = false
   }
@@ -483,51 +634,70 @@ function createNewConversation() {
 
 // 切换会话
 async function switchConversation(conv: any) {
-  // 同一个会话且消息已加载，无需重复请求
-  if (currentConversationId.value === conv.conversationId && messages.value.length > 0) {
-    if (window.innerWidth <= 768) {
-      showSidebar.value = false
-    }
+  if (uploadingImage.value) { ElMessage.info('图片上传完成后即可切换对话'); return }
+  const id = String(conv.conversationId)
+  if (currentConversationId.value === id && activeSession.value.historyLoaded) {
+    if (window.innerWidth <= 768) showSidebar.value = false
     return
   }
-  
-  currentConversationId.value = conv.conversationId
-  localStorage.setItem('ai_conversation_id', conv.conversationId)
-  messages.value = []
+  const version = ++historyLoadVersion
+  const session = sessions.get(id) || newSession(id)
+  activeSession.value = session
+  session.unread = false
+  selectedConversation.value = conv
+  session.originArticleId = conv.originArticleId ? String(conv.originArticleId) : null
+  session.originArticleTitle = conv.originArticleTitle || (props.embedded ? props.originArticleTitle : '')
+  if (session.originArticleId && !props.embedded) articleGroupOpen.value = true
+  persistSelection(id)
+  renderedMessageLimit.value = 80
+  loadingMessages.value = false
+  if (window.innerWidth <= 768) showSidebar.value = false
+  // Live callbacks remain bound to this session; never replace its partial reply with history.
+  if (session.loading || session.resuming || session.cancelling) { scrollToBottom(true); return }
   loadingMessages.value = true
-  
-  if (window.innerWidth <= 768) {
-    showSidebar.value = false
-  }
-  
+  session.historyLoadFailed = false
   try {
-    const res = await request.get(`/agent/conversations/${conv.conversationId}/messages`)
-    if (res.code === 200 && res.data) {
-      messages.value = res.data.map((msg: any) => ({
-        role: msg.role,
-        content: msg.content,
-        image: msg.imagePaths && msg.imagePaths.length > 0 ? `/uploads/${msg.imagePaths[0]}` : null,
-        articles: msg.articleCards || [],
-        draftArticleId: msg.draftArticleId || undefined,
-      }))
-    }
-  } catch (error) {
-    console.error('加载会话消息失败:', error)
-  } finally {
+    const res = await request.get(`/agent/conversations/${id}/messages`)
+    if (!mounted || version !== historyLoadVersion) return
+    if (res.code !== 200 || !res.data) throw new Error('无法加载会话')
+    session.messages = res.data.map(toChatMessage)
+    session.historyLoaded = true
+    // Loading history must not wait for the entire generation to finish.
     loadingMessages.value = false
-    // 等待DOM更新后再滚动到底部
-    nextTick(() => {
+    void reconnectActiveRun(session).catch(() => { session.historyLoadFailed = true })
+  } catch {
+    if (version === historyLoadVersion && mounted) session.historyLoadFailed = true
+  } finally {
+    if (version === historyLoadVersion && mounted) {
+      loadingMessages.value = false
       scrollToBottom(true)
-    })
+    }
   }
+}
+
+function conversationStatus(id: string): string {
+  const session = sessions.get(String(id))
+  if (session?.loading) return '正在生成'
+  if (session?.messages.at(-1)?.interrupted) return '等待确认'
+  if (session?.unread) return session.messages.at(-1)?.interrupted ? '等待确认' : '有新回复'
+  return aiConversationStatus(String(id))
+}
+function finishSession(session: Session, operation: number) {
+  if (!finishChatOperation(session, operation)) return
+  if (mounted && activeSession.value !== session) session.unread = true
+  if (mounted && activeSession.value === session) scrollToBottom()
+  if (mounted) void refreshAiRuns()
 }
 
 // 删除会话
 async function deleteConversation(conversationId: string) {
+  const session = sessions.get(String(conversationId))
+  if (session?.loading || session?.resuming || session?.cancelling) { ElMessage.info('请先停止该对话的生成，再删除'); return }
   try {
     const res = await request.delete(`/agent/conversations/${conversationId}`)
     if (res.code === 200) {
-      conversations.value = conversations.value.filter(c => c.conversationId !== conversationId)
+      conversations.value = conversations.value.filter(c => String(c.conversationId) !== String(conversationId))
+      if (session) for (const [key, value] of sessions) if (value === session) sessions.delete(key)
       if (currentConversationId.value === conversationId) {
         createNewConversation()
       }
@@ -640,65 +810,85 @@ function removeImage(index: number) {
 
 // 发送消息
 async function sendMessage() {
-  const content = userInput.value.trim()
-  if (!content && selectedImages.value.length === 0) return
-  if (loading.value || uploadingImage.value) return
+  const session = activeSession.value
+  const content = session.userInput.trim()
+  if (!content && session.selectedImages.length === 0) return
+  if (session.loading || session.cancelling || uploadingImage.value || loadingMessages.value || session.historyLoadFailed) return
+  if (!localStorage.getItem('token')) { requestLogin(); return }
   
   // 添加用户消息（含图片预览）
   const userMsg: ChatMessage = {
     role: 'user',
     content: content,
-    image: selectedImages.value.length > 0 ? selectedImages.value[0].preview : null  // 显示第一张预览
+    image: session.selectedImages.length > 0 ? session.selectedImages[0].preview : null  // 显示第一张预览
   }
-  messages.value.push(userMsg)
+  session.messages.push(userMsg)
+  session.historyLoaded = true
   
   // 暂存图片路径列表，清空输入
-  const imagePaths = selectedImages.value.map(img => img.path)
-  userInput.value = ''
-  selectedImages.value = []
-  loading.value = true
-  scrollToBottom(true)
+  const submittedImages = [...session.selectedImages]
+  const imagePaths = session.selectedImages.map(img => img.path)
+  session.userInput = ''
+  session.selectedImages = []
+  const operation = beginChatOperation(session)
+  if (activeSession.value === session) scrollToBottom(true)
   
   // 准备AI回复占位
   const aiMessage: ChatMessage = {
     role: 'assistant',
-    content: ''
+    content: '',
+    agent: createAgentState()
   }
-  messages.value.push(aiMessage)
+  session.messages.push(aiMessage)
   // 通过数组索引引用，确保Vue响应式更新
-  const aiMsgIndex = messages.value.length - 1
+  const aiMsgIndex = session.messages.length - 1
   
   try {
-    streaming.value = true
-    await streamChat(content, imagePaths, aiMsgIndex)
+    session.streaming = true
+    await streamChat(content, imagePaths, aiMsgIndex, session)
   } catch (error: any) {
     // 用户主动取消不算错误
-    if (error.name === 'AbortError') return
+    if (error.name === 'AbortError' || !mounted) return
+    if (error.status === 409 && session.conversationId) {
+      // Rejected requests were never added to backend history. Keep their input editable.
+      session.messages.splice(aiMsgIndex - 1, 2)
+      session.userInput = content
+      session.selectedImages = submittedImages
+      session.abortController = null
+      try {
+        await reconnectActiveRun(session)
+        ElMessage.info('已同步会话状态，本次输入已保留在输入框。')
+      } catch {
+        session.historyLoadFailed = true
+        ElMessage.warning('暂时无法核对运行状态，请重新加载会话。本次输入已保留。')
+      }
+      return
+    }
     console.error('发送消息失败:', error)
-    messages.value[aiMsgIndex].content = '抱歉，发生了错误，请稍后重试。'
+    setRunStatus(ensureAgent(aiMsgIndex, session), 'error')
+    session.messages[aiMsgIndex].content = error.message || '处理失败，请稍后重试。'
     ElMessage.error(error.message || '请求失败')
   } finally {
-    loading.value = false
-    streaming.value = false
-    currentAbortController = null
-    scrollToBottom()
+    finishSession(session, operation)
   }
 }
 
 // SSE流式接收，标准SSE解析
-async function streamChat(message: string, imagePaths: string[], aiMsgIndex: number) {
+async function streamChat(message: string, imagePaths: string[], aiMsgIndex: number, session: Session) {
   const token = localStorage.getItem('token')
-  currentAbortController = new AbortController()
+  session.abortController = new AbortController()
   
   const body: Record<string, any> = {
+    requestId: crypto.randomUUID(),
     message: message || '',
-    conversationId: currentConversationId.value
+    conversationId: session.conversationId
   }
+  if (session.originArticleId) body.originArticleId = session.originArticleId
   if (imagePaths.length > 0) {
     body.imagePaths = imagePaths
   }
   
-  const response = await fetch('/api/agent/chat/stream', {
+  const response = await authenticatedFetch('/api/agent/chat/stream', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${token}`,
@@ -706,207 +896,158 @@ async function streamChat(message: string, imagePaths: string[], aiMsgIndex: num
       'Accept': 'text/event-stream'
     },
     body: JSON.stringify(body),
-    signal: currentAbortController.signal
+    signal: session.abortController.signal
   })
   
-  if (!response.ok) {
-    throw new Error(`请求失败: ${response.status}`)
-  }
-  
-  const reader = response.body!.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-  
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    
-    buffer += decoder.decode(value, { stream: true })
-    
-    // 标准SSE格式：事件之间用 \n\n 分隔
-    // 每个事件可能包含多个 data: 行，多行 data: 用 \n 拼接还原原始换行
-    // 例如后端发送 "## 标题\n内容" 会变成：
-    //   data:## 标题\ndata:内容\n\n
-    const events = buffer.split('\n\n')
-    // 最后一个可能不完整，保留到下次
-    buffer = events.pop() || ''
-    
-    for (const event of events) {
-      if (!event.trim()) continue
-      
-      // 提取所有 data: 行，用 \n 拼接还原原始内容中的换行
-      const dataLines: string[] = []
-      for (const line of event.split('\n')) {
-        if (line.startsWith('data:')) {
-          dataLines.push(line.substring(5))
-        }
-      }
-      if (dataLines.length === 0) continue
-      
-      const data = dataLines.join('\n')
-      if (!data) continue
-      
-      // 会话ID
-      if (data.startsWith('__CONV_ID__:')) {
-        const convId = data.substring(12).trim()
-        const isNewConversation = !currentConversationId.value
-        currentConversationId.value = convId
-        localStorage.setItem('ai_conversation_id', convId)
-        if (isNewConversation) {
-          loadConversations()
-        }
-        continue
-      }
-      
-      // 文章卡片
-      if (data.startsWith('__ARTICLES__:')) {
-        try {
-          messages.value[aiMsgIndex].articles = JSON.parse(data.substring(13).trim())
-        } catch (e) {
-          console.error('解析文章卡片失败:', e)
-        }
-        continue
-      }
-      
-      // 执行进度事件
-      if (data.startsWith('__PROGRESS__:')) {
-        const progressData = data.substring(13).trim()
-        handleProgress(aiMsgIndex, progressData)
-        scrollToBottom()
-        continue
-      }
-      
-      // Human-in-the-loop 中断事件
-      if (data.startsWith('__INTERRUPTED__:')) {
-        try {
-          const payload = JSON.parse(data.substring(16).trim())
-          const msg = messages.value[aiMsgIndex]
-          // 显示草稿内容（如果有的话）
-          if (payload.draft) {
-            msg.content = payload.draft
-            msg.isDraft = true
-          }
-          msg.interrupted = true
-          msg.interruptPayload = payload
-          // 标记所有进度步骤为done
-          if (msg.progressSteps) {
-            for (const step of msg.progressSteps) step.status = 'done'
-          }
-        } catch (e) {
-          console.error('解析中断数据失败:', e)
-        }
-        scrollToBottom()
-        continue
-      }
+  await consumeAgentStream(response, aiMsgIndex, session)
+}
 
-      // HITL 草稿已保存到草稿箱事件：把 draftArticleId 挂到当前消息，渲染"编辑草稿"按钮
-      if (data.startsWith('__DRAFT_SAVED__:')) {
-        try {
-          const payload = JSON.parse(data.substring(16).trim())
-          const msg = messages.value[aiMsgIndex]
-          msg.draftArticleId = payload.draftArticleId
-          msg.draftTitle = payload.title || ''
-          // approve 通过后，这条消息不再是"草稿预览"态
-          msg.isDraft = false
-        } catch (e) {
-          console.error('解析 __DRAFT_SAVED__ 事件失败:', e)
-        }
-        continue
-      }
-      
-      // 错误
-      if (data.startsWith('[ERROR]')) {
-        throw new Error(data.substring(7).trim())
-      }
-      
-      // 终止标记和结尾 JSON（conversationId），跳过
-      if (data.trim() === '[DONE]') continue
-      if (data.trim().startsWith('{') && data.includes('conversationId')) continue
+function ensureAgent(index: number, session: Session = activeSession.value): AgentStreamState {
+  return session.messages[index].agent ||= createAgentState()
+}
 
-      // 普通内容：还原被转义的换行符，然后追加
-      messages.value[aiMsgIndex].content += data.replace(/\\n/g, '\n')
-      scrollToBottom()
-    }
-  }
-  
-  // 处理buffer中剩余的不完整事件
-  if (buffer.trim()) {
-    const dataLines: string[] = []
-    for (const line of buffer.split('\n')) {
-      if (line.startsWith('data:')) {
-        dataLines.push(line.substring(5))
+async function consumeAgentStream(response: Response, index: number, session: Session) {
+  const controller = session.abortController!
+  let finished = false
+  let runId = ''
+  let after = '0'
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      for await (const data of readSse(response)) {
+        if (!mounted || controller.signal.aborted) throw new DOMException('已停止接收', 'AbortError')
+        if (data.startsWith('__EVENT_ID__:')) {
+          after = data.substring('__EVENT_ID__:'.length).trim()
+          continue
+        }
+        if (data === '[DONE]') { finished = true; continue }
+        if (data.startsWith('[ERROR]')) {
+          if (session.messages[index].provisional) {
+            session.messages[index].content = ''
+            session.messages[index].provisional = false
+            ensureAgent(index, session).answerReceiving = false
+          }
+          const error = new Error(data.substring(7).trim())
+          Object.assign(error, { terminal: true })
+          throw error
+        }
+        if (data.startsWith('__RUN_ID__:')) {
+          runId = data.substring('__RUN_ID__:'.length).trim()
+          if (session.conversationId) trackAiRun(runId, session.conversationId)
+        }
+        if (data.startsWith('__CONV_ID__:')) {
+          const id = data.substring('__CONV_ID__:'.length).trim()
+          const isNew = !session.conversationId
+          bindConversationId(sessions, session, id)
+          if (runId) trackAiRun(runId, id)
+          if (activeSession.value === session) persistSelection(id)
+          if (isNew && !props.embedded) loadConversations()
+        } else if (handleResultEvent(data, index, session)) {
+          // Both live and replay streams use the same state transitions.
+        } else if (data.startsWith('__PROGRESS__:')) {
+          handleProgress(index, data.substring('__PROGRESS__:'.length).trim(), session)
+        } else if (!data.startsWith('__') && !(data.startsWith('{') && data.includes('conversationId'))) {
+          session.messages[index].content += data.replace(/\\n/g, '\n')
+        }
+        if (activeSession.value === session) scrollToBottom()
+        // Several events can arrive in one TCP read. Yield to rendering instead
+        // of processing the entire buffer before Vue can paint any text.
+        if (data.startsWith('__PREVIEW__:') && activeSession.value === session) {
+          await nextTick()
+          if (typeof requestAnimationFrame === 'function' && document.visibilityState === 'visible') {
+            await new Promise<void>(resolve => {
+              const frame = requestAnimationFrame(() => { clearTimeout(fallback); resolve() })
+              // Hiding the tab can suspend animation frames after scheduling.
+              const fallback = setTimeout(() => { cancelAnimationFrame(frame); resolve() }, 50)
+            })
+          }
+        }
       }
-    }
-    const data = dataLines.join('\n')
-    if (data && !data.startsWith('__') && !data.startsWith('[ERROR]')) {
-      messages.value[aiMsgIndex].content += data.replace(/\\n/g, '\n')
+      if (finished) return
+      throw new Error('连接提前结束')
+    } catch (error: any) {
+      if (error.name === 'AbortError' || error.terminal || !runId || attempt === 3) throw error
+      await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)))
+      if (!mounted || controller.signal.aborted) throw new DOMException('已停止', 'AbortError')
+      response = await authenticatedFetch(`/api/agent/runs/${runId}/events?after=${after}`, {
+        headers: { Accept: 'text/event-stream' }, signal: controller.signal,
+      })
     }
   }
 }
 
-// Worker 名称映射为中文显示
-const workerLabelMap: Record<string, string> = {
-  search: '信息检索',
-  analysis: '内容分析',
-  writing: '写作辅助',
-  chat: '对话回复',
-  search_then_analysis: '检索并分析'
+async function reconnectActiveRun(session: Session = activeSession.value) {
+  const cid = session.conversationId
+  if (!cid) return
+  // The server owns the active run. Tab-local storage disappears when a tab closes.
+  const response = await request.get(`/agent/conversations/${cid}/run`)
+  if (!mounted || session.conversationId !== cid || session.abortController || session.cancelling) return
+  const run = response.data
+  if (!run) return
+  const rid = run.runId
+  const preview = session.messages.find(msg => msg.interrupted && msg.interruptPayload?.runId === rid)
+  if (preview && run.status !== 'running') {
+    const recovered = approvalRecovery(run)
+    preview.interrupted = recovered.interrupted
+    preview.approvalNotice = recovered.notice
+    preview.agent ||= createAgentState()
+    setRunStatus(preview.agent, recovered.status)
+    if (recovered.articleId) preview.draftArticleId = recovered.articleId
+    if (recovered.payload) {
+      preview.interruptPayload = recovered.payload
+      preview.content = recovered.payload.draft || preview.content
+    }
+  }
+  if (run.status === 'awaiting_approval') {
+    const payload = run.result?.interrupted
+    if (payload && !session.messages.some(msg => msg.interrupted && msg.interruptPayload?.runId === rid)) {
+      session.messages.push({ role: 'assistant', content: payload.draft || '', runId: rid,
+        interrupted: true, interruptPayload: payload, isDraft: true })
+    }
+    return
+  }
+  if (run.status !== 'running') {
+    if (run.status === 'succeeded' && run.result?.reply && (preview || session.messages.at(-1)?.role === 'user')) {
+      const reply = preview || { role: 'assistant' as const, content: '', runId: rid }
+      Object.assign(reply, { content: run.result.reply, interrupted: false, isDraft: false,
+        articles: run.result.articles || [], citations: run.result.citations || [], draftArticleId: run.draftArticleId || undefined })
+      if (!preview) session.messages.push(reply)
+    }
+    if (['failed', 'expired', 'cancelled'].includes(run.status) && session.messages.at(-1)?.role === 'user') {
+      session.messages.push({ role: 'assistant', runId: rid,
+        content: run.status === 'cancelled' ? '上次生成已停止，可以重新发送请求。' : '上次生成已中断或超时，已释放运行，可以重新发送请求。' })
+    }
+    return
+  }
+  // Reloaded pages replay from zero because partial message content lived in memory.
+  const index = session.messages.length
+  session.messages.push({ role: 'assistant', content: '', runId: rid, agent: createAgentState() })
+  const operation = beginChatOperation(session)
+  session.abortController = new AbortController()
+  try {
+    const response = await authenticatedFetch(`/api/agent/runs/${rid}/events?after=0`, {
+      headers: { Accept: 'text/event-stream' }, signal: session.abortController.signal,
+    })
+    await consumeAgentStream(response, index, session)
+  } catch (error: any) {
+    if (error.name !== 'AbortError' && mounted) {
+      setRunStatus(ensureAgent(index, session), 'error')
+      if (session.messages[index].provisional) {
+        session.messages[index].content = '生成未完成，请重新尝试。'
+        session.messages[index].provisional = false
+        ensureAgent(index, session).answerReceiving = false
+      }
+      ElMessage.error(error.message || '恢复运行失败')
+    }
+  } finally { finishSession(session, operation) }
 }
 
-/**
- * 处理执行进度事件
- * 协议格式：
- *   __PROGRESS__:planner                    → Planner 开始执行
- *   __PROGRESS__:dispatcher:search,chat     → Planner 完成，Dispatcher 开始执行
- *   __PROGRESS__:synthesizer                → Dispatcher 完成，开始整理回答
- *   __PROGRESS__:done                       → 全部完成，准备输出内容
- */
-function handleProgress(aiMsgIndex: number, progressData: string) {
-  const msg = messages.value[aiMsgIndex]
-  if (!msg.progressSteps) {
-    msg.progressSteps = []
-  }
-
-  if (progressData === 'planner') {
-    msg.progressSteps = [
-      { key: 'planner', label: '理解问题中', status: 'active' }
-    ]
-  } else if (progressData.startsWith('dispatcher:')) {
-    // Planner 完成 → Dispatcher 开始
-    const workersStr = progressData.substring(11)
-    const workers = workersStr.split(',').filter(Boolean)
-    const workerLabels = workers.map(w => workerLabelMap[w.trim()] || w.trim()).join('、')
-
-    const plannerStep = msg.progressSteps.find(s => s.key === 'planner')
-    if (plannerStep) {
-      plannerStep.label = '理解问题'
-      plannerStep.status = 'done'
-    }
-
-    msg.progressSteps.push(
-      { key: 'dispatcher', label: '处理中', status: 'active', detail: workerLabels }
-    )
-  } else if (progressData === 'synthesizer') {
-    // Dispatcher 完成 → Synthesizer 开始
-    const dispatcherStep = msg.progressSteps.find(s => s.key === 'dispatcher')
-    if (dispatcherStep) {
-      dispatcherStep.label = '处理完成'
-      dispatcherStep.status = 'done'
-    }
-
-    msg.progressSteps.push(
-      { key: 'synthesizer', label: '整理回答中', status: 'active' }
-    )
-  } else if (progressData === 'done') {
-    // 全部完成
-    for (const step of msg.progressSteps) {
-      step.status = 'done'
-      // 去掉"中"字后缀
-      if (step.label.endsWith('中')) {
-        step.label = step.label.slice(0, -1)
-      }
-    }
-  }
+function handleProgress(index: number, progress: string, session: Session) {
+  const state = ensureAgent(index, session)
+  if (progress === 'done') { setRunStatus(state, 'complete'); return }
+  if (state.richEvents) return
+  const label = progress === 'planner' ? '理解请求' : progress === 'synthesizer' ? '整理回答' : '处理资料'
+  for (const item of state.activities) if (item.status === 'active') item.status = 'done'
+  state.activities.push({ id: `legacy/${state.activities.length}`, label, status: 'active', startedAt: Date.now() })
 }
 
 // 发送快捷问题
@@ -917,27 +1058,49 @@ function sendQuickQuestion(question: string) {
 
 // 暂停生成
 async function handleCancel() {
-  if (!currentConversationId.value) return
+  const session = activeSession.value
+  if (!session.conversationId || session.cancelling) return
+  session.cancelling = true
+  const controller = session.abortController
   try {
     // 1. 通知后端取消
-    await request.post(`/agent/chat/${currentConversationId.value}/cancel`)
+    const response = await request.post(`/agent/chat/${session.conversationId}/cancel`)
+    if (response.data?.status === 'draft_saved') {
+      const msg = [...session.messages].reverse().find(item => item.role === 'assistant')
+      if (msg) {
+        msg.draftArticleId = response.data.draftArticleId
+        msg.content = '草稿已保存到草稿箱，可继续编辑。'
+      }
+    }
   } catch (e) {
     console.error('暂停失败:', e)
+    session.cancelling = false
+    ElMessage.error('停止失败，请重试。任务仍在继续。')
+    return
+  }
+  const latest = [...session.messages].reverse().find(item => item.role === 'assistant')
+  if (latest?.agent) {
+    setRunStatus(latest.agent, latest.draftArticleId ? 'complete' : 'cancelled')
+    if (!latest.content) latest.content = latest.draftArticleId ? '草稿已保存到草稿箱，可继续编辑。' : '已停止处理。'
   }
   // 2. 中断前端 SSE 连接
-  if (currentAbortController) {
-    currentAbortController.abort()
-    currentAbortController = null
-  }
+  controller?.abort()
+  session.abortController = null
   // 3. 重置流式状态
-  streaming.value = false
-  loading.value = false
+  session.streaming = false
+  session.loading = false
+  session.cancelling = false
 }
 
 // Human-in-the-loop 恢复（确认/拒绝）
 async function handleResume(action: string, msg: ChatMessage) {
-  if (!currentConversationId.value || resuming.value) return
-  resuming.value = true
+  const session = activeSession.value
+  if (!session.conversationId || session.resuming || session.loading || session.cancelling) return
+  session.resuming = true
+  const preview = { content: msg.content, isDraft: msg.isDraft, interrupted: msg.interrupted }
+  const approvalConversation = session.conversationId
+  const approvalRun = msg.interruptPayload?.runId
+  msg.approvalNotice = ''
 
   // ─── 就地覆盖模式 ───
   // 不新建 assistant 消息，直接在当前这条 interrupt 气泡上更新：
@@ -948,45 +1111,74 @@ async function handleResume(action: string, msg: ChatMessage) {
   msg.interrupted = false
   msg.isDraft = false
   msg.content = ''
+  if (msg.agent) setRunStatus(msg.agent, 'working')
 
-  const aiMsgIndex = messages.value.indexOf(msg)
+  const aiMsgIndex = session.messages.indexOf(msg)
   if (aiMsgIndex < 0) {
     console.error('handleResume: 找不到 msg 在 messages 里的位置')
-    resuming.value = false
+    session.resuming = false
     return
   }
 
-  loading.value = true
-  streaming.value = true
-  scrollToBottom(true)
+  const operation = beginChatOperation(session)
+  if (activeSession.value === session) scrollToBottom(true)
 
   try {
-    await streamResume(action, aiMsgIndex)
+    await streamResume(action, aiMsgIndex, session)
   } catch (error: any) {
-    if (error.name === 'AbortError') return
-    console.error('恢复失败:', error)
-    messages.value[aiMsgIndex].content = '恢复执行失败，请重试。'
-    ElMessage.error(error.message || '恢复失败')
+    if (error.name === 'AbortError' || !mounted) return
+    Object.assign(msg, preview)
+    try {
+      if (!approvalRun) throw new Error('审批运行缺失')
+      const response = await request.get(`/agent/runs/${approvalRun}`)
+      if (session.conversationId !== approvalConversation) return
+      const recovered = approvalRecovery(response.data)
+      msg.interrupted = recovered.interrupted
+      msg.approvalNotice = recovered.notice
+      setRunStatus(ensureAgent(aiMsgIndex, session), recovered.status)
+      if (recovered.articleId) msg.draftArticleId = recovered.articleId
+      if (recovered.payload) {
+        msg.interruptPayload = recovered.payload
+        if (recovered.payload.draft) msg.content = recovered.payload.draft
+      }
+      if (recovered.status === 'working') {
+        session.abortController = new AbortController()
+        const events = await authenticatedFetch(`/api/agent/runs/${approvalRun}/events?after=0`, {
+          headers: { Accept: 'text/event-stream' }, signal: session.abortController.signal,
+        })
+        await consumeAgentStream(events, aiMsgIndex, session)
+      }
+      if (error.name !== 'AbortError' && recovered.status !== 'working') {
+        if (recovered.status === 'complete') ElMessage.success(recovered.notice)
+        else ElMessage.warning(recovered.notice)
+      }
+    } catch {
+      msg.interrupted = false
+      msg.approvalNotice = '暂时无法核对审批状态，预览已保留。请重新加载会话后再操作。'
+      if (session.conversationId === approvalConversation) setRunStatus(ensureAgent(aiMsgIndex, session), 'error')
+      if (error.name !== 'AbortError') ElMessage.error(msg.approvalNotice)
+    }
   } finally {
-    loading.value = false
-    streaming.value = false
-    resuming.value = false
-    currentAbortController = null
-    scrollToBottom()
+    finishSession(session, operation)
   }
 }
 
 // 跳转到草稿编辑页
-function editDraft(articleId: string) {
-  router.push(`/edit-article?id=${articleId}`)
+async function editDraft(articleId: string) {
+  try {
+    const res = await request.get(`/article/${articleId}/edit`)
+    await router.push(savedArticlePath(articleId, res.data?.status))
+  } catch (error: any) {
+    ElMessage.error(error.message || '文章已删除或无法访问')
+  }
 }
 
 // SSE 流式 resume
-async function streamResume(action: string, aiMsgIndex: number) {
+async function streamResume(action: string, aiMsgIndex: number, session: Session) {
   const token = localStorage.getItem('token')
-  currentAbortController = new AbortController()
+  session.abortController = new AbortController()
 
-  const response = await fetch('/api/agent/chat/resume/stream', {
+  const response = await authenticatedFetch('/api/agent/chat/resume/stream', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${token}`,
@@ -994,103 +1186,87 @@ async function streamResume(action: string, aiMsgIndex: number) {
       'Accept': 'text/event-stream'
     },
     body: JSON.stringify({
-      conversationId: currentConversationId.value,
-      action
+      conversationId: session.conversationId,
+      action,
+      runId: session.messages[aiMsgIndex].interruptPayload?.runId,
+      draftHash: session.messages[aiMsgIndex].interruptPayload?.draftHash
     }),
-    signal: currentAbortController.signal
+    signal: session.abortController.signal
   })
 
-  if (!response.ok) {
-    throw new Error(`请求失败: ${response.status}`)
-  }
+  await consumeAgentStream(response, aiMsgIndex, session)
+}
 
-  const reader = response.body!.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-
-    buffer += decoder.decode(value, { stream: true })
-
-    const events = buffer.split('\n\n')
-    buffer = events.pop() || ''
-
-    for (const event of events) {
-      if (!event.trim()) continue
-
-      const dataLines: string[] = []
-      for (const line of event.split('\n')) {
-        if (line.startsWith('data:')) {
-          dataLines.push(line.substring(5))
-        }
-      }
-      if (dataLines.length === 0) continue
-
-      const data = dataLines.join('\n')
-      if (!data) continue
-
-      if (data.startsWith('__CONV_ID__:')) continue
-
-      if (data.startsWith('__PROGRESS__:')) {
-        const progressData = data.substring(13).trim()
-        handleProgress(aiMsgIndex, progressData)
-        scrollToBottom()
-        continue
-      }
-
-      if (data.startsWith('__INTERRUPTED__:')) {
-        try {
-          const payload = JSON.parse(data.substring(16).trim())
-          const msg = messages.value[aiMsgIndex]
-          if (payload.draft) {
-            msg.content = payload.draft
-            msg.isDraft = true
-          }
-          msg.interrupted = true
-          msg.interruptPayload = payload
-          if (msg.progressSteps) {
-            for (const step of msg.progressSteps) step.status = 'done'
-          }
-        } catch (e) {
-          console.error('解析中断数据失败:', e)
-        }
-        scrollToBottom()
-        continue
-      }
-
-      // HITL 草稿已保存事件（resume approve 后后端下发）
-      if (data.startsWith('__DRAFT_SAVED__:')) {
-        try {
-          const payload = JSON.parse(data.substring(16).trim())
-          const msg = messages.value[aiMsgIndex]
-          msg.draftArticleId = payload.draftArticleId
-          msg.draftTitle = payload.title || ''
-          msg.isDraft = false
-        } catch (e) {
-          console.error('解析 __DRAFT_SAVED__ 事件失败:', e)
-        }
-        continue
-      }
-
-      if (data.startsWith('[ERROR]')) {
-        throw new Error(data.substring(7).trim())
-      }
-
-      if (data.trim() === '[DONE]') continue
-      if (data.trim().startsWith('{') && data.includes('conversationId')) continue
-
-      messages.value[aiMsgIndex].content += data.replace(/\\n/g, '\n')
-      scrollToBottom()
+function handleResultEvent(data: string, index: number, session: Session): boolean {
+  const msg = session.messages[index]
+  const json = (prefix: string) => JSON.parse(data.substring(prefix.length))
+  if (data.startsWith('__AGENT_EVENT__:')) {
+    applyAgentEvent(ensureAgent(index, session), json('__AGENT_EVENT__:'))
+  } else if (data.startsWith('__PREVIEW__:')) {
+    const preview = json('__PREVIEW__:')
+    if (typeof preview.content !== 'string' || !['delta', 'replace'].includes(preview.type)) throw new Error('回答预览格式无效')
+    msg.content = preview.type === 'replace' ? preview.content : msg.content + preview.content
+    msg.provisional = true
+    ensureAgent(index, session).answerReceiving = true
+  } else if (data.startsWith('__ANSWER__:')) {
+    msg.content = applyAnswerChunk(ensureAgent(index, session), msg.content, json('__ANSWER__:'))
+  } else if (data.startsWith('__RUN_ID__:')) {
+    const runId = data.substring('__RUN_ID__:'.length).trim()
+    msg.runId = runId
+  } else if (data.startsWith('__STAGE__:')) {
+    const state = ensureAgent(index, session)
+    if (!state.richEvents) {
+      const payload = json('__STAGE__:')
+      state.activities.push({ id: `stage/${payload.stage}`, label: `已完成 ${payload.stage}/${payload.total} 个阶段`, status: 'done' })
     }
-  }
+  } else if (data.startsWith('__REPLY__:')) {
+    msg.content = json('__REPLY__:').content
+    msg.provisional = false
+    ensureAgent(index, session).answerReceiving = false
+  } else if (data.startsWith('__CITATIONS__:')) {
+    msg.citations = json('__CITATIONS__:')
+  } else if (data.startsWith('__ARTICLES__:')) {
+    msg.articles = json('__ARTICLES__:')
+  } else if (data.startsWith('__INTERRUPTED__:')) {
+    const payload = json('__INTERRUPTED__:')
+    if (payload.draft) { msg.content = payload.draft; msg.isDraft = true }
+    msg.interrupted = true
+    msg.provisional = false
+    ensureAgent(index, session).answerReceiving = false
+    msg.interruptPayload = payload
+    msg.draftRevision = ''
+    setRunStatus(ensureAgent(index, session), 'awaiting')
+  } else if (data.startsWith('__DRAFT_SAVED__:')) {
+    const payload = json('__DRAFT_SAVED__:')
+    msg.draftArticleId = payload.draftArticleId
+    msg.draftTitle = payload.title || ''
+    msg.isDraft = false
+  } else return false
+  return true
 }
 
-// 换行
-function newLine() {
-  userInput.value += '\n'
+// Enter 发送；Shift+Enter 交给浏览器在光标处原生换行
+function handleEnterKey(event: KeyboardEvent) {
+  // 输入法组合输入时的回车用于选词，不能发送
+  if (event.isComposing || event.keyCode === 229) return
+  event.preventDefault()
+  sendMessage()
 }
+
+// 输入框随内容长高，达到 CSS max-height 后才在内部滚动
+function resizeInput() {
+  const el = inputRef.value
+  if (!el) return
+  el.style.height = 'auto'
+  const maxHeight = parseFloat(getComputedStyle(el).maxHeight)
+  const contentHeight = el.scrollHeight
+  const nextHeight = Number.isFinite(maxHeight) ? Math.min(contentHeight, maxHeight) : contentHeight
+  el.style.height = `${nextHeight}px`
+  el.style.overflowY = contentHeight > nextHeight ? 'auto' : 'hidden'
+}
+
+// 发送后清空、快捷问题填入等程序化修改同样需要重新计算高度
+watch(userInput, () => nextTick(resizeInput))
 
 // 滚动到底部
 // force=true 时无视 autoScrollToBottom，强制贴底并恢复自动跟随（用于用户主动发送消息、切会话、恢复中断等场景）
@@ -1183,27 +1359,28 @@ function protectIncompleteTable(content: string): string {
   return before + (before ? '\n' : '') + '\n<pre class="streaming-table">' + tablePart.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</pre>'
 }
 
-function renderMarkdown(content: string): string {
+function renderMarkdown(content: string, citations: SourceLink[] = []): string {
   if (!content) return ''
   
   // 流式进行中不使用缓存（content 持续变化）
+  const cacheKey = JSON.stringify([content, citations.map(c => [c.id, c.articleId, c.url])])
   if (!streaming.value) {
-    const cached = renderedCache.get(content)
+    const cached = renderedCache.get(cacheKey)
     if (cached) return cached
   }
   
-  let processed = preprocessMarkdown(content)
+  let processed = preprocessMarkdown(linkCitations(content, citations))
   
   // 流式进行中，保护不完整的表格
   if (streaming.value) {
     processed = protectIncompleteTable(processed)
   }
   
-  const rendered = marked(processed) as string
+  const rendered = safeHtml(marked(processed) as string)
   
   // 非流式状态下缓存结果（历史消息）
   if (!streaming.value) {
-    renderedCache.set(content, rendered)
+    renderedCache.set(cacheKey, rendered)
     // 限制缓存大小
     if (renderedCache.size > 100) {
       const firstKey = renderedCache.keys().next().value
@@ -1281,7 +1458,70 @@ const dialogWidth = ref(window.innerWidth <= 480 ? '92%' : '420px')
 
 // 登录过期处理：跳转首页并弹出登录弹窗
 function handleAuthExpired() {
-  showLoginDialog.value = true
+  releaseChatSessions(sessions.values())
+  sessions.clear()
+  activeSession.value = newSession()
+  historyLoadVersion += 1
+  currentConversationId.value = null
+  messages.value = []
+  renderedMessageLimit.value = 80
+  persistSelection(null)
+  requestLogin()
+}
+
+function requestLogin() {
+  if (props.embedded) emit('loginRequired')
+  else showLoginDialog.value = true
+}
+
+async function initializeConversation() {
+  if (!localStorage.getItem('token')) { requestLogin(); return }
+  const version = ++historyLoadVersion
+  loadingMessages.value = true
+  historyLoadFailed.value = false
+  try {
+    if (props.embedded) {
+      // Merely opening the drawer only reads the latest chat. The stream request
+      // creates a conversation when the user actually sends their first question.
+      currentOriginArticleId.value = props.originArticleId || null
+      currentOriginArticleTitle.value = props.originArticleTitle
+      const res = await request.get('/agent/conversations', { params: { scope: 'article', originArticleId: props.originArticleId, limit: 1 } })
+      if (!mounted || version !== historyLoadVersion) return
+      if (res.code !== 200 || !Array.isArray(res.data)) throw new Error('无法加载会话')
+      if (res.data.length) await switchConversation(res.data[0])
+    } else {
+      const queryId = typeof route.query.conversationId === 'string' ? route.query.conversationId : null
+      const queryArticleId = typeof route.query.originArticleId === 'string' ? route.query.originArticleId : null
+      const key = selectionStorageKey()
+      const id = queryId || (!queryArticleId && key ? localStorage.getItem(key) : null)
+      if (id) {
+        const res = await request.get(`/agent/conversations/${encodeURIComponent(id)}`)
+        if (!mounted || version !== historyLoadVersion) return
+        if (res.code !== 200 || !res.data) throw new Error('无法加载会话')
+        await switchConversation(res.data)
+      } else if (queryArticleId) {
+        currentConversationId.value = null
+        currentOriginArticleId.value = queryArticleId
+        currentOriginArticleTitle.value = '当前文章'
+        messages.value = []
+  renderedMessageLimit.value = 80
+        articleGroupOpen.value = true
+      }
+    }
+  } catch {
+    if (mounted && version === historyLoadVersion) {
+      historyLoadFailed.value = true
+      // Never silently turn a failed restore into a new conversation.
+      ElMessage.error('对话无法加载，请重试或开启新对话')
+    }
+  } finally {
+    if (mounted && (version === historyLoadVersion || !loadingMessages.value)) loadingMessages.value = false
+  }
+}
+
+function expandInAssistant() {
+  if (!currentConversationId.value) return
+  router.push({ path: '/ai-chat', query: { conversationId: currentConversationId.value } })
 }
 
 function handleLoginSuccess() {
@@ -1305,52 +1545,68 @@ function switchToLogin() {
 }
 
 onMounted(async () => {
+  mounted = true
+  eventBus.on(EVENT_AUTH_EXPIRED, handleAuthExpired)
+  window.addEventListener('resize', handleResize)
   if (!localStorage.getItem('token')) {
-    showLoginDialog.value = true
+    requestLogin()
     return
   }
   
-  // 监听登录过期事件
-  eventBus.on(EVENT_AUTH_EXPIRED, handleAuthExpired)
-  
-  loadConversations()
-  
-  // 如果有保存的会话ID，加载该会话的消息
-  if (currentConversationId.value) {
-    loadingMessages.value = true
-    try {
-      const res = await request.get(`/agent/conversations/${currentConversationId.value}/messages`)
-      if (res.code === 200 && res.data) {
-        messages.value = res.data.map((msg: any) => ({
-          role: msg.role,
-          content: msg.content,
-          image: msg.imagePaths && msg.imagePaths.length > 0 ? `/uploads/${msg.imagePaths[0]}` : null,
-          articles: msg.articleCards || []
-        }))
-      }
-    } catch (error) {
-      console.error('加载会话消息失败:', error)
-      currentConversationId.value = null
-      localStorage.removeItem('ai_conversation_id')
-    } finally {
-      loadingMessages.value = false
-    }
-  }
-  
-  window.addEventListener('resize', handleResize)
+  await Promise.all([loadConversations(), initializeConversation()])
+})
+
+watch(currentConversationId, id => { if (mounted) setViewedAiConversation(id) })
+
+watch(() => route.query.conversationId, (id) => {
+  if (mounted && !props.embedded && typeof id === 'string' && id !== currentConversationId.value) initializeConversation()
+})
+
+watch(() => props.originArticleId, () => {
+  if (!mounted || !props.embedded) return
+  createNewConversation()
+  currentConversationId.value = null
+  messages.value = []
+  renderedMessageLimit.value = 80
+  initializeConversation()
+})
+
+watch(() => props.originArticleTitle, title => {
+  if (props.embedded) currentOriginArticleTitle.value = title
 })
 
 onUnmounted(() => {
+  mounted = false
+  historyLoadVersion += 1
+  releaseChatSessions(sessions.values())
+  setViewedAiConversation(null)
   eventBus.off(EVENT_AUTH_EXPIRED, handleAuthExpired)
   window.removeEventListener('resize', handleResize)
 })
 </script>
 
 <style scoped>
+.conv-run-status { color: var(--ej-ink); display: inline-flex; align-items: center; gap: 6px; }
+.conv-run-status::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--studio-lime); border: 1px solid var(--ej-ink); }
+.citation-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.citation-link {
+  background: transparent;
+  border: 1px solid #d6e4ff;
+  border-radius: 6px;
+  padding: 4px 8px;
+  color: var(--ej-accent);
+  cursor: pointer;
+  text-align: left;
+}
 .ai-chat-page {
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   min-height: 100vh;
-  background: #f5f7fa;
+  background: var(--ej-canvas);
 }
 
 /* 导航栏 */
@@ -1377,7 +1633,7 @@ onUnmounted(() => {
   gap: 8px;
   font-size: 28px;
   font-weight: bold;
-  color: #409eff;
+  color: var(--ej-accent);
   cursor: pointer;
   transition: all 0.3s;
 }
@@ -1414,8 +1670,8 @@ onUnmounted(() => {
 }
 
 .nav-btn:hover {
-  border-color: #409eff;
-  color: #409eff;
+  border-color: var(--ej-accent);
+  color: var(--ej-accent);
 }
 
 /* 主容器 */
@@ -1457,7 +1713,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 6px;
   padding: 8px 14px;
-  background: #409eff;
+  background: var(--ej-accent);
   color: white;
   border: none;
   border-radius: 8px;
@@ -1468,7 +1724,7 @@ onUnmounted(() => {
 }
 
 .new-chat-btn:hover {
-  background: #66b1ff;
+  background: var(--ej-ink);
   transform: translateY(-1px);
 }
 
@@ -1503,7 +1759,7 @@ onUnmounted(() => {
   width: 36px;
   height: 36px;
   border-radius: 8px;
-  background: #f0f7ff;
+  background: var(--ej-accent-soft);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1511,7 +1767,7 @@ onUnmounted(() => {
 }
 
 .conv-icon svg {
-  color: #409eff;
+  color: var(--ej-accent);
 }
 
 .conv-info {
@@ -1696,14 +1952,14 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #f0f7ff;
+  background: var(--ej-accent-soft);
   overflow: hidden;
 }
 
 .message-avatar svg {
   width: 24px;
   height: 24px;
-  color: #409eff;
+  color: var(--ej-accent);
 }
 
 .message-avatar img {
@@ -1746,7 +2002,7 @@ onUnmounted(() => {
 }
 
 .message-item.user .message-bubble {
-  background: #409eff;
+  background: var(--ej-accent);
   color: white;
   display: inline-block;
   border-radius: 14px 4px 14px 14px;
@@ -1788,8 +2044,8 @@ onUnmounted(() => {
 
 .article-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(64, 158, 255, 0.12);
-  border-color: #c7e0ff;
+  box-shadow: 0 6px 20px rgba(17, 17, 15, 0.12);
+  border-color: var(--ej-ink);
 }
 
 /* 封面图 */
@@ -1851,7 +2107,7 @@ onUnmounted(() => {
 }
 
 .card-meta .author {
-  color: #409eff;
+  color: var(--ej-accent);
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1877,7 +2133,7 @@ onUnmounted(() => {
 
 /* Markdown样式 */
 .message-bubble :deep(pre) {
-  background: #f5f7fa;
+  background: var(--ej-canvas);
   padding: 12px;
   border-radius: 8px;
   overflow-x: auto;
@@ -1889,7 +2145,7 @@ onUnmounted(() => {
 }
 
 .message-bubble :deep(code) {
-  background: #f5f7fa;
+  background: var(--ej-canvas);
   padding: 2px 6px;
   border-radius: 4px;
   font-family: 'Consolas', 'Monaco', monospace;
@@ -1930,14 +2186,14 @@ onUnmounted(() => {
 }
 
 .message-bubble :deep(blockquote) {
-  border-left: 3px solid #409eff;
+  border-left: 3px solid var(--ej-accent);
   padding-left: 12px;
   margin: 8px 0;
   color: #666;
 }
 
 .message-bubble :deep(a) {
-  color: #409eff;
+  color: var(--ej-accent);
   text-decoration: none;
 }
 
@@ -1959,13 +2215,13 @@ onUnmounted(() => {
 }
 
 .message-bubble :deep(th) {
-  background: #f5f7fa;
+  background: var(--ej-canvas);
   font-weight: 600;
 }
 
 /* 流式传输中未完成的表格，用等宽字体暂存显示 */
 .message-bubble :deep(.streaming-table) {
-  background: #f5f7fa;
+  background: var(--ej-canvas);
   padding: 8px 12px;
   border-radius: 6px;
   font-family: 'Courier New', Courier, monospace;
@@ -1987,7 +2243,7 @@ onUnmounted(() => {
 .typing-indicator span {
   width: 8px;
   height: 8px;
-  background: #409eff;
+  background: var(--ej-accent);
   border-radius: 50%;
   animation: typing 1.4s infinite ease-in-out;
 }
@@ -2016,12 +2272,29 @@ onUnmounted(() => {
 }
 
 /* 执行进度步骤条 */
+.draft-review-card { width: min(100%, 720px); border: 1px solid #e5e7eb; border-radius: 12px; background: #fff; overflow: hidden; margin-bottom: 12px; }
+.draft-review-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 17px 20px; background: #f8f9fb; border-bottom: 1px solid #eceef1; }
+.draft-review-eyebrow { font-size: 11px; color: #9197a1; }
+.draft-review-header h3 { font-size: 15px; color: #303640; margin: 5px 0 0; font-weight: 600; }
+.draft-review-status { font-size: 11px; color: #a08042; background: #fcf6e9; padding: 4px 8px; border-radius: 5px; white-space: nowrap; }
+.draft-review-body { max-height: 480px; overflow: auto; padding: 18px 22px; line-height: 1.8; font-size: 14px; color: #343943; overflow-wrap: anywhere; }
+.draft-review-body :deep(pre) { overflow-x: auto; background: #f5f6f8; padding: 14px; border-radius: 8px; line-height: 1.5; }
+.draft-review-body :deep(table) { width: 100%; border-collapse: collapse; }
+.draft-review-body :deep(th), .draft-review-body :deep(td) { border: 1px solid #e5e7eb; padding: 8px; }
+.draft-review-footer { padding: 16px 20px; border-top: 1px solid #eceef1; }
+.draft-review-footer > p { color: #848b95; font-size: 12px; margin: 0 0 12px; }
+.draft-revision { display: flex; align-items: flex-end; gap: 10px; margin-top: 14px; }
+.draft-revision textarea { flex: 1; min-width: 0; border: 1px solid #e2e5ea; border-radius: 7px; padding: 10px; resize: vertical; font: inherit; font-size: 12px; outline: none; }
+.draft-revision textarea:focus { border-color: #a0b2c8; }
+.draft-revision > button { padding: 8px 11px; border: 1px solid #dce1e7; background: #f9fafb; border-radius: 7px; color: #586575; cursor: pointer; white-space: nowrap; }
+.draft-revision > button:disabled { opacity: .5; cursor: default; }
+
 .progress-steps {
   display: flex;
   flex-direction: column;
   gap: 10px;
   padding: 14px 18px;
-  background: linear-gradient(180deg, #fafbfd 0%, #f5f7fa 100%);
+  background: linear-gradient(180deg, #fafbfd 0%, var(--ej-canvas) 100%);
   border: 1px solid #edf0f3;
   border-radius: 12px;
   margin-bottom: 4px;
@@ -2073,7 +2346,7 @@ onUnmounted(() => {
   width: 14px;
   height: 14px;
   border: 2px solid #e4e7ed;
-  border-top-color: #409eff;
+  border-top-color: var(--ej-accent);
   border-radius: 50%;
   animation: stepSpin 0.8s linear infinite;
 }
@@ -2107,7 +2380,7 @@ onUnmounted(() => {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #409eff;
+  background: var(--ej-accent);
   animation: dotPulse 1.5s infinite linear;
 }
 
@@ -2120,7 +2393,7 @@ onUnmounted(() => {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #409eff;
+  background: var(--ej-accent);
 }
 
 .generating-dot-pulse::before {
@@ -2178,17 +2451,17 @@ onUnmounted(() => {
 }
 
 .interrupt-btn.approve {
-  background: #409eff;
+  background: var(--ej-accent);
   color: white;
-  border-color: #409eff;
-  box-shadow: 0 2px 8px rgba(64, 158, 255, 0.25);
+  border-color: var(--ej-accent);
+  box-shadow: 0 2px 8px rgba(17, 17, 15, 0.25);
 }
 
 .interrupt-btn.approve:hover:not(:disabled) {
-  background: #66b1ff;
-  border-color: #66b1ff;
+  background: var(--ej-ink);
+  border-color: var(--ej-ink);
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(64, 158, 255, 0.3);
+  box-shadow: 0 4px 12px rgba(17, 17, 15, 0.3);
 }
 
 .interrupt-btn.reject {
@@ -2198,7 +2471,7 @@ onUnmounted(() => {
 }
 
 .interrupt-btn.reject:hover:not(:disabled) {
-  background: #f5f7fa;
+  background: var(--ej-canvas);
   color: #909399;
   border-color: #c0c4cc;
 }
@@ -2342,7 +2615,7 @@ onUnmounted(() => {
   bottom: 0;
   left: 0;
   height: 4px;
-  background: #409eff;
+  background: var(--ej-accent);
   border-radius: 0 0 8px 8px;
   transition: width 0.2s ease;
 }
@@ -2350,7 +2623,7 @@ onUnmounted(() => {
 .upload-progress-text {
   font-size: 12px;
   font-weight: 600;
-  color: #409eff;
+  color: var(--ej-accent);
   z-index: 1;
 }
 
@@ -2404,11 +2677,14 @@ onUnmounted(() => {
   font-size: 15px;
   color: #333;
   resize: none;
-  height: 24px;
-  max-height: 120px;
+  /* border-box：32px = 一行 24px + 上下各 4px 内边距；最多长到 7 行，之后内部滚动 */
+  height: 32px;
+  min-height: 32px;
+  max-height: 176px;
+  overflow-y: hidden;
   font-family: inherit;
   line-height: 24px;
-  padding: 0;
+  padding: 4px 0;
   margin: 0;
 }
 
@@ -2423,7 +2699,7 @@ onUnmounted(() => {
 .input-wrapper .send-btn {
   width: 38px;
   height: 38px;
-  background: #409eff;
+  background: var(--ej-accent);
   border: none;
   border-radius: 10px;
   color: white;
@@ -2436,7 +2712,7 @@ onUnmounted(() => {
 }
 
 .input-wrapper .send-btn:hover:not(:disabled) {
-  background: #66b1ff;
+  background: var(--ej-ink);
   transform: translateY(-1px);
 }
 
@@ -2854,7 +3130,9 @@ onUnmounted(() => {
   
   .input-wrapper textarea {
     font-size: 13px;
-    height: 22px;
+    height: 30px;
+    min-height: 30px;
+    max-height: 162px;
     line-height: 22px;
   }
   
@@ -3048,7 +3326,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 4px;
   font-size: 13px;
-  color: #409eff;
+  color: var(--ej-accent);
   font-weight: 500;
   margin-left: auto;
   padding-left: 8px;
@@ -3056,6 +3334,57 @@ onUnmounted(() => {
 }
 
 .draft-link-action svg {
-  color: #409eff;
+  color: var(--ej-accent);
 }
+.conversation-group + .conversation-group { margin-top: 20px; }
+.conversation-group-toggle { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 8px 12px; border: 0; background: transparent; color: var(--ej-muted); font-size: 12px; font-weight: 650; cursor: pointer; }
+.conv-article-title { color: var(--ej-muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 4px; }
+.conversation-load-more { width: 100%; padding: 10px; background: transparent; border: 0; color: var(--ej-muted); cursor: pointer; font-size: 12px; }
+.article-context-strip { display: flex; align-items: center; gap: 10px; padding: 12px 24px; border-bottom: 1px solid #11110f18; flex-shrink: 0; font-size: 12px; min-width: 0; }
+.article-context-strip > span { color: var(--ej-muted); flex-shrink: 0; }
+.article-context-strip button { background: transparent; border: 0; padding: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; cursor: pointer; color: var(--ej-ink); }
+.article-context-strip small { color: var(--ej-muted); margin-left: auto; flex-shrink: 0; }
+.history-error { padding: 12px 20px; color: #9b482f; font-size: 13px; background: #fff1e8; }
+.history-error button { border: 0; background: transparent; color: inherit; text-decoration: underline; cursor: pointer; margin-left: 8px; }
+.article-chat-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 20px 18px 14px; flex-shrink: 0; }
+.article-chat-heading { display: flex; align-items: center; gap: 10px; }
+.article-chat-heading strong { display: block; font-size: 15px; }
+.article-chat-heading div > span { display: block; font-size: 11px; color: var(--ej-muted); margin-top: 4px; }
+.article-chat-mark { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--ej-ink); background: var(--ej-lime, #caff4d); display: grid; place-items: center; font-size: 21px; }
+.article-chat-controls { display: flex; align-items: center; gap: 4px; }
+.article-chat-controls button { background: transparent; border: 0; border-radius: 8px; padding: 6px 8px; cursor: pointer; font-size: 12px; color: var(--ej-muted); }
+.article-chat-controls button:hover { background: #11110f08; color: var(--ej-ink); }
+.article-chat-controls .article-chat-close { font-size: 23px; line-height: 1; }
+.article-reader-link { display: flex; align-items: center; gap: 8px; padding: 8px 18px 12px; background: transparent; border: 0; border-bottom: 1px solid #11110f18; color: var(--ej-muted); font-size: 12px; text-align: left; cursor: pointer; flex-shrink: 0; }
+.reader-link-arrow { margin-left: auto; }
+.reader-unread-dot { width: 6px; height: 6px; border-radius: 50%; background: #e66d55; }
+.expand-assistant-link { display: block; margin: 12px auto 0; padding: 0; border: 0; background: transparent; font-size: 11px; color: var(--ej-muted); cursor: pointer; }
+.expand-assistant-link:disabled { cursor: default; opacity: .4; }
+:global(#app .ai-chat-page.embedded-chat) { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--ej-surface); overflow: hidden; border-radius: inherit; }
+:global(#app .ai-chat-page.embedded-chat::before) { display: none; }
+:global(#app .embedded-chat .chat-container) { padding: 0; height: auto; min-height: 0; flex: 1; width: 100%; max-width: none; margin: 0; }
+:global(#app .embedded-chat .chat-main) { width: 100%; min-width: 0; min-height: 0; background: transparent; }
+:global(#app .embedded-chat .article-context-strip) { padding: 10px 18px; background: #11110f03; }
+:global(#app .embedded-chat .welcome-area) { min-height: 0; padding: 28px 20px; }
+:global(#app .embedded-chat .welcome-title) { font-size: 21px; line-height: 1.5; letter-spacing: -.02em; }
+:global(#app .embedded-chat .welcome-desc) { font-size: 13px; line-height: 1.7; margin-bottom: 20px; }
+:global(#app .embedded-chat .welcome-eyebrow) { font-size: 11px; }
+:global(#app .embedded-chat .quick-questions) { max-width: none; gap: 8px; }
+:global(#app .embedded-chat .quick-question-item) { padding: 10px 0; font-size: 13px; }
+:global(#app .embedded-chat .message-list) { padding: 20px 16px; flex: 1; min-height: 0; overflow-y: auto; }
+:global(#app .embedded-chat .message-item) { gap: 9px; margin-bottom: 22px; }
+:global(#app .embedded-chat .message-avatar) { width: 28px; height: 28px; flex-shrink: 0; }
+:global(#app .embedded-chat .message-content) { max-width: calc(100% - 37px); min-width: 0; font-size: 13px; }
+:global(#app .embedded-chat .message-bubble) { font-size: 13px; line-height: 1.85; overflow-wrap: anywhere; }
+:global(#app .ai-chat-page.embedded-chat .article-card) { padding: 12px; min-height: 0; border-radius: 12px; }
+:global(#app .embedded-chat .article-cards) { gap: 8px; margin-top: 10px; }
+:global(#app .embedded-chat .card-title) { font-size: 12px; }
+:global(#app .embedded-chat .card-cover) { width: 58px; height: 52px; }
+:global(#app .embedded-chat .input-area) { flex-shrink: 0; padding: 14px 16px; }
+:global(#app .embedded-chat .input-wrapper) { padding: 10px; gap: 8px; border-radius: 15px; }
+:global(#app .embedded-chat .input-wrapper textarea) { font-size: 13px; min-height: 24px; padding: 0; }
+:global(#app .embedded-chat .input-wrapper .send-btn) { width: 31px; height: 31px; }
+:global(#app .embedded-chat .input-tips) { font-size: 10px; margin-top: 8px; }
+:global(#app .embedded-chat .tip-note) { display: none; }
+@media (max-width: 768px) { .article-context-strip small { display: none; } }
 </style>

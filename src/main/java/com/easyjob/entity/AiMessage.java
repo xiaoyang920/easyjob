@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import lombok.Data;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 /**
  * AI消息实体
@@ -14,6 +15,12 @@ import java.util.List;
 @Data
 @TableName(value = "ai_message", autoResultMap = true)
 public class AiMessage {
+    @com.baomidou.mybatisplus.annotation.TableField(exist = false)
+    private Boolean interrupted;
+    @com.baomidou.mybatisplus.annotation.TableField(exist = false)
+    private java.util.Map<String, Object> interruptPayload;
+    @com.baomidou.mybatisplus.annotation.TableField(exist = false)
+    private Boolean isDraft;
     
     /**
      * 消息ID (雪花ID)
@@ -62,4 +69,7 @@ public class AiMessage {
 
     @JsonSerialize(using = ToStringSerializer.class)
     private Long draftArticleId;
+
+    @TableField(typeHandler = com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler.class)
+    private List<Map<String, Object>> citations;
 }

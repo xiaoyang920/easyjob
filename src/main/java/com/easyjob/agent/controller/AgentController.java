@@ -22,6 +22,13 @@ import java.util.List;
 @RequestMapping("/api/agent")
 @Slf4j
 public class AgentController {
+    @GetMapping(value="/runs/{runId}/events", produces=MediaType.TEXT_EVENT_STREAM_VALUE)
+    public Flux<String> runEvents(@PathVariable String runId, @RequestParam(defaultValue="0") long after,
+                                 HttpServletResponse response) {
+        response.setHeader("Cache-Control", "no-cache");
+        response.setHeader("X-Accel-Buffering", "no");
+        return agentService.runEvents(runId, UserContext.getUserId(), after);
+    }
     @Autowired
     private AgentService agentService;
     @Autowired
@@ -100,14 +107,16 @@ public class AgentController {
         public ResponseVO chat(@RequestBody AiChatParam param) {
             Long userId = UserContext.getUserId();
             return ResponseVO.success(agentService.chat(
-                    param.getConversationId(), userId, param.getMessage(), param.getImagePaths()));
+                    param.getConversationId(), userId, param.getMessage(), param.getImagePaths(), param.getRequestId(), param.getOriginArticleId()));
         }
 
         @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-        public Flux<String> chatStream(@RequestBody AiChatParam param) {
+        public Flux<String> chatStream(@RequestBody AiChatParam param, HttpServletResponse response) {
+            response.setHeader("Cache-Control", "no-cache");
+            response.setHeader("X-Accel-Buffering", "no");
             Long userId = UserContext.getUserId();
             return agentService.chatStream(
-                    param.getConversationId(), userId, param.getMessage(), param.getImagePaths());
+                    param.getConversationId(), userId, param.getMessage(), param.getImagePaths(), param.getRequestId(), param.getOriginArticleId());
         }
 
         // 新增：Human-in-the-loop 恢复
@@ -115,31 +124,34 @@ public class AgentController {
         public ResponseVO chatResume(@RequestBody ResumeParam param) {
             Long userId = UserContext.getUserId();
             return ResponseVO.success(agentService.chatResume(
-                    param.getConversationId(), userId, param.getAction()));
+                    param.getConversationId(), userId, param.getAction(), param.getRunId(), param.getDraftHash()));
         }
 
         // 新增：Human-in-the-loop 流式恢复
         @PostMapping(value = "/chat/resume/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-        public Flux<String> chatResumeStream(@RequestBody ResumeParam param) {
+        public Flux<String> chatResumeStream(@RequestBody ResumeParam param, HttpServletResponse response) {
+            response.setHeader("Cache-Control", "no-cache");
+            response.setHeader("X-Accel-Buffering", "no");
             Long userId = UserContext.getUserId();
             return agentService.chatResumeStream(
-                    param.getConversationId(), userId, param.getAction());
+                    param.getConversationId(), userId, param.getAction(), param.getRunId(), param.getDraftHash());
         }
 
         // 新增：暂停
         @PostMapping("/chat/{conversationId}/cancel")
         public ResponseVO cancelChat(@PathVariable Long conversationId) {
-            agentService.cancelChat(conversationId);
-            return ResponseVO.success(null);
+            return ResponseVO.success(agentService.cancelChat(conversationId, UserContext.getUserId()));
         }
         @GetMapping("/conversations")
         public ResponseVO getConversations(
                 @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime lastUpdateTime,
                 @RequestParam(required = false) Long lastId,
-                @RequestParam(defaultValue = "10") int limit) {
+                @RequestParam(defaultValue = "10") int limit,
+                @RequestParam(defaultValue = "all") String scope,
+                @RequestParam(required = false) Long originArticleId) {
             Long userId = UserContext.getUserId();
             List<AiConversation> list = aiConversationService.getUserConversationsWithCursor(
-                    userId, lastUpdateTime, lastId, limit);
+                    userId, lastUpdateTime, lastId, limit, scope, originArticleId);
             return ResponseVO.success(list);
         }
 
@@ -152,5 +164,24 @@ public class AgentController {
         public ResponseVO<Void> deleteConversation(@PathVariable Long conversationId) {
             aiConversationService.clearContext(conversationId);
             return ResponseVO.success(null);
+        }
+
+        @GetMapping("/conversations/{conversationId}")
+        public ResponseVO getConversation(@PathVariable Long conversationId) {
+            return ResponseVO.success(aiConversationService.getConversation(conversationId));
+        }
+        @GetMapping("/run-overview")
+        public ResponseVO runOverview() {
+            return ResponseVO.success(agentService.runOverview(UserContext.getUserId()));
+        }
+
+        @GetMapping("/runs/{runId}")
+        public ResponseVO runStatus(@PathVariable String runId) {
+            return ResponseVO.success(agentService.runStatus(runId, UserContext.getUserId()));
+        }
+
+        @GetMapping("/conversations/{conversationId}/run")
+        public ResponseVO conversationRun(@PathVariable Long conversationId) {
+            return ResponseVO.success(agentService.conversationRun(conversationId, UserContext.getUserId()));
         }
 }

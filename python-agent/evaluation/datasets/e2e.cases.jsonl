@@ -1,0 +1,6 @@
+{"id":"answer-rag","query":"RAG 是什么？用三句话解释检索增强生成，不需要搜索，也不要生成文章草稿。","required_terms":["检索","生成"]}
+{"id":"knowledge-redis","query":"请搜索平台上 Redis 入门的文章，整理两点主要内容并引用文章来源，不要写草稿，也不要联网。","required_citations":true}
+{"id":"knowledge-compare","query":"请搜索平台的 Spring Boot 入门和 Java Spring 框架文章，对比两者关系及使用场景，给出文章引用。不要联网、不要保存草稿。","required_citations":true}
+{"id":"draft-approve","query":"请直接创作一篇约300字的 RAG 入门文章草稿，包含标题、摘要和两个小节，使用通用知识即可，不需要检索。生成后让我决定是否保存，不能直接发布。","approval":"approve"}
+{"id":"draft-reject","query":"请直接创作一篇约300字的 Redis 入门文章草稿，包含标题、摘要和两个小节，使用通用知识即可，不需要检索。生成后让我决定是否保存，不能直接发布。","approval":"reject"}
+{"id":"delegate-analysis","query":"请明确委派给两个子代理完成两个独立分析：一个解释 Redis 缓存穿透的防治策略，另一个解释 RAG 召回不足的优化策略，然后由主代理汇总为对照表。使用通用知识即可，不用搜索、不要写草稿。","required_terms":["Redis","RAG"],"required_nodes":["main_delegate"]}

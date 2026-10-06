@@ -2,7 +2,12 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 const router = createRouter({
   history: createWebHistory(),
+  scrollBehavior(_to, _from, savedPosition) {
+    return savedPosition || { top: 0, left: 0 }
+  },
   routes: [
+    { path: '/admin', name: 'AdminConsole', component: () => import('@/views/AdminConsole.vue') },
+    { path: '/ai-memory', name: 'MemoryManagement', component: () => import('@/views/MemoryManagement.vue') },
     {
       path: '/',
       name: 'Home',
@@ -79,7 +84,7 @@ const router = createRouter({
 // 路由守卫 - 需要登录的页面
 router.beforeEach((to, _from, next) => {
   const token = localStorage.getItem('token')
-  const needAuth = ['CreateArticle', 'EditArticle', 'DraftBox', 'EditProfile', 'FollowersFollowing', 'Chat', 'AiChat', 'Notifications']
+  const needAuth = ['AdminConsole', 'CreateArticle', 'EditArticle', 'DraftBox', 'EditProfile', 'FollowersFollowing', 'Chat', 'AiChat', 'MemoryManagement', 'Notifications']
   
   if (needAuth.includes(to.name as string) && !token) {
     // 跳转到首页并触发登录弹窗

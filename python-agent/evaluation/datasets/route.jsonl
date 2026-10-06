@@ -1,0 +1,16 @@
+{"id":"route_01","kind":"route","query":"你好","reviewed":true,"acceptable_routes":[{"action":"answer"}]}
+{"id":"route_02","kind":"route","query":"谢谢你，今天先到这里。","reviewed":true,"acceptable_routes":[{"action":"answer"}]}
+{"id":"route_03","kind":"route","query":"请用通俗语言解释 RAG 是什么，不涉及平台文章或最新资讯。","reviewed":true,"acceptable_routes":[{"action":"answer"}]}
+{"id":"route_04","kind":"route","query":"简单解释一下 Redis 缓存穿透、击穿和雪崩的区别。","reviewed":true,"acceptable_routes":[{"action":"answer"}]}
+{"id":"route_05","kind":"route","query":"给我想三个 Spring Boot 入门文章的标题，只需要在聊天中回复。","reviewed":true,"acceptable_routes":[{"action":"answer"}]}
+{"id":"route_06","kind":"route","query":"找几篇平台中关于 RAG 的公开文章。","reviewed":true,"acceptable_routes":[{"action":"retrieve","target":"knowledge"}]}
+{"id":"route_07","kind":"route","query":"搜索平台里关于 Redis 缓存一致性的文章。","reviewed":true,"acceptable_routes":[{"action":"retrieve","target":"knowledge"}]}
+{"id":"route_08","kind":"route","query":"平台上最近一个月有哪些 Spring Boot 技术文章？","reviewed":true,"acceptable_routes":[{"action":"retrieve","target":"knowledge"}]}
+{"id":"route_09","kind":"route","query":"我之前决定那篇文章面向什么读者？请查一下历史决策再告诉我。","reviewed":true,"acceptable_routes":[{"action":"retrieve","target":"memory"}]}
+{"id":"route_10","kind":"route","query":"回忆一下我之前确认过的博客写作选题。","reviewed":true,"acceptable_routes":[{"action":"retrieve","target":"memory"}]}
+{"id":"route_11","kind":"route","query":"我们以前讨论过那个缓存方案，最后确认采用的是哪一种？请查历史记录。","reviewed":true,"acceptable_routes":[{"action":"retrieve","target":"memory"}]}
+{"id":"route_12","kind":"route","query":"写一篇介绍 Java 集合的入门草稿，展示给我确认后保存到草稿箱。不需要引用平台文章。","reviewed":true,"acceptable_routes":[{"action":"write_draft"}]}
+{"id":"route_13","kind":"route","query":"生成一篇 Redis 入门博客，先让我审批，再保存为草稿。不需要检索。","reviewed":true,"acceptable_routes":[{"action":"write_draft"}]}
+{"id":"route_14","kind":"route","query":"分别查找平台关于 Redis 和 Elasticsearch 的文章，基于资料对比它们的适用场景。","reviewed":true,"acceptable_routes":[{"action":"retrieve","target":"knowledge"},{"action":"delegate"}]}
+{"id":"route_15","kind":"route","query":"查找平台中关于向量检索和关键词检索的文章，结合两类证据比较优缺点。","reviewed":true,"acceptable_routes":[{"action":"retrieve","target":"knowledge"},{"action":"delegate"}]}
+{"id":"route_16","kind":"route","query":"帮我写一段关于 Java 学习的简短开场白，在聊天中给我即可，不保存。","reviewed":true,"acceptable_routes":[{"action":"answer"}]}

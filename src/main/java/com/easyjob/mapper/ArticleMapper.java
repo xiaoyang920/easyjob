@@ -24,7 +24,10 @@ public interface ArticleMapper extends BaseMapper<Article> {
     IPage<ArticleListVO> listArticles(Page<ArticleListVO> page, 
                                       @Param("sort") String sort, 
                                       @Param("categoryId") Long categoryId, 
-                                      @Param("keyword") String keyword);
+                                      @Param("keyword") String keyword,
+                                      @Param("tagIds") List<Long> tagIds, @Param("userId") Long userId,
+                                      @Param("readerLevel") int readerLevel, @Param("viewerAdmin") boolean viewerAdmin,
+                                      @Param("readableOnly") boolean readableOnly);
 
     void changeLikeCount(Long articleId,@Param("count") int i);
 
@@ -47,7 +50,11 @@ public interface ArticleMapper extends BaseMapper<Article> {
 
     List<ArticleListVO> selectHotArticles(int limit);
 
-    List<ArticleListVO> selectRecommendArticles(Long userId, List<Long> topTagIds, int limit);
+    List<ArticleListVO> selectRecommendArticles(@Param("userId") Long userId, @Param("topTagIds") List<Long> topTagIds, @Param("limit") int limit);
 
-    List<ArticleListVO> selectHotArticlesExclude(List<Long> existIds, int i);
+    List<ArticleListVO> selectHotArticlesExclude(@Param("excludeIds") List<Long> existIds, @Param("limit") int limit);
+    IPage<ArticleListVO> listRecommendedArticles(Page<ArticleListVO> page, @Param("userId") Long userId,
+        @Param("topTagIds") List<Long> topTagIds, @Param("categoryId") Long categoryId, @Param("tagIds") List<Long> tagIds,
+        @Param("topics") List<String> topics, @Param("topicPatterns") List<String> topicPatterns, @Param("readerLevel") int readerLevel,
+        @Param("viewerAdmin") boolean viewerAdmin, @Param("readableOnly") boolean readableOnly);
 }

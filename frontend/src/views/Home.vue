@@ -1,8 +1,5 @@
 <template>
   <div class="home-page">
-    <!-- 星空背景 -->
-    <StarBackground />
-
     <!-- 导航栏 -->
     <div class="navbar">
       <div class="logo" @click="$router.push('/')">
@@ -16,142 +13,9 @@
       </div>
       
       <!-- 搜索框 -->
-      <div class="search-box">
-        <input 
-          v-model="searchKeyword"
-          type="search" 
-          placeholder="搜索文章、作者..."
-          @keyup.enter="handleSearch"
-          @keydown.enter="handleSearch"
-          @search="handleSearch"
-          enterkeyhint="search"
-        >
-        <button class="search-btn" @click="handleSearch">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
-          </svg>
-        </button>
-      </div>
+      <SearchBox v-model="searchKeyword" @search="handleSearch" />
       
-      <div class="nav-menu">
-        <template v-if="isLogin">
-          <!-- 用户头像下拉菜单 -->
-          <div class="user-dropdown">
-            <div class="dropdown-trigger">
-              <img 
-                :src="getAvatarUrl(avatar)" 
-                alt="用户头像" 
-                class="user-avatar"
-                @error="handleAvatarError"
-              >
-            </div>
-            <div class="dropdown-menu">
-              <!-- 头像悬浮区域 -->
-              <div class="dropdown-avatar-wrapper">
-                <img 
-                  :src="getAvatarUrl(avatar)" 
-                  alt="头像" 
-                  class="dropdown-avatar"
-                  @error="handleAvatarError"
-                >
-              </div>
-              <!-- 用户信息 -->
-              <div class="dropdown-body">
-                <div class="dropdown-user-name">{{ nickName }}</div>
-                <!-- 统计数据 -->
-                <div class="dropdown-stats">
-                  <div class="stat-item" @click="goToFollowing">
-                    <div class="stat-value">{{ userStats.followingCount }}</div>
-                    <div class="stat-label">关注</div>
-                  </div>
-                  <div class="stat-item" @click="goToFollowers">
-                    <div class="stat-value">{{ userStats.followerCount }}</div>
-                    <div class="stat-label">粉丝</div>
-                  </div>
-                  <div class="stat-item" @click="goToSpace">
-                    <div class="stat-value">{{ userStats.articleCount }}</div>
-                    <div class="stat-label">文章</div>
-                  </div>
-                </div>
-                <!-- 菜单项 -->
-                <div class="dropdown-items">
-                  <div class="dropdown-item" @click="goToSpace">
-                    <svg viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
-                    <span>个人空间</span>
-                    <svg class="arrow" viewBox="0 0 24 24"><path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6z"/></svg>
-                  </div>
-                  <div class="dropdown-item" @click="goToDrafts">
-                    <svg viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zM6 20V4h7v5h5v11H6z"/></svg>
-                    <span>草稿箱</span>
-                    <svg class="arrow" viewBox="0 0 24 24"><path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6z"/></svg>
-                  </div>
-                  <div class="dropdown-item" @click="$router.push('/create-article')">
-                    <svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
-                    <span>写文章</span>
-                    <svg class="arrow" viewBox="0 0 24 24"><path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6z"/></svg>
-                  </div>
-                  <div class="dropdown-item" @click="goToChat">
-                    <svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/></svg>
-                    <span>消息</span>
-                    <span v-if="totalUnreadCount > 0" class="dropdown-badge">{{ totalUnreadCount > 99 ? '99+' : totalUnreadCount }}</span>
-                    <svg class="arrow" viewBox="0 0 24 24"><path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6z"/></svg>
-                  </div>
-                  <div class="dropdown-item ai-item" @click="goToAiChat">
-                    <svg viewBox="0 0 1024 1024" fill="currentColor">
-                      <path d="M966.392 448.741L851.745 249.689a27.039 27.039 0 0 0-23.431-13.544h-42.126l-78.386-135.769a27.04 27.04 0 0 0-23.417-13.52H454.539a27.039 27.039 0 0 0-23.4 13.49l-20.99 36.249-156.729 0.025a27.04 27.04 0 0 0-23.413 13.52L115.084 349.191a27.041 27.041 0 0 0 0 27.04l20.925 36.243-78.386 135.769a27.041 27.041 0 0 0 0 27.04l114.923 199.052a27.04 27.04 0 0 0 23.417 13.52h41.85l78.386 135.769a27.04 27.04 0 0 0 23.417 13.52h229.845a27.04 27.04 0 0 0 23.417-13.52l20.925-36.243h156.773a27.04 27.04 0 0 0 23.417-13.52l114.923-199.052a27.041 27.041 0 0 0 0-27.04l-20.925-36.243 78.386-135.769a27.04 27.04 0 0 0 0.015-27.016zM767.96 557.282l-219.424-0.026 82.291-142.529a4.517 4.517 0 0 0 0-4.507L462.345 118.403h219.439l84.889 147.035 0.003 0.004 84.888 147.032-83.604 144.808z m62.68-90.538h104.516l-78.388 135.767L804.51 512l26.13-45.256z m-208.921-54.27L540.73 552.748 517.204 512l27.429-47.509c0.031-0.054 0.042-0.115 0.07-0.17 0.125-0.24 0.228-0.49 0.31-0.753 0.028-0.091 0.062-0.179 0.084-0.271 0.082-0.341 0.139-0.693 0.139-1.059a4.46 4.46 0 0 0-0.139-1.059c-0.022-0.092-0.056-0.181-0.084-0.272a4.565 4.565 0 0 0-0.31-0.753c-0.029-0.055-0.039-0.116-0.07-0.17L429.711 260.932a4.509 4.509 0 0 0-3.904-2.254h-49.653l78.384-135.768 167.181 289.564zM365.744 258.678h-52.255l-52.259-90.514 156.787-0.024-52.273 90.538z m-62.664 0h-49.655a4.508 4.508 0 0 0-3.904 2.254l-82.29 142.528-23.526-40.748 109.719-190.038 49.656 86.004z m-131.946 156.05l84.891-147.036h54.856l0.009 0.001 0.009-0.001h112.307l109.718 190.039H368.347a4.508 4.508 0 0 0-3.904 2.254L195.961 751.802 86.244 561.763l84.89-147.035z m199.814 52.016h161.975l-23.527 40.749h-54.859c-0.037 0-0.073 0.014-0.11 0.015a4.484 4.484 0 0 0-2.044 0.548c-0.08 0.044-0.154 0.093-0.231 0.142a4.454 4.454 0 0 0-0.652 0.499c-0.068 0.063-0.139 0.122-0.203 0.189a4.439 4.439 0 0 0-0.662 0.86L335.712 708.799a4.515 4.515 0 0 0 0 4.506l24.828 43.003H203.769l167.179-289.564z m-5.205 298.578l26.129 45.257-52.258 90.511-78.384-135.768h104.513z m31.334 54.272l24.826 43.001a4.508 4.508 0 0 0 3.904 2.253h164.579l-23.524 40.749h-219.44l49.655-86.003z m31.331 36.241L344.82 711.052l109.719-190.038 82.288 142.528a4.508 4.508 0 0 0 3.904 2.253h336.963l-109.718 190.04H428.408z m114.923-199.053l-80.987-140.276h47.055l27.427 47.51c0.044 0.076 0.103 0.137 0.152 0.21 0.087 0.134 0.177 0.264 0.279 0.389 0.095 0.115 0.197 0.221 0.301 0.326 0.1 0.1 0.2 0.197 0.311 0.288 0.13 0.107 0.266 0.201 0.406 0.292 0.069 0.046 0.128 0.102 0.2 0.144 0.034 0.02 0.073 0.025 0.107 0.044 0.314 0.17 0.64 0.315 0.984 0.406 0.035 0.01 0.071 0.009 0.107 0.018 0.302 0.072 0.61 0.11 0.92 0.119 0.044 0.001 0.088 0.017 0.132 0.017 0.051 0 0.099-0.018 0.15-0.019 0.062 0.002 0.119 0.018 0.18 0.018l229.505 0.027a4.509 4.509 0 0 0 3.904-2.253l24.841-43.027 53.556 92.759 0.001 0.003 24.83 43.005H543.331z m292.512-199.051l24.828-43.003a4.517 4.517 0 0 0 0-4.507l-82.289-142.529h47.325l109.457 190.039h-99.321z"/>
-                    </svg>
-                    <span>AI 助手</span>
-                    <svg class="arrow" viewBox="0 0 24 24"><path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6z"/></svg>
-                  </div>
-                </div>
-                <!-- 退出登录 -->
-                <div class="dropdown-footer">
-                  <div class="dropdown-item logout" @click="logout">
-                    <svg viewBox="0 0 24 24"><path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/></svg>
-                    <span>退出登录</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-          
-          <!-- 导航功能按钮 -->
-          <div class="nav-icon-btn" @click="$router.push('/create-article')" title="写文章">
-            <svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
-            <span>投稿</span>
-          </div>
-          <div class="nav-icon-btn" @click="goToDrafts" title="草稿箱">
-            <svg viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zM6 20V4h7v5h5v11H6z"/></svg>
-            <span>草稿</span>
-          </div>
-          <el-badge :value="totalUnreadCount" :hidden="totalUnreadCount === 0" :max="99" class="msg-badge">
-            <div class="nav-icon-btn" @click="goToChat" title="消息">
-              <svg viewBox="0 0 1024 1024"><path d="M535.552 796.444444H739.555556q70.712889 0 120.661333-50.005333Q910.222222 696.490667 910.222222 625.777778V341.333333q0-70.712889-50.005333-120.661333Q810.268444 170.666667 739.555556 170.666667H284.444444q-70.712889 0-120.661333 50.005333Q113.777778 270.620444 113.777778 341.333333v284.444445q0 70.712889 50.005333 120.661333Q213.731556 796.444444 284.444444 796.444444h13.084445q4.266667 8.533333 9.898667 16.497778 21.219556 30.151111 55.751111 44.487111 34.531556 14.279111 70.883555 7.964445 39.310222-6.826667 68.152889-35.612445L535.552 796.444444zM739.555556 682.666667H512a56.888889 56.888889 0 0 0-40.220444 16.668444l-50.005334 50.005333q-6.485333 6.485333-15.018666 2.958223Q398.222222 748.771556 398.222222 739.555556a56.888889 56.888889 0 0 0-56.888889-56.888889H284.444444q-23.552 0-40.220444-16.668445T227.555556 625.777778V341.333333q0-23.552 16.668444-40.220444T284.444444 284.444444h455.111112q23.552 0 40.220444 16.668445T796.444444 341.333333v284.444445q0 23.552-16.668444 40.220444T739.555556 682.666667zM341.333333 540.444444a56.888889 56.888889 0 1 0 0-113.777777 56.888889 56.888889 0 0 0 0 113.777777z m170.666667 0a56.888889 56.888889 0 1 0 0-113.777777 56.888889 56.888889 0 0 0 0 113.777777z m170.666667 0a56.888889 56.888889 0 1 0 0-113.777777 56.888889 56.888889 0 0 0 0 113.777777z"/></svg>
-              <span>消息</span>
-            </div>
-          </el-badge>
-          <el-badge :value="notifyUnreadCount" :hidden="notifyUnreadCount === 0" :max="99" class="msg-badge">
-            <div class="nav-icon-btn" @click="goToNotifications" title="通知">
-              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>
-              <span>通知</span>
-            </div>
-          </el-badge>
-          <div class="nav-icon-btn" @click="goToSpace" title="个人空间">
-            <svg viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
-            <span>空间</span>
-          </div>
-          <div class="nav-icon-btn ai-btn" @click="goToAiChat" title="AI 助手">
-            <svg viewBox="0 0 1024 1024" fill="currentColor">
-              <path d="M966.392 448.741L851.745 249.689a27.039 27.039 0 0 0-23.431-13.544h-42.126l-78.386-135.769a27.04 27.04 0 0 0-23.417-13.52H454.539a27.039 27.039 0 0 0-23.4 13.49l-20.99 36.249-156.729 0.025a27.04 27.04 0 0 0-23.413 13.52L115.084 349.191a27.041 27.041 0 0 0 0 27.04l20.925 36.243-78.386 135.769a27.041 27.041 0 0 0 0 27.04l114.923 199.052a27.04 27.04 0 0 0 23.417 13.52h41.85l78.386 135.769a27.04 27.04 0 0 0 23.417 13.52h229.845a27.04 27.04 0 0 0 23.417-13.52l20.925-36.243h156.773a27.04 27.04 0 0 0 23.417-13.52l114.923-199.052a27.041 27.041 0 0 0 0-27.04l-20.925-36.243 78.386-135.769a27.04 27.04 0 0 0 0.015-27.016zM767.96 557.282l-219.424-0.026 82.291-142.529a4.517 4.517 0 0 0 0-4.507L462.345 118.403h219.439l84.889 147.035 0.003 0.004 84.888 147.032-83.604 144.808z m62.68-90.538h104.516l-78.388 135.767L804.51 512l26.13-45.256z m-208.921-54.27L540.73 552.748 517.204 512l27.429-47.509c0.031-0.054 0.042-0.115 0.07-0.17 0.125-0.24 0.228-0.49 0.31-0.753 0.028-0.091 0.062-0.179 0.084-0.271 0.082-0.341 0.139-0.693 0.139-1.059a4.46 4.46 0 0 0-0.139-1.059c-0.022-0.092-0.056-0.181-0.084-0.272a4.565 4.565 0 0 0-0.31-0.753c-0.029-0.055-0.039-0.116-0.07-0.17L429.711 260.932a4.509 4.509 0 0 0-3.904-2.254h-49.653l78.384-135.768 167.181 289.564zM365.744 258.678h-52.255l-52.259-90.514 156.787-0.024-52.273 90.538z m-62.664 0h-49.655a4.508 4.508 0 0 0-3.904 2.254l-82.29 142.528-23.526-40.748 109.719-190.038 49.656 86.004z m-131.946 156.05l84.891-147.036h54.856l0.009 0.001 0.009-0.001h112.307l109.718 190.039H368.347a4.508 4.508 0 0 0-3.904 2.254L195.961 751.802 86.244 561.763l84.89-147.035z m199.814 52.016h161.975l-23.527 40.749h-54.859c-0.037 0-0.073 0.014-0.11 0.015a4.484 4.484 0 0 0-2.044 0.548c-0.08 0.044-0.154 0.093-0.231 0.142a4.454 4.454 0 0 0-0.652 0.499c-0.068 0.063-0.139 0.122-0.203 0.189a4.439 4.439 0 0 0-0.662 0.86L335.712 708.799a4.515 4.515 0 0 0 0 4.506l24.828 43.003H203.769l167.179-289.564z m-5.205 298.578l26.129 45.257-52.258 90.511-78.384-135.768h104.513z m31.334 54.272l24.826 43.001a4.508 4.508 0 0 0 3.904 2.253h164.579l-23.524 40.749h-219.44l49.655-86.003z m31.331 36.241L344.82 711.052l109.719-190.038 82.288 142.528a4.508 4.508 0 0 0 3.904 2.253h336.963l-109.718 190.04H428.408z m114.923-199.053l-80.987-140.276h47.055l27.427 47.51c0.044 0.076 0.103 0.137 0.152 0.21 0.087 0.134 0.177 0.264 0.279 0.389 0.095 0.115 0.197 0.221 0.301 0.326 0.1 0.1 0.2 0.197 0.311 0.288 0.13 0.107 0.266 0.201 0.406 0.292 0.069 0.046 0.128 0.102 0.2 0.144 0.034 0.02 0.073 0.025 0.107 0.044 0.314 0.17 0.64 0.315 0.984 0.406 0.035 0.01 0.071 0.009 0.107 0.018 0.302 0.072 0.61 0.11 0.92 0.119 0.044 0.001 0.088 0.017 0.132 0.017 0.051 0 0.099-0.018 0.15-0.019 0.062 0.002 0.119 0.018 0.18 0.018l229.505 0.027a4.509 4.509 0 0 0 3.904-2.253l24.841-43.027 53.556 92.759 0.001 0.003 24.83 43.005H543.331z m292.512-199.051l24.828-43.003a4.517 4.517 0 0 0 0-4.507l-82.289-142.529h47.325l109.457 190.039h-99.321z"/>
-            </svg>
-            <span>AI</span>
-          </div>
-        </template>
-        <template v-else>
-          <button class="nav-btn" @click="showLoginDialog = true">登录</button>
-          <button class="nav-btn primary" @click="showRegisterDialog = true">注册</button>
-        </template>
-      </div>
+      <AppNavigation :authenticated="isLogin" :avatar="avatar" :nickname="nickName" :stats="userStats" :unread-messages="totalUnreadCount" @login="showLoginDialog = true" @register="showRegisterDialog = true" @logout="logout" />
     </div>
 
     <!-- 登录弹窗 -->
@@ -180,16 +44,18 @@
 
     <!-- 主容器 -->
     <div class="container">
+      <HomeStudio @write="goToCreate" @assistant="goToAiChat" />
+
       <!-- 分类导航 -->
       <div v-if="categories.length > 0" class="category-nav">
-        <div 
+        <button
           class="category-item"
           :class="{ active: selectedCategoryId === null }"
           @click="filterByCategory(null)"
         >
           全部
-        </div>
-        <div 
+        </button>
+        <button
           v-for="category in categories" 
           :key="category.categoryId"
           class="category-item"
@@ -197,17 +63,9 @@
           @click="filterByCategory(category.categoryId)"
         >
           {{ category.categoryName }}
-        </div>
+        </button>
       </div>
       
-      <!-- 欢迎区域 -->
-      <div class="welcome-section">
-        <h1 class="welcome-title">欢迎来到 EasyJob</h1>
-        <p class="welcome-subtitle">一个属于创作者的内容社区</p>
-        <!-- 移动端未登录提示 -->
-        <p v-if="!isLogin" class="mobile-login-tip">登录后点击头像，体验所有功能</p>
-      </div>
-
       <!-- 主内容区域 -->
       <div class="main-content">
         <!-- 左侧：文章列表 -->
@@ -226,16 +84,24 @@
               </button>
             </div>
           </div>
-          
+          <div class="reading-filter">
+            <label><input v-model="readableOnly" type="checkbox" @change="changeReadableFilter">只看可读</label>
+            <span>{{ readableOnly ? (isLogin ? '仅展示你现在可以阅读全文的文章' : '仅展示游客可读的文章') : (currentSort === 'recommend' ? '优先推荐可读文章，兼顾关注领域、近期互动与新内容' : '文章卡片会标明阅读等级') }}</span>
+            <RouterLink v-if="isLogin && currentSort === 'recommend'" to="/ai-memory">调整关注领域 ↗</RouterLink>
+          </div>
           <div v-if="loading" class="loading">加载中...</div>
           <div v-else-if="articles.length === 0" class="empty-state">
-            <p>暂无文章</p>
+            <p>{{ readableOnly ? '当前筛选下暂无可读文章' : '暂无文章' }}</p>
+            <button v-if="readableOnly" class="sort-tab" @click="readableOnly = false; changeReadableFilter()">查看全部文章</button>
           </div>
           <div v-else class="article-grid">
             <div 
-              v-for="article in articles" 
+              v-for="(article, articleIndex) in articles"
               :key="article.articleId || article.id"
               class="article-card"
+              tabindex="0"
+              role="link"
+              @keydown.enter="viewArticle(article.articleId || article.id)"
               @click="viewArticle(article.articleId || article.id)"
             >
               <div class="cover-wrapper">
@@ -279,8 +145,13 @@
                 </div>
               </div>
               
-              <div class="article-info">
+                <div class="article-info">
+                  <span v-if="article.requiredLevel > 0" class="reading-level-badge">{{ article.readableNow === false ? `需 L${article.requiredLevel} 解锁` : `L${article.requiredLevel} · 可读` }}</span>
+                <div class="studio-card-index"><span>{{ String(articleIndex + 1).padStart(2, '0') }} / 文章</span><span aria-hidden="true">↗</span></div>
                 <div class="article-title">{{ article.title }}</div>
+                <p v-if="article.summary" class="article-deck">{{ stripHtmlTags(article.summary) }}</p>
+                <div v-if="currentSort === 'recommend' && article.recommendationReason" class="recommendation-reason">{{ article.recommendationReason }}</div>
+                <div class="article-byline"><span>{{ article.authorName || article.nickName || '社区创作者' }}</span><span>{{ formatNumber(article.viewCount || 0) }} 次阅读</span></div>
               </div>
             </div>
           </div>
@@ -315,7 +186,7 @@
                 </svg>
               </div>
               <div class="feature-title">创作文章</div>
-              <div class="feature-desc">分享你的想法和经验，让更多人看到你的精彩内容</div>
+              <div class="feature-desc">把实践和新想法，写成下一篇文章。</div>
             </div>
             <div class="feature-card" @click="goToSpace">
               <div class="feature-icon">
@@ -337,9 +208,7 @@
             </div>
             <div class="feature-card ai-card" @click="goToAiChat">
               <div class="feature-icon">
-                <svg viewBox="0 0 1024 1024" fill="currentColor">
-                  <path d="M966.392 448.741L851.745 249.689a27.039 27.039 0 0 0-23.431-13.544h-42.126l-78.386-135.769a27.04 27.04 0 0 0-23.417-13.52H454.539a27.039 27.039 0 0 0-23.4 13.49l-20.99 36.249-156.729 0.025a27.04 27.04 0 0 0-23.413 13.52L115.084 349.191a27.041 27.041 0 0 0 0 27.04l20.925 36.243-78.386 135.769a27.041 27.041 0 0 0 0 27.04l114.923 199.052a27.04 27.04 0 0 0 23.417 13.52h41.85l78.386 135.769a27.04 27.04 0 0 0 23.417 13.52h229.845a27.04 27.04 0 0 0 23.417-13.52l20.925-36.243h156.773a27.04 27.04 0 0 0 23.417-13.52l114.923-199.052a27.041 27.041 0 0 0 0-27.04l-20.925-36.243 78.386-135.769a27.04 27.04 0 0 0 0.015-27.016zM767.96 557.282l-219.424-0.026 82.291-142.529a4.517 4.517 0 0 0 0-4.507L462.345 118.403h219.439l84.889 147.035 0.003 0.004 84.888 147.032-83.604 144.808z m62.68-90.538h104.516l-78.388 135.767L804.51 512l26.13-45.256z m-208.921-54.27L540.73 552.748 517.204 512l27.429-47.509c0.031-0.054 0.042-0.115 0.07-0.17 0.125-0.24 0.228-0.49 0.31-0.753 0.028-0.091 0.062-0.179 0.084-0.271 0.082-0.341 0.139-0.693 0.139-1.059a4.46 4.46 0 0 0-0.139-1.059c-0.022-0.092-0.056-0.181-0.084-0.272a4.565 4.565 0 0 0-0.31-0.753c-0.029-0.055-0.039-0.116-0.07-0.17L429.711 260.932a4.509 4.509 0 0 0-3.904-2.254h-49.653l78.384-135.768 167.181 289.564zM365.744 258.678h-52.255l-52.259-90.514 156.787-0.024-52.273 90.538z m-62.664 0h-49.655a4.508 4.508 0 0 0-3.904 2.254l-82.29 142.528-23.526-40.748 109.719-190.038 49.656 86.004z m-131.946 156.05l84.891-147.036h54.856l0.009 0.001 0.009-0.001h112.307l109.718 190.039H368.347a4.508 4.508 0 0 0-3.904 2.254L195.961 751.802 86.244 561.763l84.89-147.035z m199.814 52.016h161.975l-23.527 40.749h-54.859c-0.037 0-0.073 0.014-0.11 0.015a4.484 4.484 0 0 0-2.044 0.548c-0.08 0.044-0.154 0.093-0.231 0.142a4.454 4.454 0 0 0-0.652 0.499c-0.068 0.063-0.139 0.122-0.203 0.189a4.439 4.439 0 0 0-0.662 0.86L335.712 708.799a4.515 4.515 0 0 0 0 4.506l24.828 43.003H203.769l167.179-289.564z m-5.205 298.578l26.129 45.257-52.258 90.511-78.384-135.768h104.513z m31.334 54.272l24.826 43.001a4.508 4.508 0 0 0 3.904 2.253h164.579l-23.524 40.749h-219.44l49.655-86.003z m31.331 36.241L344.82 711.052l109.719-190.038 82.288 142.528a4.508 4.508 0 0 0 3.904 2.253h336.963l-109.718 190.04H428.408z m114.923-199.053l-80.987-140.276h47.055l27.427 47.51c0.044 0.076 0.103 0.137 0.152 0.21 0.087 0.134 0.177 0.264 0.279 0.389 0.095 0.115 0.197 0.221 0.301 0.326 0.1 0.1 0.2 0.197 0.311 0.288 0.13 0.107 0.266 0.201 0.406 0.292 0.069 0.046 0.128 0.102 0.2 0.144 0.034 0.02 0.073 0.025 0.107 0.044 0.314 0.17 0.64 0.315 0.984 0.406 0.035 0.01 0.071 0.009 0.107 0.018 0.302 0.072 0.61 0.11 0.92 0.119 0.044 0.001 0.088 0.017 0.132 0.017 0.051 0 0.099-0.018 0.15-0.019 0.062 0.002 0.119 0.018 0.18 0.018l229.505 0.027a4.509 4.509 0 0 0 3.904-2.253l24.841-43.027 53.556 92.759 0.001 0.003 24.83 43.005H543.331z m292.512-199.051l24.828-43.003a4.517 4.517 0 0 0 0-4.507l-82.289-142.529h47.325l109.457 190.039h-99.321z"/>
-                </svg>
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="m14 4 6 6-9 9-7 1 1-7 9-9Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="m12 6 6 6M5 19l4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
               </div>
               <div class="feature-title">AI 助手</div>
               <div class="feature-desc">写作灵感，文章优化，内容润色</div>
@@ -352,15 +221,18 @@
 </template>
 
 <script setup lang="ts">
+import { clearAccountStorage } from '@/utils/searchHistory'
+import AppNavigation from '@/components/AppNavigation.vue'
+import SearchBox from '@/components/SearchBox.vue'
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import StarBackground from '@/components/StarBackground.vue'
 import LoginForm from '@/components/LoginForm.vue'
 import RegisterForm from '@/components/RegisterForm.vue'
+import HomeStudio from '@/components/HomeStudio.vue'
 import request from '@/utils/request'
 import { getThumbUrl, onThumbError } from '@/utils/image'
-import { eventBus, EVENT_AUTH_EXPIRED } from '@/utils/eventBus'
+import { eventBus, EVENT_AUTH_EXPIRED, EVENT_AUTH_CHANGED } from '@/utils/eventBus'
 import {
   notifyUnreadCount,
   connectNotifyStream,
@@ -402,6 +274,7 @@ onUnmounted(() => {
   closeNotifyStream()
   // 移除登录过期事件监听
   eventBus.off(EVENT_AUTH_EXPIRED, handleAuthExpired)
+  eventBus.off(EVENT_AUTH_CHANGED, init)
   window.removeEventListener('resize', updateDialogWidth)
 })
 
@@ -409,6 +282,7 @@ onUnmounted(() => {
 const loading = ref(false)
 const articles = ref<any[]>([])
 const currentSort = ref('recommend')
+const readableOnly = ref(false)
 const currentPage = ref(1)
 const totalPages = ref(0)
 const isLogin = ref(false)
@@ -503,16 +377,19 @@ function init() {
   const storedNickName = localStorage.getItem('nickName')
   const storedAvatar = localStorage.getItem('avatar')
   
-  console.log('初始化检查:', { token, storedNickName, storedAvatar })
-  
   isLogin.value = !!token
   
   if (isLogin.value) {
     nickName.value = storedNickName || '用户'
     avatar.value = storedAvatar || ''
-    console.log('已登录，设置用户信息:', { nickName: nickName.value, avatar: avatar.value })
   } else {
-    console.log('未登录')
+    nickName.value = '用户'
+    avatar.value = ''
+    totalUnreadCount.value = 0
+    if (unreadTimer) {
+      clearInterval(unreadTimer)
+      unreadTimer = null
+    }
   }
 }
 
@@ -536,6 +413,7 @@ onMounted(() => {
   init()
   // 监听登录过期事件
   eventBus.on(EVENT_AUTH_EXPIRED, handleAuthExpired)
+  eventBus.on(EVENT_AUTH_CHANGED, init)
   loadCategories()  // 获取分类列表
   loadArticles()
   if (isLogin.value) {
@@ -571,47 +449,31 @@ onMounted(() => {
   window.addEventListener('resize', updateDialogWidth)
 })
 
-// 加载文章列表
+// Ignore results from an obsolete sort/category request.
+let articleLoadSequence = 0
 async function loadArticles() {
+  const sequence = ++articleLoadSequence
   loading.value = true
+  const params: any = { page: currentPage.value, size: 12, sort: currentSort.value, readableOnly: readableOnly.value }
+  if (selectedCategoryId.value) params.categoryId = selectedCategoryId.value
+  if (selectedTagIds.value.length) params.tagIds = selectedTagIds.value.join(',')
   try {
-    // 推荐模式：调推荐接口
-    if (currentSort.value === 'recommend') {
-      const response = await request.get('/article/recommend', { params: { limit: 20 } })
-      if (response.status === 'success' && response.data) {
-        articles.value = response.data || []
-        totalPages.value = 1  // 推荐不分页
-      }
-      return
-    }
-
-    const params: any = {
-      page: currentPage.value,
-      size: 12,
-      sort: currentSort.value
-    }
-    
-    // 添加分类筛选
-    if (selectedCategoryId.value) {
-      params.categoryId = selectedCategoryId.value
-    }
-    
-    // 添加标签筛选
-    if (selectedTagIds.value.length > 0) {
-      params.tagIds = selectedTagIds.value.join(',')
-    }
-    
-    const response = await request.get('/article/list', { params })
-    
+    const response = await request.get(currentSort.value === 'recommend' ? '/article/recommend' : '/article/list', { params })
+    if (sequence !== articleLoadSequence) return
     if (response.status === 'success' && response.data) {
-      articles.value = response.data.records || response.data
+      articles.value = response.data.records || []
       totalPages.value = response.data.pages || 1
     }
   } catch (error) {
-    console.error('加载文章失败:', error)
+    if (sequence === articleLoadSequence) { articles.value = []; totalPages.value = 1; console.error('加载文章失败:', error) }
   } finally {
-    loading.value = false
+    if (sequence === articleLoadSequence) loading.value = false
   }
+}
+
+function changeReadableFilter() {
+  currentPage.value = 1
+  loadArticles()
 }
 
 // 加载未读消息总数（带防抖）
@@ -806,7 +668,7 @@ function goToFollowing() {
 
 // 退出登录
 function logout() {
-  localStorage.clear()
+  clearAccountStorage()
   isLogin.value = false
   nickName.value = '用户'
   avatar.value = ''
@@ -901,6 +763,10 @@ function stripHtmlTags(str: string): string {
 </script>
 
 <style scoped>
+.reading-filter { display:flex; align-items:center; flex-wrap:wrap; gap:10px 18px; margin:0 0 24px; font-size:12px; color:#73756b; }
+.reading-filter label { display:flex; align-items:center; gap:8px; color:#171714; cursor:pointer; white-space:nowrap; }
+.reading-filter input { accent-color:#9dc82f; width:16px; height:16px; }
+.reading-filter a { color:#4e5d35; text-decoration:none; margin-left:auto; }
 .home-page {
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   min-height: 100vh;
@@ -915,7 +781,7 @@ function stripHtmlTags(str: string): string {
   left: 0;
   right: 0;
   bottom: 0;
-  background: #f5f7fa;
+  background: var(--ej-canvas);
   z-index: -2;
   will-change: transform;
 }
@@ -946,7 +812,7 @@ function stripHtmlTags(str: string): string {
   gap: 8px;
   font-size: 28px;
   font-weight: bold;
-  color: #409eff;
+  color: var(--ej-accent);
   cursor: pointer;
   transition: all 0.3s;
 }
@@ -997,7 +863,7 @@ function stripHtmlTags(str: string): string {
 }
 
 .search-box input:focus {
-  border-color: #409eff;
+  border-color: var(--ej-accent);
   background: white;
 }
 
@@ -1008,7 +874,7 @@ function stripHtmlTags(str: string): string {
   transform: translateY(-50%);
   width: 32px;
   height: 32px;
-  background: #409eff;
+  background: var(--ej-accent);
   border: none;
   border-radius: 50%;
   color: white;
@@ -1020,7 +886,7 @@ function stripHtmlTags(str: string): string {
 }
 
 .search-btn:hover {
-  background: #66b1ff;
+  background: var(--ej-ink);
 }
 
 .nav-menu {
@@ -1044,7 +910,7 @@ function stripHtmlTags(str: string): string {
 
 .nav-icon-btn:hover {
   background: #eee;
-  color: #409eff;
+  color: var(--ej-accent);
 }
 
 .nav-icon-btn svg {
@@ -1063,8 +929,8 @@ function stripHtmlTags(str: string): string {
 }
 
 .nav-icon-btn.ai-btn:hover {
-  background: #f0f7ff;
-  color: #409eff;
+  background: var(--ej-accent-soft);
+  color: var(--ej-accent);
 }
 
 /* 消息角标 */
@@ -1095,14 +961,14 @@ function stripHtmlTags(str: string): string {
 }
 
 .nav-btn.primary {
-  background: #409eff;
+  background: var(--ej-accent);
   color: white;
   font-weight: 600;
 }
 
 .nav-btn.primary:hover {
-  background: #66b1ff;
-  box-shadow: 0 4px 12px rgba(64, 158, 255, 0.3);
+  background: var(--ej-ink);
+  box-shadow: 0 4px 12px rgba(17, 17, 15, 0.3);
 }
 
 .user-avatar {
@@ -1117,9 +983,9 @@ function stripHtmlTags(str: string): string {
 }
 
 .user-avatar:hover {
-  border-color: #409eff;
+  border-color: var(--ej-accent);
   transform: scale(1.05);
-  box-shadow: 0 4px 12px rgba(64, 158, 255, 0.2);
+  box-shadow: 0 4px 12px rgba(17, 17, 15, 0.2);
 }
 
 /* 用户下拉菜单 */
@@ -1286,11 +1152,11 @@ function stripHtmlTags(str: string): string {
 
 /* AI助手菜单项 */
 .dropdown-item.ai-item svg {
-  fill: #667eea;
+  fill: var(--ej-accent);
 }
 
 .dropdown-item.ai-item:hover {
-  background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
+  background: linear-gradient(135deg, rgba(17, 17, 15, 0.1), rgba(17, 17, 15, 0.1));
 }
 
 /* 主容器 */
@@ -1376,7 +1242,7 @@ function stripHtmlTags(str: string): string {
   color: #999;
   margin-top: 12px;
   padding: 8px 16px;
-  background: rgba(102, 126, 234, 0.08);
+  background: rgba(17, 17, 15, 0.08);
   border-radius: 20px;
   width: fit-content;
   margin-left: auto;
@@ -1616,7 +1482,7 @@ function stripHtmlTags(str: string): string {
   align-items: center;
   padding: 3px 10px;
   background: #ecf5ff;
-  color: #409eff;
+  color: var(--ej-accent);
   border-radius: 6px;
   font-size: 11px;
   font-weight: 500;
@@ -1637,7 +1503,7 @@ function stripHtmlTags(str: string): string {
 
 .tag-badge:hover {
   background: #ecf5ff;
-  color: #409eff;
+  color: var(--ej-accent);
 }
 
 .article-meta {
@@ -1679,17 +1545,17 @@ function stripHtmlTags(str: string): string {
 
 .feature-card:hover {
   transform: translateY(-2px);
-  border-color: #d9ecff;
-  box-shadow: 0 8px 24px rgba(64, 158, 255, 0.1);
+  border-color: var(--ej-ink);
+  box-shadow: 0 8px 24px rgba(17, 17, 15, 0.1);
 }
 
 /* AI 助手卡片特殊样式 */
 .feature-card.ai-card .feature-icon {
-  color: #409eff;
+  color: var(--ej-accent);
 }
 
 .feature-card.ai-card:hover {
-  border-color: #c7e0ff;
+  border-color: var(--ej-ink);
 }
 
 .feature-icon {
@@ -1724,7 +1590,7 @@ function stripHtmlTags(str: string): string {
 .loading {
   text-align: center;
   padding: 40px;
-  color: #667eea;
+  color: var(--ej-accent);
   font-size: 16px;
 }
 
@@ -2189,4 +2055,8 @@ function stripHtmlTags(str: string): string {
     width: 90% !important;
   }
 }
+</style>
+
+<style scoped>
+.recommendation-reason { font-size: 12px; color: #34342b; opacity: .72; margin-top: 12px; }
 </style>

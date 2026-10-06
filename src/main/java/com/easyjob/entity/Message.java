@@ -15,6 +15,7 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @TableName("message")
 public class Message {
+    private String clientMessageId;
     
     /**
      * 消息ID

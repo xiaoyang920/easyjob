@@ -883,7 +883,7 @@ function showShareToast(message: string) {
   const toast = document.createElement('div')
   toast.className = 'share-toast'
   toast.innerHTML = `
-    <svg viewBox="0 0 24 24" width="18" height="18" fill="#00aeec">
+    <svg viewBox="0 0 24 24" width="18" height="18" style="fill: var(--ej-accent)">
       <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/>
     </svg>
     <span>${message}</span>
@@ -1057,8 +1057,8 @@ watch(() => props.articleId, () => {
 }
 .comment-textarea:focus {
   background: #fff;
-  border-color: #00aeec;
-  box-shadow: 0 0 0 3px rgba(0, 174, 236, 0.1);
+  border-color: var(--ej-accent);
+  box-shadow: 0 0 0 3px #11110f14;
 }
 .input-toolbar {
   display: flex;
@@ -1081,8 +1081,8 @@ watch(() => props.articleId, () => {
   transition: all 0.2s;
 }
 .tool-btn:hover {
-  color: #00aeec;
-  background: rgba(0, 174, 236, 0.08);
+  color: var(--ej-accent);
+  background: var(--studio-lime-soft);
 }
 .char-count {
   color: #9499a0;
@@ -1091,7 +1091,7 @@ watch(() => props.articleId, () => {
 }
 .submit-btn {
   padding: 10px 28px;
-  background: #00aeec;
+  background: var(--ej-accent);
   color: #fff;
   border: none;
   border-radius: 20px;
@@ -1103,9 +1103,9 @@ watch(() => props.articleId, () => {
   font-family: inherit;
 }
 .submit-btn:hover:not(:disabled) {
-  background: #00a1d6;
+  background: var(--ej-ink);
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0, 174, 236, 0.3);
+  box-shadow: 0 4px 12px #11110f33;
 }
 .submit-btn:disabled {
   background: #e3e5e7;
@@ -1172,7 +1172,7 @@ watch(() => props.articleId, () => {
 }
 .img-upload-progress .progress-bar {
   height: 4px;
-  background: #409eff;
+  background: var(--ej-accent);
   border-radius: 2px;
   transition: width 0.2s ease;
   min-width: 4px;
@@ -1180,7 +1180,7 @@ watch(() => props.articleId, () => {
 }
 .img-upload-progress .progress-text {
   font-size: 12px;
-  color: #409eff;
+  color: var(--ej-accent);
   font-weight: 500;
   min-width: 32px;
 }
@@ -1199,7 +1199,7 @@ watch(() => props.articleId, () => {
   letter-spacing: 0.3px;
 }
 .comment-count span {
-  color: #00aeec;
+  color: var(--ej-accent);
   margin-left: 6px;
   font-weight: 500;
 }
@@ -1223,8 +1223,8 @@ watch(() => props.articleId, () => {
   font-weight: 600;
 }
 .tab:hover {
-  color: #00aeec;
-  background: rgba(0, 174, 236, 0.06);
+  color: var(--ej-accent);
+  background: var(--studio-lime-soft);
 }
 .divider {
   color: #e3e5e7;
@@ -1270,20 +1270,20 @@ watch(() => props.articleId, () => {
 .comment-item.comment-highlight,
 .reply-item.comment-highlight {
   animation: commentHighlight 3s ease-out;
-  background: rgba(0, 174, 236, 0.08);
+  background: var(--studio-lime-soft);
   border-radius: 12px;
   margin: 0 -12px;
   padding: 20px 12px;
 }
 @keyframes commentHighlight {
   0% {
-    background: rgba(0, 174, 236, 0.2);
+    background: #c8ff3dcc;
   }
   50% {
-    background: rgba(0, 174, 236, 0.15);
+    background: #c8ff3d99;
   }
   100% {
-    background: rgba(0, 174, 236, 0.08);
+    background: var(--studio-lime-soft);
   }
 }
 .avatar {
@@ -1319,11 +1319,11 @@ watch(() => props.articleId, () => {
   transition: color 0.2s;
 }
 .username:hover {
-  color: #00aeec;
+  color: var(--ej-accent);
 }
 .up-tag {
   padding: 2px 6px;
-  background: linear-gradient(135deg, #00aeec, #00c4ff);
+  background: var(--studio-lime);
   color: #fff;
   font-size: 10px;
   border-radius: 10px;
@@ -1417,8 +1417,8 @@ watch(() => props.articleId, () => {
   font-weight: 500;
 }
 .share-btn:hover {
-  color: #00aeec;
-  background: rgba(0, 174, 236, 0.08);
+  color: var(--ej-accent);
+  background: var(--studio-lime-soft);
 }
 
 /* 分享提示框 */
@@ -1438,7 +1438,7 @@ watch(() => props.articleId, () => {
   animation: shareSlideDown 0.3s ease;
   font-size: 14px;
   color: #333;
-  border: 2px solid #00aeec;
+  border: 1.5px solid var(--ej-ink);
 }
 :global(.share-toast.fade-out) {
   animation: shareFadeOut 0.3s ease forwards;
@@ -1472,7 +1472,7 @@ watch(() => props.articleId, () => {
   align-items: center;
   gap: 6px;
   font-size: 13px;
-  color: #00aeec;
+  color: var(--ej-accent);
   cursor: pointer;
   font-weight: 500;
   padding: 6px 0;
@@ -1511,7 +1511,7 @@ watch(() => props.articleId, () => {
   letter-spacing: 0.2px;
 }
 .reply-user-info .username {
-  color: #00aeec;
+  color: var(--ej-accent);
   font-weight: 500;
 }
 .reply-arrow {
@@ -1578,9 +1578,9 @@ watch(() => props.articleId, () => {
   height: 0;
 }
 .reply-textarea:focus {
-  border-color: #00aeec;
+  border-color: var(--ej-accent);
   background: #fff;
-  box-shadow: 0 0 0 3px rgba(0, 174, 236, 0.08);
+  box-shadow: 0 0 0 3px var(--studio-lime-soft);
 }
 .reply-toolbar {
   display: flex;
@@ -1612,7 +1612,7 @@ watch(() => props.articleId, () => {
 }
 .send-btn {
   padding: 8px 18px;
-  background: #00aeec;
+  background: var(--ej-accent);
   color: #fff;
   border: none;
   border-radius: 16px;
@@ -1622,7 +1622,7 @@ watch(() => props.articleId, () => {
   transition: all 0.25s ease;
 }
 .send-btn:hover:not(:disabled) {
-  background: #00a1d6;
+  background: var(--ej-ink);
   transform: translateY(-1px);
 }
 .send-btn:disabled {
@@ -1635,7 +1635,7 @@ watch(() => props.articleId, () => {
 .load-more-comments {
   padding: 20px;
   text-align: center;
-  color: #00aeec;
+  color: var(--ej-accent);
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
@@ -1643,7 +1643,7 @@ watch(() => props.articleId, () => {
   transition: all 0.2s;
 }
 .load-more-comments:hover {
-  background: rgba(0, 174, 236, 0.06);
+  background: var(--studio-lime-soft);
 }
 
 /* 加载和空状态 */
@@ -1656,7 +1656,7 @@ watch(() => props.articleId, () => {
   width: 28px;
   height: 28px;
   border: 3px solid #e8e8e8;
-  border-top-color: #00aeec;
+  border-top-color: var(--ej-accent);
   border-radius: 50%;
   margin: 0 auto 12px;
   animation: spin 0.8s linear infinite;
@@ -1917,14 +1917,14 @@ watch(() => props.articleId, () => {
   bottom: 100px;
   width: 50px;
   height: 50px;
-  background: linear-gradient(135deg, #00aeec 0%, #00a1d6 100%);
+  background: var(--ej-ink);
   border-radius: 50%;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   color: #fff;
-  box-shadow: 0 4px 16px rgba(0, 174, 236, 0.4);
+  box-shadow: 0 4px 16px #11110f33;
   cursor: pointer;
   z-index: 999;
   transition: all 0.3s ease;
@@ -2024,9 +2024,9 @@ watch(() => props.articleId, () => {
   transition: all 0.2s;
 }
 .panel-sort .tab.active {
-  color: #00aeec;
+  color: var(--ej-accent);
   font-weight: 600;
-  background: rgba(0, 174, 236, 0.08);
+  background: var(--studio-lime-soft);
 }
 .panel-sort .divider {
   color: #e3e5e7;
@@ -2205,7 +2205,7 @@ watch(() => props.articleId, () => {
 }
 .panel-input .comment-textarea:focus {
   background: #fff;
-  border-color: #00aeec;
+  border-color: var(--ej-accent);
 }
 .panel-input .tool-btn {
   padding: 6px;

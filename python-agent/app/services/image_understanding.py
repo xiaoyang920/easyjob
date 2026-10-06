@@ -7,6 +7,7 @@ import base64
 import logging
 from io import BytesIO
 from pathlib import Path
+from urllib.parse import quote
 
 from PIL import Image
 from langchain_core.messages import HumanMessage
@@ -45,11 +46,15 @@ async def understand_image(image_path: str) -> str:
 
     image_path: 相对于上传目录的路径，如 "ai_chat/xxx.jpg"
     """
+    root = Path(settings.FILE_UPLOAD_PATH).resolve()
+    full_path = (root / image_path).resolve()
+    if not full_path.is_relative_to(root) or Path(image_path).is_absolute() or ":" in image_path or "?" in image_path or "#" in image_path:
+        raise ValueError("图片路径超出上传目录")
     llm = get_vision_llm()
 
     if settings.FILE_BASE_URL:
         # 生产环境：URL 方式
-        image_url = f"{settings.FILE_BASE_URL}/{image_path}"
+        image_url = f"{settings.FILE_BASE_URL.rstrip('/')}/{quote(image_path.replace(chr(92), '/'), safe='/')}"
         log.info("使用URL方式: %s", image_url)
         content = [
             {"type": "text", "text": "请用中文解释图片内容，并给出图片的描述。"},
@@ -57,7 +62,6 @@ async def understand_image(image_path: str) -> str:
         ]
     else:
         # 本地：读文件 → 压缩 → base64
-        full_path = Path(settings.FILE_UPLOAD_PATH) / image_path
         image_bytes = full_path.read_bytes()
         log.info("原始图片大小: %d KB", len(image_bytes) // 1024)
         image_bytes = _compress_image(image_bytes)

@@ -1,509 +1,506 @@
-"""
-FastAPI 入口
-对应 Java: AgentController + AgentService
-"""
+"""FastAPI adapters sharing chat/resume state and persistence contracts."""
 import json
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, UTC
 
-from langgraph.types import Command
-from fastapi import FastAPI
-from pydantic import BaseModel, Field
 import asyncio
-
+from uuid import UUID, uuid4
+from fastapi import FastAPI, Depends, HTTPException, Query, Path
+from typing import Literal
+from langgraph.types import Command
+from pydantic import BaseModel, Field
 from starlette.responses import StreamingResponse
+from starlette.responses import JSONResponse
+from app.services.operations import operations
 
 from app.clients import mysql_client
 from app.clients.mcp_client import mcp_manager
 from app.config import settings
-from app.graph.builder import  get_graph
-from app.graph.state import AgentState
+from app.graph.builder import get_graph, close_graph
+from app.migrate import check_message_schema, check_content_schema, check_jobs_schema, check_article_conversation_schema, check_delivery_schema
+from app.services.durable_jobs import background_worker
 from app.services.conversation import ConversationService
-from app.services.image_understanding import preprocess_message
-from app.services.logging_config import setup_logging, get_logger, set_request_trace, truncate
+from app.services.logging_config import setup_logging, get_logger, set_request_trace
 from app.services.memory import memory_service
+from app.services.run_service import RunService
+from app.services.executor_heartbeat import maintain_executor
+from app.services.execution_admission import execution_admission
+from app.services.stream_delivery import stream_delivery
+from app.services.answer_preview import AnswerPreview
 from app.services.tool_registry import tool_registry
+from app.security.principal import Principal, require_principal, match_user
+from app.services.run_repository import run_repository
+from app.services.memory_management import memory_management, ProfileEdit, RecordEdit
+from app.migrate import check_runtime_schema, check_memory_schema
+from app.migrate import check_optimization_schema, check_heartbeat_schema, check_maintenance_schema
 
-# 初始化日志（必须在其他模块大量打日志之前）
 setup_logging(level="INFO")
 log = get_logger(__name__)
+conversation_service = ConversationService()
+run_service = RunService(conversation_service, memory_service)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """启动时连接 MySQL + 检查 ES 索引，关闭时断开"""
+    log.info("Agent Token budgets: total=%d main_output=%d worker_output=%d safety=%d compact_trigger=%d compact_target=%d recent=%d summary=%d",
+             settings.MAIN_CONTEXT_MAX_TOKENS, settings.MAIN_OUTPUT_MAX_TOKENS, settings.WORKER_OUTPUT_MAX_TOKENS,
+             settings.CONTEXT_SAFETY_TOKENS, settings.CONTEXT_COMPACT_TRIGGER_TOKENS, settings.CONTEXT_COMPACT_TARGET_TOKENS, settings.HISTORY_RECENT_TOKENS,
+             settings.SUMMARY_MAX_TOKENS)
     await mysql_client.startup()
+    try:
+        await check_message_schema(mysql_client.db)
+        await check_content_schema(mysql_client.db)
+        await check_runtime_schema(mysql_client.db)
+        await check_memory_schema(mysql_client.db)
+        await check_jobs_schema(mysql_client.db)
+        await check_article_conversation_schema(mysql_client.db)
+        await check_delivery_schema(mysql_client.db)
+        await check_optimization_schema(mysql_client.db)
+        await check_heartbeat_schema(mysql_client.db)
+        await check_maintenance_schema(mysql_client.db)
+        if len(settings.AGENT_SERVICE_KEY.encode()) < 32:
+            raise RuntimeError("请为 Java 和 Python 配置相同的 AGENT_SERVICE_KEY，至少32字节")
+        from app.clients.es_client import BaseEsClient
+        es = BaseEsClient()
+        try:
+            await es.ensure_user_memories_index()
+        finally:
+            await es.client.close()
+        # Fail startup if RedisJSON/RediSearch or checkpoint indexes are unavailable.
+        # Otherwise /health can succeed while the first chat/approval fails.
+        await get_graph()
+        server_configs = json.loads(settings.MCP_SERVERS_JSON)
+        if server_configs:
+            await mcp_manager.connect(server_configs)
+            tool_registry.refresh()
+        background_worker.start()
+        yield
+    finally:
+        await stream_delivery.shutdown()
+        await background_worker.shutdown()
+        await run_service.shutdown()
+        await close_graph()
+        await mcp_manager.shutdown()
+        await mysql_client.shutdown()
+        from app.services.main_context import context_service
+        await context_service._redis.client.aclose()
 
-    # 检查并创建 user_memories 索引
-    from app.clients.es_client import BaseEsClient
-    es = BaseEsClient()
-    await es.ensure_user_memories_index()
-    #mcp
-    server_configs = json.loads(settings.MCP_SERVERS_JSON)
-    if server_configs:
-        await mcp_manager.connect(server_configs)
-        tool_registry.refresh()
 
-    yield
-    await mcp_manager.shutdown()
-    await mysql_client.shutdown()
 app = FastAPI(title="EasyJob Python Agent", lifespan=lifespan)
-conversation_service = ConversationService()
+
+
 class ChatRequest(BaseModel):
-    """聊天请求 - 对应 Java: AiChatParam"""
-    user_id: int
-    conversation_id: int | None = None
-    message: str
-    image_paths: list[str] | None = None
-def _to_camel(s: str) -> str:
-    parts = s.split("_")
-    return parts[0] + "".join(w.capitalize() for w in parts[1:])
+    user_id: int = Field(gt=0)
+    conversation_id: int | None = Field(default=None, gt=0)
+    origin_article_id: int | None = Field(default=None, gt=0)
+    message: str = Field(min_length=1, max_length=16000)
+    image_paths: list[str] | None = Field(default=None, max_length=4)
+    request_id: UUID = Field(default_factory=uuid4)
+
+
+def _to_camel(value: str) -> str:
+    parts = value.split("_")
+    return parts[0] + "".join(part.capitalize() for part in parts[1:])
+
 
 class ChatResponse(BaseModel):
-    """聊天响应 - 对应 Java: AiChatVO"""
     model_config = {"alias_generator": _to_camel, "populate_by_name": True}
     reply: str
-    conversation_id: str           # → JSON 输出 conversationId
+    conversation_id: str
     articles: list[dict] = Field(default_factory=list)
-class ResumeRequest(BaseModel):
-    """Human-in-the-loop 恢复请求"""
-    user_id: int
-    conversation_id: int
-    action: str                     # 用户的决策，如 "approve" / "reject" / 自由文本
+    citations: list[dict] = Field(default_factory=list)
+    draft_article_id: str | None = None
+    run_id: str
 
-# Worker 节点名 → 进度协议名的映射
+
+class ResumeRequest(BaseModel):
+    user_id: int = Field(gt=0)
+    conversation_id: int = Field(gt=0)
+    action: str = Field(min_length=1, max_length=4000)
+    run_id: UUID
+    draft_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
 NODE_TO_PROGRESS = {
-    "planner":          "planner",
-    "search_worker":    "search",
-    "chat_worker":      "chat",
-    "analysis_worker":  "analysis",
-    "writing_worker":   "writing",
-    "synthesizer":      "synthesizer",
+    "main_agent": "planner", "main_retrieve": "search",
+    "main_delegate": "subagent", "prepare_draft": "writing", "collect_draft": "writing",
+    "planner": "planner", "search_worker": "search", "chat_worker": "chat",
+    "analysis_worker": "analysis", "writing_worker": "writing", "synthesizer": "synthesizer",
 }
 
+
 def _sse(data: str) -> str:
-    """SSE 编码：将真实换行转义为 \\n，避免 Java SSE 中间层重编码丢失换行"""
     return f"data:{data.replace(chr(10), '\\n')}\n\n"
+
+
+def _answer_frames(text):
+    """Chunk a committed, verified answer without artificial typing delays."""
+    yield _sse('__ANSWER__:' + json.dumps({"type": "start"}))
+    chunks = [text[i:i + 512] for i in range(0, len(text), 512)]
+    for seq, content in enumerate(chunks):
+        yield _sse('__ANSWER__:' + json.dumps({"type": "delta", "seq": seq, "content": content}, ensure_ascii=False))
+    yield _sse('__ANSWER__:' + json.dumps({"type": "end", "chunks": len(chunks)}))
+    # Canonical replacement also supports older clients and replay recovery.
+    yield _sse('__REPLY__:' + json.dumps({"content": text}, ensure_ascii=False))
+
+
+async def _complete(graph, conv_id, user_id, config) -> dict:
+    if config["configurable"].get("replay"):
+        return await run_service.cached_result(config)
+    snapshot = await graph.aget_state(config)
+    return await run_service.finish(conv_id, user_id, snapshot, config)
+
+
+async def _invoke(graph, graph_input, conv_id, user_id, config) -> ChatResponse:
+    recovered = None
+    if not config["configurable"].get("replay"):
+        try:
+            async with asyncio.timeout(settings.RUN_TIMEOUT_SECONDS):
+                await graph.ainvoke(graph_input, config=config)
+        except BaseException:
+            await run_service.repository.fail(config["configurable"]["run_id"], config["configurable"]["execution_token"])
+            run = await run_service.repository.get(config["configurable"]["run_id"])
+            if not run or not run.get("draft_article_id"):
+                raise
+            run = await run_service.reconcile_saved(run)
+            recovered = json.loads(run["result_json"])
+    try:
+        result = recovered or await _complete(graph, conv_id, user_id, config)
+    except BaseException:
+        await run_service.repository.fail(config["configurable"]["run_id"], config["configurable"]["execution_token"])
+        raise
+    if result["interrupted"] is not None:
+        reply = json.dumps({"interrupted": True, "payload": result["interrupted"]}, ensure_ascii=False)
+    elif result["cancelled"]:
+        reply = "请求已取消。"
+    else:
+        reply = result["reply"]
+    return ChatResponse(reply=reply, conversation_id=str(conv_id), articles=result["articles"],
+                        citations=result["citations"],
+                        run_id=config["configurable"]["run_id"],
+                        draft_article_id=str(result["draft_article_id"]) if result["draft_article_id"] else None)
+
+
+def _stream_source(graph, graph_input, conv_id, user_id, config):
+    async def generate():
+        set_request_trace(conv_id)
+        yield _sse(f"__CONV_ID__:{conv_id}")
+        yield _sse(f"__RUN_ID__:{config['configurable']['run_id']}")
+        started_nodes = set()
+        preview = AnswerPreview()
+        try:
+            async def events():
+                if not config["configurable"].get("replay"):
+                    async with asyncio.timeout(settings.RUN_TIMEOUT_SECONDS):
+                        async for item in graph.astream_events(graph_input, config=config, version="v2"):
+                            yield item
+            async for event in events():
+                if delta := preview.consume(event):
+                    yield _sse('__PREVIEW__:' + json.dumps(delta, ensure_ascii=False))
+                kind = event["event"]
+                node = event.get("metadata", {}).get("langgraph_node")
+                if kind == "on_custom_event" and event.get("name") == "agent_event":
+                    yield _sse("__AGENT_EVENT__:" + json.dumps(event["data"], ensure_ascii=False))
+                if kind == "on_chain_start" and node in NODE_TO_PROGRESS and node not in started_nodes:
+                    started_nodes.add(node)
+                    if NODE_TO_PROGRESS[node] in ("planner", "synthesizer"):
+                        yield _sse(f"__PROGRESS__:{NODE_TO_PROGRESS[node]}")
+                    elif "dispatcher" not in started_nodes:
+                        started_nodes.add("dispatcher")
+                        snapshot = await graph.aget_state(config)
+                        workers = snapshot.values.get("active_workers") or [NODE_TO_PROGRESS[node]]
+                        yield _sse(f"__PROGRESS__:dispatcher:{','.join(workers)}")
+                # Provisional reply text is separate from the committed answer.
+                # A final replacement retracts failed citations or repaired text.
+            result = await _complete(graph, conv_id, user_id, config)
+            if result["interrupted"] is not None:
+                yield _sse('__AGENT_EVENT__:' + json.dumps({"version": 1, "kind": "status", "status": "awaiting"}))
+                yield _sse("__INTERRUPTED__:" + json.dumps(result["interrupted"], ensure_ascii=False))
+            elif result["cancelled"]:
+                yield _sse('__AGENT_EVENT__:' + json.dumps({"version": 1, "kind": "status", "status": "cancelled"}))
+                yield _sse("[ERROR] 请求已取消")
+            else:
+                if result["articles"]:
+                    yield _sse("__ARTICLES__:" + json.dumps(result["articles"], ensure_ascii=False))
+                if result["citations"]:
+                    yield _sse("__CITATIONS__:" + json.dumps(result["citations"], ensure_ascii=False))
+                for frame in _answer_frames(result["reply"]):
+                    yield frame
+                if result["draft_article_id"]:
+                    snapshot = await graph.aget_state(config)
+                    title = next((r.get("draft_title", "") for r in snapshot.values.get("worker_results", [])
+                                  if r.get("draft_article_id") == result["draft_article_id"]), "")
+                    yield _sse("__DRAFT_SAVED__:" + json.dumps({
+                        "draftArticleId": str(result["draft_article_id"]), "title": title,
+                    }, ensure_ascii=False))
+                yield _sse('__AGENT_EVENT__:' + json.dumps({"version": 1, "kind": "status", "status": "complete"}))
+                yield _sse("__PROGRESS__:done")
+        except Exception as error:
+            await run_service.repository.fail(config["configurable"]["run_id"], config["configurable"]["execution_token"])
+            log.exception("Agent 运行失败: conv=%s", conv_id)
+            run = await run_service.repository.get(config["configurable"]["run_id"])
+            if run and run.get("draft_article_id"):
+                run = await run_service.reconcile_saved(run)
+                for frame in _answer_frames("草稿已保存到草稿箱，可继续编辑。"):
+                    yield frame
+                yield _sse("__DRAFT_SAVED__:" + json.dumps({"draftArticleId": str(run["draft_article_id"]), "title": ""}))
+                yield _sse('__AGENT_EVENT__:' + json.dumps({"version": 1, "kind": "status", "status": "complete"}))
+                yield _sse("__PROGRESS__:done")
+            else:
+                yield _sse('__AGENT_EVENT__:' + json.dumps({"version": 1, "kind": "status", "status": "error"}))
+                from app.services.run_metrics import RunTokenBudgetExceeded
+                message = str(error) if isinstance(error, RunTokenBudgetExceeded) else (
+                    "本次处理超时，已结束运行，可以重新发送请求。" if isinstance(error, TimeoutError)
+                    else "Agent 处理失败，请稍后重试")
+                yield _sse("[ERROR] " + message)
+        finally:
+            # This producer belongs to the application, not to an HTTP connection.
+            await run_service.repository.fail(config["configurable"]["run_id"], config["configurable"]["execution_token"])
+        yield _sse(json.dumps({"conversationId": str(conv_id)}))
+        yield _sse("[DONE]")
+    return generate()
+
+
+async def _prepare_chat(request, graph):
+    ticket = await execution_admission.acquire(request.user_id)
+    try:
+        cid, config, state = await run_service.prepare_chat(request, graph, admission_ticket=ticket)
+        config['configurable'].setdefault('admission_ticket', ticket)
+        return cid, config, state
+    except BaseException:
+        await asyncio.shield(execution_admission.release(ticket))
+        raise
+
+
+async def _prepare_resume(request, graph):
+    ticket = await execution_admission.acquire(request.user_id)
+    try:
+        cid, config = await run_service.prepare_resume(request, graph, admission_ticket=ticket)
+        config['configurable'].setdefault('admission_ticket', ticket)
+        return cid, config
+    except BaseException:
+        await asyncio.shield(execution_admission.release(ticket))
+        raise
+
+
+async def _invoke_admitted(graph, graph_input, cid, uid, config):
+    try:
+        async with maintain_executor(run_repository, config):
+            return await _invoke(graph, graph_input, cid, uid, config)
+    finally:
+        await asyncio.shield(execution_admission.release(config['configurable'].get('admission_ticket')))
+
+
+def _stream(graph, graph_input, cid, uid, config):
+    cfg = config['configurable']
+    stream_delivery.start(cfg['run_id'], cfg['execution_token'],
+        _stream_source(graph, graph_input, cid, uid, config), cfg.get('admission_ticket'),
+        replay=cfg.get('replay', False))
+    return StreamingResponse(stream_delivery.follow(cfg['run_id'], cfg['execution_token']),
+        media_type='text/event-stream', headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+
+@app.get('/runs/{run_id}/events')
+async def replay_events(run_id: UUID, after: int = Query(default=0, ge=0), principal: Principal = Depends(require_principal)):
+    run = await run_repository.get(str(run_id))
+    if not run or run['user_id'] != principal.user_id: raise HTTPException(404, '运行不存在')
+    await conversation_service.require_owner(run['conversation_id'], principal.user_id)
+    return StreamingResponse(stream_delivery.follow(str(run_id), run['execution_token'], after),
+        media_type='text/event-stream', headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
 
 
+@app.get('/health/ready')
+async def readiness():
+    result = await operations.readiness()
+    return JSONResponse(result, status_code=200 if result['status'] == 'ready' else 503)
+
+
+@app.get('/internal/metrics')
+async def operational_metrics(principal: Principal = Depends(require_principal)):
+    return await operations.metrics()
+
+
 @app.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
-    """
-    非流式聊天（完整流程）
-
-    【流程】
-    1. 无 conversation_id → 创建新会话
-    2. ConversationService 取历史并截断
-    3. 组装 state，调图执行
-    4. 保存 user + assistant 消息到 MySQL
-    5. 返回结果
-
-    【Checkpointer 在这里做了什么？】
-    - 图内每个节点执行后自动保存快照到 Redis
-    - 如果某个节点调了 interrupt()，图会暂停，本接口返回中断信息
-    - 恢复时走 /chat/resume 接口
-    """
+async def chat(request: ChatRequest, principal: Principal = Depends(require_principal)):
+    match_user(principal, request.user_id)
     graph = await get_graph()
-    #1.会话管理
-    conv_id = request.conversation_id
-    if conv_id is None:
-        conv_id = await conversation_service.create_conversation(request.user_id)
-    #2.构建上下文
-    context = await conversation_service.get_context_for_llm(conv_id)
-    await conversation_service.add_message(conv_id, "user", request.message, image_paths=request.image_paths)
-    #2.5 图片预处理：GLM-4V 转文字描述
-    processed_message = await preprocess_message(request.message, request.image_paths)
-    #3.组装 state
-    initial_state: AgentState = {
-        "user_message": processed_message,
-        "history_messages": context,
-        "active_workers": [],
-        "task_descriptions": {},
-        "worker_results": [],
-        "final_reply": "",
-        "cancelled": False,
-    }
-    #4.执行图
-    config = {"configurable": {"thread_id": f"conv_{conv_id}"}}
-    result = await graph.ainvoke(initial_state, config=config)
-    
-   #5.检查是否被interrupt暂停
-    state = await graph.aget_state(config)
-    interrupt_payload = None
-    if state.tasks:
-        for task in state.tasks:
-            if task.interrupts:
-                interrupt_payload = task.interrupts[0].value
-                break
-    if state.next and interrupt_payload is not None:
-        return ChatResponse(
-            reply=json.dumps({
-                "interrupted": True,
-                "pending_node": list(state.next),
-                "payload": interrupt_payload,
-            }, ensure_ascii=False),
-            conversation_id=str(conv_id),
-        )
-    # 6. 正常完成 → 保存消息
-    reply = result.get("final_reply", "抱歉，处理出错了")
-    await conversation_service.add_message(conv_id, "assistant", reply)
-
-    return ChatResponse(reply=reply, conversation_id=str(conv_id))
-@app.post("/chat/resume", response_model=ChatResponse)
-async def chat_resume(request: ResumeRequest):
-    """
-    从被打断的节点开始恢复然后再执行，并行的话会等所有节点都完成后才会暂停
-    """
-    graph = await get_graph()
-    conv_id = request.conversation_id
-    config = {"configurable":{"thread_id":f"conv_{conv_id}"}}
-    #Command恢复执行
-    result = await graph.ainvoke(Command(resume=request.action),config)
-    state = await graph.aget_state(config)
-    interrupt_payload = None
-    if state.tasks:
-        for task in state.tasks:
-            if task.interrupts:
-                interrupt_payload = task.interrupts[0].value
-                break
-    if state.next and interrupt_payload is not None:
-        return ChatResponse(
-            reply=json.dumps({
-                "interrupted": True,
-                "pending_node": list(state.next),
-                "payload": interrupt_payload,
-            }, ensure_ascii=False),
-            conversation_id=str(conv_id),
-        )
-    reply = result.get("final_reply", "抱歉，处理出错了")
-    await conversation_service.add_message(conv_id, "assistant", reply)
-    return ChatResponse(reply=reply, conversation_id=str(conv_id))
-
-
-@app.post("/chat/resume/stream")
-async def chat_resume_stream(request: ResumeRequest):
-    """
-    流式版 resume：从被打断的节点恢复执行，SSE 推送进度和内容
-    """
-    graph = await get_graph()
-    conv_id = request.conversation_id
-    set_request_trace(conv_id)
-    config = {"configurable": {"thread_id": f"conv_{conv_id}"}}
-    full_reply: list[str] = []
-
-    log.info("/chat/resume/stream 入口 | conv=%s action=%r",
-             conv_id, truncate(str(request.action), 200))
-
-    async def generate():
-        yield _sse(f"__CONV_ID__:{conv_id}")
-        started_nodes: set[str] = set()
-        finished_nodes: set[str] = set()
-
-        async for event in graph.astream_events(
-            Command(resume=request.action), config=config, version="v2"
-        ):
-            kind = event["event"]
-            node = event.get("metadata", {}).get("langgraph_node")
-
-            if kind == "on_chain_start" and node in NODE_TO_PROGRESS and node not in started_nodes:
-                started_nodes.add(node)
-                if node == "synthesizer":
-                    yield _sse("__PROGRESS__:synthesizer")
-
-            if kind == "on_chain_end" and node in NODE_TO_PROGRESS and node not in finished_nodes:
-                finished_nodes.add(node)
-
-            if kind == "on_chat_model_stream" \
-                    and event.get("metadata", {}).get("langgraph_node") == "synthesizer":
-                chunk = event["data"]["chunk"].content
-                if chunk:
-                    full_reply.append(chunk)
-                    yield _sse(chunk)
-
-        # 检查是否又被 interrupt
-        state = await graph.aget_state(config)
-        interrupt_payload = None
-        if state.tasks:
-            for task in state.tasks:
-                if task.interrupts:
-                    interrupt_payload = task.interrupts[0].value
-                    break
-        if state.next and interrupt_payload is not None:
-            yield _sse(f"__INTERRUPTED__:{json.dumps(interrupt_payload, ensure_ascii=False)}")
-        else:
-            yield _sse("__PROGRESS__:done")
-
-        # 从 state 取草稿 id
-        final_state_for_draft = await graph.aget_state(config)
-        draft_article_id = (
-            final_state_for_draft.values.get("draft_article_id")
-            if final_state_for_draft else None
-        )
-
-        if draft_article_id:
-            draft_title = ""
-            for wr in final_state_for_draft.values.get("worker_results", []):
-                if wr.get("draft_article_id") == draft_article_id:
-                    draft_title = wr.get("draft_title", "") or ""
-                    break
-            yield _sse(
-                "__DRAFT_SAVED__:" + json.dumps({
-                    "draftArticleId": str(draft_article_id),
-                    "title": draft_title,
-                }, ensure_ascii=False)
-            )
-
-        reply_text = "".join(full_reply)
-        if reply_text:
-            await conversation_service.add_message(
-                conv_id, "assistant", reply_text,
-                draft_article_id=draft_article_id,     # ← 新增
-            )
-        if reply_text and not (state.next and interrupt_payload is not None):
-            all_messages = await conversation_service.get_history(conv_id)
-            if await memory_service.should_extract(
-                    conversation_id=conv_id,
-                    messages=all_messages,
-                    assistant_text=reply_text,
-                    interrupted=False,
-            ):
-                await memory_service.mark_extract_scheduled(conv_id)
-                asyncio.create_task(
-                    memory_service.extract_and_store(request.user_id, conv_id, all_messages)
-                )
-        yield _sse(json.dumps({'conversationId': str(conv_id)}))
-        yield _sse("[DONE]")
-
-    return StreamingResponse(generate(), media_type="text/event-stream")
-
-
-@app.post("/chat/{conversation_id}/cancel")
-async def cancel_chat(conversation_id: int):
-    """
-    用户暂停：把 cancelled=True 写入图的 state，
-    后续节点检查到 flag 后会跳过执行。
-    """
-    graph = await get_graph()
-    config = {"configurable": {"thread_id": f"conv_{conversation_id}"}}
-    await graph.aupdate_state(config, {"cancelled": True})
-    return {"status": "ok"}
+    conv_id, config, state = await _prepare_chat(request, graph)
+    return await _invoke_admitted(graph, state, conv_id, request.user_id, config)
 
 
 @app.post("/chat/stream")
-async def chat_stream(request: ChatRequest):
+async def chat_stream(request: ChatRequest, principal: Principal = Depends(require_principal)):
+    match_user(principal, request.user_id)
     graph = await get_graph()
-    #判断是否是新会话
-    is_new_conversation = request.conversation_id is None
-
-    conv_id = request.conversation_id
-    if conv_id is None:
-        conv_id = await conversation_service.create_conversation(request.user_id)
-    #1.先读历史消息
-    context = await conversation_service.get_context_for_llm(conv_id)
-    await conversation_service.add_message(conv_id, "user", request.message, image_paths=request.image_paths)
-    # 图片预处理：GLM-4V 转文字描述
-    processed_message = await preprocess_message(request.message, request.image_paths)
-    #判断是否需要提取用户习惯
-    if memory_service.should_recall(is_new_conversation,request.message):
-        memory_context = await memory_service.recall(request.user_id,processed_message,top_k=3)
-        if memory_context:
-            context.insert(0,{"role":"system","content":memory_context})
-    #初始化state
-    initial_state: AgentState = {
-        "user_id": request.user_id,
-        "user_message": processed_message,
-        "history_messages": context,
-        "active_workers": [],
-        "task_descriptions": {},
-        "required_skills": [],
-        "worker_results": [],
-        "article_cards": [],
-        "citations": [],
-        "final_reply": "",
-        "cancelled": False,
-        "needs_retry": False,
-        "retry_count": 0,
-        "reflection_feedback": "",
-        "draft_article_id": None,
-    }
-    config = {"configurable": {"thread_id": f"conv_{conv_id}"}}
-    full_reply: list[str] = []
-
-    set_request_trace(conv_id)
-    log.info("/chat/stream 入口 | user=%s conv=%s new=%s msg=%r",
-             request.user_id, conv_id, is_new_conversation, truncate(request.message, 200))
-
-    async def generate():
-        # 先推会话 ID，让前端尽早拿到
-        yield _sse(f"__CONV_ID__:{conv_id}")
-        # 追踪已经发过进度事件的节点，避免重复
-        started_nodes: set[str] = set()
-        finished_nodes: set[str] = set()
-        active_workers: list[str] = []  # planner 输出的 worker 列表
-
-        async for event in graph.astream_events(initial_state, config= config,version="v2"):
-            kind = event["event"]
-            node = event.get("metadata", {}).get("langgraph_node")
-
-            # ────── 节点开始 → 推进度 ──────
-            if kind == "on_chain_start" and node in NODE_TO_PROGRESS and node not in started_nodes:
-                started_nodes.add(node)
-
-                if node == "planner":
-                    yield _sse("__PROGRESS__:planner")
-
-                elif node == "synthesizer":
-                    yield _sse("__PROGRESS__:synthesizer")
-
-                elif node in ("search_worker", "chat_worker", "analysis_worker", "writing_worker"):
-                    # 第一个 worker 开始时，一次性发 dispatcher 进度
-                    if "dispatcher" not in started_nodes:
-                        started_nodes.add("dispatcher")
-                        # 从 state 读 planner 输出的 active_workers
-                        state_snapshot = await graph.aget_state(config)
-                        if state_snapshot and state_snapshot.values:
-                            active_workers = state_snapshot.values.get("active_workers", [])
-                        workers_str = ",".join(active_workers) if active_workers else node.replace("_worker", "")
-                        yield _sse(f"__PROGRESS__:dispatcher:{workers_str}")
-
-            # ────── 节点结束 ──────
-            if kind == "on_chain_end" and node in NODE_TO_PROGRESS and node not in finished_nodes:
-                finished_nodes.add(node)
-
-            # ────── synthesizer 的 LLM 流式输出 → 推内容 ──────
-            if kind == "on_chat_model_stream" \
-                    and event.get("metadata", {}).get("langgraph_node") == "synthesizer":
-                chunk = event["data"]["chunk"].content
-                if chunk:
-                    full_reply.append(chunk)
-                    yield _sse(chunk)
-
-            # 全部完成
-        # 检查是否被 interrupt 暂停（writing_worker 等节点调了 interrupt()）
-        state = await graph.aget_state(config)
-        # 并行场景下 tasks 可能有多个，需要遍历找到有 interrupt 数据的那个
-        interrupt_payload = None
-        if state.tasks:
-            for task in state.tasks:
-                if task.interrupts:
-                    interrupt_payload = task.interrupts[0].value
-                    break
-        if state.next and interrupt_payload is not None:
-            # 真正的 interrupt（审批场景），推送中断事件给前端
-            yield _sse(f"__INTERRUPTED__:{json.dumps(interrupt_payload, ensure_ascii=False)}")
-        else:
-            yield _sse("__PROGRESS__:done")
-        #这里有疑问，这里如果打断是否要结束
-        # 从 checkpointer 读最终 state，取卡片（旁路数据）
-        final_state = await graph.aget_state(config)
-        article_cards = final_state.values.get("article_cards", []) if final_state else []
-
-        # 去重
-        seen_ids = set()
-        unique_cards = []
-        for card in article_cards:
-            aid = card.get("articleId")
-            if aid and aid not in seen_ids:
-                seen_ids.add(aid)
-                unique_cards.append(card)
-
-        if unique_cards:
-            yield _sse(f"__ARTICLES__:{json.dumps(unique_cards, ensure_ascii=False)}")
+    conv_id, config, state = await _prepare_chat(request, graph)
+    return _stream(graph, state, conv_id, request.user_id, config)
 
 
-        # 从 state 取草稿 id（writing_worker 或 synthesizer 写进去的）
-        draft_article_id = final_state.values.get("draft_article_id") if final_state else None
+@app.post("/chat/resume", response_model=ChatResponse)
+async def chat_resume(request: ResumeRequest, principal: Principal = Depends(require_principal)):
+    match_user(principal, request.user_id)
+    graph = await get_graph()
+    conv_id, config = await _prepare_resume(request, graph)
+    return await _invoke_admitted(graph, Command(resume={"action": request.action, "runId": str(request.run_id),
+                                               "draftHash": request.draft_hash}), conv_id, request.user_id, config)
 
-        # 如果有草稿 → 先发一条 SSE 事件给前端
-        if draft_article_id:
-            draft_title = ""
-            # 从 worker_results 里兜底拿一次 title
-            for wr in final_state.values.get("worker_results", []):
-                if wr.get("draft_article_id") == draft_article_id:
-                    draft_title = wr.get("draft_title", "") or ""
-                    break
-            yield _sse(
-                "__DRAFT_SAVED__:" + json.dumps({
-                    "draftArticleId": str(draft_article_id),
-                    "title": draft_title,
-                }, ensure_ascii=False)
-            )
 
-        reply_text = "".join(full_reply)
-        await conversation_service.add_message(
-            conv_id, "assistant", reply_text,
-            article_cards=unique_cards or None,
-        )
-        if not (state.next and interrupt_payload is not None):
-            all_messages = await conversation_service.get_history(conv_id)
-            if await memory_service.should_extract(
-                    conversation_id=conv_id,
-                    messages=all_messages,
-                    assistant_text=reply_text,
-                    interrupted=False,
-            ):
-                await memory_service.mark_extract_scheduled(conv_id)
-                asyncio.create_task(
-                    memory_service.extract_and_store(request.user_id, conv_id, all_messages)
-                )
+@app.post("/chat/resume/stream")
+async def chat_resume_stream(request: ResumeRequest, principal: Principal = Depends(require_principal)):
+    match_user(principal, request.user_id)
+    graph = await get_graph()
+    conv_id, config = await _prepare_resume(request, graph)
+    return _stream(graph, Command(resume={"action": request.action, "runId": str(request.run_id),
+                                        "draftHash": request.draft_hash}), conv_id, request.user_id, config)
 
-        yield _sse(json.dumps({'conversationId': str(conv_id)}))
-        yield _sse("[DONE]")
 
-    return StreamingResponse(generate(), media_type="text/event-stream")
+@app.post("/chat/{conversation_id}/cancel")
+async def cancel_chat(conversation_id: int, user_id: int, principal: Principal = Depends(require_principal)):
+    match_user(principal, user_id)
+    await conversation_service.require_owner(conversation_id, user_id)
+    return await run_repository.cancel(conversation_id, user_id)
+
+
 @app.get("/conversations")
-async def list_conversations(
-    user_id: int,
-    last_update_time: datetime | None = None,
-    last_id: int | None = None,
-    limit: int = 10,
-):
-    """会话列表（游标分页）"""
-    convs = await conversation_service.list_conversations(user_id, last_update_time, last_id, limit)
-    return {"data": convs}
+async def list_conversations(user_id: int, last_update_time: datetime | None = None,
+                             last_id: int | None = None, limit: int = 10,
+                             scope: Literal["all", "general", "article"] = "all",
+                             origin_article_id: int | None = Query(default=None, gt=0),
+                             principal: Principal = Depends(require_principal)):
+    match_user(principal, user_id)
+    if not 1 <= limit <= 100:
+        raise HTTPException(422, "分页范围无效")
+    return {"data": await conversation_service.list_conversations(user_id, last_update_time, last_id, limit,
+                                                                scope=scope, origin_article_id=origin_article_id)}
+
+
+@app.get("/conversations/{conversation_id}")
+async def get_conversation(conversation_id: int, user_id: int, principal: Principal = Depends(require_principal)):
+    match_user(principal, user_id)
+    return {"data": await conversation_service.get_conversation(conversation_id, user_id)}
+
 
 @app.get("/conversations/{conversation_id}/messages")
-async def get_messages(conversation_id: int):
-    """获取会话历史消息"""
-    messages = await conversation_service.get_history(conversation_id)
-    return {"data": messages}
+async def get_messages(conversation_id: int, user_id: int, principal: Principal = Depends(require_principal)):
+    match_user(principal, user_id)
+    await conversation_service.require_owner(conversation_id, user_id)
+    history = await conversation_service.get_history(conversation_id)
+    pending = await run_repository.pending_approval(conversation_id)
+    if pending:
+        history = [*history, {"role": "assistant", "content": pending["draft"],
+                             "interrupted": True, "interruptPayload": pending, "isDraft": True}]
+    return {"data": history}
+
+
 @app.delete("/conversations/{conversation_id}")
-async def delete_conversation(conversation_id: int):
-    """删除会话"""
-    await conversation_service.delete_conversation(conversation_id)
+async def delete_conversation(conversation_id: int, user_id: int, principal: Principal = Depends(require_principal)):
+    match_user(principal, user_id)
+    await conversation_service.require_owner(conversation_id, user_id)
+    async with mysql_client.db.transaction():
+        await run_repository._lock_conversation(conversation_id, user_id)
+        await run_repository.cancel(conversation_id, user_id)
+        await conversation_service.delete_conversation(conversation_id)
     return {"status": "ok"}
+
+
 @app.get("/tools")
-async def list_tools():
-    """查看当前 Agent 可用的所有工具（本地 + MCP）"""
-    from app.services.tool_registry import tool_registry
-    tools = tool_registry.get_all_tools()
-    return [{"name": t.name, "description": t.description} for t in tools]
+async def list_tools(principal: Principal = Depends(require_principal)):
+    return [{"name": t.name, "description": t.description} for t in tool_registry.get_all_tools()]
+
+
+@app.get('/memory')
+async def memory_overview(before: int | None = Query(default=None, gt=0),
+                          limit: int = Query(default=30, ge=1, le=50),
+                          kind: Literal['all', 'constraint', 'decision', 'event'] = 'all',
+                          principal: Principal = Depends(require_principal)):
+    return await memory_management.overview(principal.user_id, before=before, limit=limit, kind=kind)
+
+
+@app.put('/memory/profile')
+async def edit_memory_profile(edit: ProfileEdit, principal: Principal = Depends(require_principal)):
+    await memory_management.save_profile(principal.user_id, edit)
+    return {'status': 'ok'}
+
+
+@app.put('/memory/records/{memory_id}')
+async def edit_memory_record(edit: RecordEdit, memory_id: int = Path(gt=0),
+                             principal: Principal = Depends(require_principal)):
+    await memory_management.change_record(principal.user_id, memory_id, edit.version, edit=edit)
+    return {'status': 'ok'}
+
+
+@app.delete('/memory/records/{memory_id}')
+async def remove_memory_record(memory_id: int = Path(gt=0),
+                               version: str = Query(pattern=r'^[a-f0-9]{64}$'),
+                               principal: Principal = Depends(require_principal)):
+    await memory_management.change_record(principal.user_id, memory_id, version)
+    return {'status': 'ok'}
+
+
 class McpReloadRequest(BaseModel):
-    """MCP 热重载请求，传入新的 server 配置"""
-    servers: dict  # 和 MCP_SERVERS_JSON 格式一致
+    servers: dict
+
 
 @app.post("/mcp/reload")
 async def reload_mcp(request: McpReloadRequest):
-    """
-    运行时热重载 MCP 配置，不用重启服务
+    raise HTTPException(404, "MCP 配置仅允许通过服务部署更新")
 
-    流程: 关闭旧连接 → 用新配置连接 → 刷新 tool_registry
-    """
-    from app.clients.mcp_client import mcp_manager
-    from app.services.tool_registry import tool_registry
 
-    await mcp_manager.reload(request.servers)
-    tool_registry.refresh()
+@app.get("/runs/{run_id}")
+async def run_status(run_id: UUID, principal: Principal = Depends(require_principal)):
+    run = await run_repository.get(str(run_id))
+    if not run or run["user_id"] != principal.user_id:
+        raise HTTPException(404, "运行不存在")
+    await conversation_service.require_owner(run["conversation_id"], principal.user_id)
+    return await reconciled_run_status(run, principal.user_id)
 
-    tools = tool_registry.get_all_tools()
-    return {
-        "status": "ok",
-        "tool_count": len(tools),
-        "tools": [t.name for t in tools],
-    }
+
+@app.get('/conversations/{conversation_id}/run')
+async def conversation_run(conversation_id: int, principal: Principal = Depends(require_principal)):
+    await conversation_service.require_owner(conversation_id, principal.user_id)
+    run = await run_repository.latest(conversation_id, principal.user_id)
+    return await reconciled_run_status(run, principal.user_id) if run else None
+
+
+@app.get('/run-overview')
+async def run_overview(principal: Principal = Depends(require_principal)):
+    rows = await run_repository.overview(principal.user_id)
+    items = []
+    for row in rows:
+        # Reconcile expired leases and interrupted saves just as the detail API
+        # does. Do not expose result_json, execution tokens or draft contents.
+        status = row
+        if row['status'] in ('running', 'awaiting_approval'):
+            try:
+                status = await run_service.reconcile_saved(row)
+                await run_repository.expire_existing(row['conversation_id'], principal.user_id, row['run_id'])
+                status = await run_repository.get(row['run_id'])
+            except HTTPException as error:
+                if error.status_code == 404: continue  # Conversation deleted during the poll.
+                raise
+            if not status: continue
+        items.append({'runId': row['run_id'], 'conversationId': str(row['conversation_id']),
+                      'title': row['title'], 'status': status['status'],
+                      'updatedAt': status['updated_at'].isoformat() + 'Z'})
+    return {'items': items, 'serverTime': datetime.now(UTC).isoformat().replace('+00:00', 'Z')}
+
+
+async def reconciled_run_status(run, uid):
+    run = await run_service.reconcile_saved(run)
+    if run["status"] in ("running", "awaiting_approval"):
+        await run_repository.expire_existing(run["conversation_id"], uid, run["run_id"])
+        run = await run_repository.get(run["run_id"])
+    return {"runId": run["run_id"], "conversationId": str(run['conversation_id']), "status": run["status"],
+            "draftHash": run["draft_hash"], "deadline": run["deadline"].isoformat() + 'Z',
+            "result": json.loads(run["result_json"]) if run["result_json"] else None,
+            "draftArticleId": str(run["draft_article_id"]) if run["draft_article_id"] else None}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

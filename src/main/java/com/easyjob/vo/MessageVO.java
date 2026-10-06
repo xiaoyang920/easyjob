@@ -11,6 +11,7 @@ import java.time.LocalDateTime;
 @Data
 @NoArgsConstructor
 public class MessageVO {
+    private String clientMessageId;
     
     /**
      * 消息ID

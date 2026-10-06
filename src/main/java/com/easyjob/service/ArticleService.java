@@ -14,9 +14,10 @@ import java.util.Map;
 public interface ArticleService extends IService<Article> {
     Map<String,Object> getUserArticles(Long userId, Integer page, Integer size, String order);
 
-    void saveArticle(ArticleCreateDTO article);
+    Long saveArticle(ArticleCreateDTO article);
 
     ArticleDetailVO getArticleById(Long articleId);
+    ArticleDetailVO getEditableArticle(Long articleId);
 
     void deleteArticle(Long articleId);
 
@@ -30,6 +31,8 @@ public interface ArticleService extends IService<Article> {
      * 获取公开文章列表（支持搜索、分类筛选、排序）
      */
     PageVO listArticles(Integer page, Integer size, String sort, Long categoryId, String keyword);
+    PageVO listArticles(Integer page, Integer size, String sort, Long categoryId, String keyword, List<Long> tagIds);
+    PageVO listArticles(Integer page, Integer size, String sort, Long categoryId, String keyword, List<Long> tagIds, Long viewerId, boolean readableOnly);
 
     void increaseViewCount(Long articleId);
 

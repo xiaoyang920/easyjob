@@ -1,0 +1,1 @@
+ALTER TABLE ai_message MODIFY COLUMN content MEDIUMTEXT;

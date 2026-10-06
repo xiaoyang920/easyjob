@@ -25,3 +25,4 @@ export const eventBus = new EventBus()
 
 /** 事件名常量 */
 export const EVENT_AUTH_EXPIRED = 'auth:expired'
+export const EVENT_AUTH_CHANGED = 'auth:changed'

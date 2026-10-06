@@ -1,7 +1,5 @@
 <template>
   <div class="chat-page">
-    <StarBackground />
-    
     <!-- 导航栏 -->
     <nav class="navbar">
       <div class="logo" @click="$router.push('/')">
@@ -14,9 +12,7 @@
         <span class="logo-text">EasyJob</span>
       </div>
       <div class="page-title">私信</div>
-      <div class="nav-right">
-        <button class="nav-btn" @click="$router.push('/')">返回首页</button>
-      </div>
+      <AppNavigation />
     </nav>
 
     <!-- 主容器 -->
@@ -131,15 +127,17 @@
                   class="msg-avatar"
                   @error="handleAvatarError"
                 >
-                <div class="msg-content">
-                  <div class="msg-bubble" @contextmenu.prevent="showMessageMenu($event, msg)">
+                <div class="msg-content" :class="{ 'image-content': msg.messageType === 2 }">
+                  <div class="msg-bubble" :class="{ 'image-bubble': msg.messageType === 2 }" @contextmenu.prevent="showMessageMenu($event, msg)">
                     <!-- 文本消息 -->
                     <template v-if="msg.messageType === 1">
                       {{ msg.content }}
                     </template>
                     <!-- 图片消息 -->
                     <template v-else-if="msg.messageType === 2">
-                      <img :src="msg.content" class="msg-image" @click="previewImage(msg.content)">
+                      <button class="image-message-button" aria-label="查看完整图片" @click="previewImage(msg.content, $event)">
+                        <img :src="msg.content" alt="聊天图片" class="msg-image" loading="lazy">
+                      </button>
                     </template>
                   </div>
                   <div class="msg-time">{{ formatMsgTime(msg.createTime) }}</div>
@@ -217,8 +215,9 @@
     </div>
 
     <!-- 图片预览 -->
-    <div v-if="previewImageUrl" class="image-preview-overlay" @click="previewImageUrl = ''">
-      <img :src="previewImageUrl" class="preview-image">
+    <div v-if="previewImageUrl" class="image-preview-overlay" role="dialog" aria-modal="true" aria-label="图片预览" @click="closeImagePreview" @keydown.esc="closeImagePreview" @keydown.tab.prevent="previewCloseRef?.focus()">
+      <button ref="previewCloseRef" class="preview-close" aria-label="关闭图片预览" @click.stop="closeImagePreview">×</button>
+      <img :src="previewImageUrl" alt="完整聊天图片" class="preview-image" @click.stop>
     </div>
 
     <!-- 消息右键菜单 -->
@@ -249,14 +248,16 @@
 </template>
 
 <script setup lang="ts">
+import AppNavigation from '@/components/AppNavigation.vue'
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import { goBackOr } from '@/utils/navigation'
 import { ElMessage } from 'element-plus'
-import StarBackground from '@/components/StarBackground.vue'
 import LoginForm from '@/components/LoginForm.vue'
 import RegisterForm from '@/components/RegisterForm.vue'
 import request from '@/utils/request'
 import { uploadFile } from '@/utils/upload'
+import { ensureAccessToken } from '@/utils/authSession'
 import { eventBus, EVENT_AUTH_EXPIRED } from '@/utils/eventBus'
 
 const router = useRouter()
@@ -290,6 +291,8 @@ const imageUploadProgress = ref(0)
 
 // 图片预览
 const previewImageUrl = ref('')
+const previewCloseRef = ref<HTMLButtonElement>()
+let previewTrigger: HTMLElement | null = null
 
 // 表情选择
 const showEmojiPicker = ref(false)
@@ -443,6 +446,7 @@ function backToList() {
 async function fetchMessages(loadMore = false) {
   if (!currentConversation.value) return
   
+  const cid = currentConversation.value.conversationId
   loadingMessages.value = true
   try {
     const params: any = {
@@ -454,6 +458,7 @@ async function fetchMessages(loadMore = false) {
     }
     
     const res = await request.get('/chat/messages', { params })
+    if (currentConversation.value?.conversationId !== cid) return
     
     if (res.code === 200 && res.data) {
       const newMessages = res.data.records || []
@@ -461,15 +466,15 @@ async function fetchMessages(loadMore = false) {
       
       if (newMessages.length > 0) {
         // 记录最早的消息ID，用于下次分页
-        lastMessageId.value = newMessages[0].messageId
+        lastMessageId.value = newMessages.at(-1).messageId
       }
       
       if (loadMore) {
         // 加载更多：插入到前面
-        messages.value = [...newMessages, ...messages.value]
+        mergeMessages(newMessages)
       } else {
         // 首次加载：反转顺序（接口返回倒序，显示要正序）
-        messages.value = newMessages.reverse()
+        mergeMessages(newMessages)
       }
     }
   } catch (error) {
@@ -485,29 +490,53 @@ async function loadMoreMessages() {
 }
 
 // 发送消息
+const sending = ref(false)
+let pendingSend: { cid: string, content: string, id: string } | null = null
+
+function mergeMessages(incoming: any[]) {
+  const byId = new Map(messages.value.map(m => [m.messageId, m]))
+  for (const message of incoming) byId.set(message.messageId, { ...byId.get(message.messageId), ...message })
+  messages.value = [...byId.values()].sort((a, b) => BigInt(a.messageId) < BigInt(b.messageId) ? -1 : BigInt(a.messageId) > BigInt(b.messageId) ? 1 : 0)
+}
+
+async function catchUpMessages() {
+  const cid = currentConversation.value?.conversationId
+  if (!cid) return
+  // Refresh the visible page as well to catch recalls during disconnection.
+  const latest = await request.get('/chat/messages', { params: { conversationId: cid, size: 100 } })
+  if (currentConversation.value?.conversationId !== cid) return
+  let after = messages.value.at(-1)?.messageId || '0'
+  mergeMessages(latest.data?.records || [])
+  for (let page = 0; page < 20; page++) {
+    const res = await request.get('/chat/messages/after', { params: { conversationId: cid, afterMessageId: after, size: 100 } })
+    if (currentConversation.value?.conversationId !== cid) return
+    const rows = res.data?.records || []
+    mergeMessages(rows)
+    if (!res.data?.hasMore || !rows.length) break
+    after = rows.at(-1).messageId
+  }
+  await markAsRead(cid)
+}
+
 async function sendMessage() {
   const content = messageInput.value.trim()
-  if (!content || !currentConversation.value) return
-  
+  if (!content || !currentConversation.value || sending.value) return
+  const cid = currentConversation.value.conversationId
+  if (!pendingSend || pendingSend.cid !== cid || pendingSend.content !== content) pendingSend = { cid, content, id: crypto.randomUUID() }
+  sending.value = true
   try {
     const res = await request.post('/chat/message/send', {
       conversationId: currentConversation.value.conversationId,
       messageType: 1,
       content: content,
-      senderName: myNickName.value,
-      senderAvatar: myAvatar.value
+      clientMessageId: pendingSend.id
     })
     
     if (res.code === 200 && res.data) {
       // 使用本地缓存的用户信息，避免后端重复查询
-      const messageData = {
-        ...res.data,
-        senderId: myUserId.value,
-        senderName: myNickName.value,
-        senderAvatar: myAvatar.value
-      }
       // 添加到消息列表
-      messages.value.push(messageData)
+      if (currentConversation.value?.conversationId === cid) mergeMessages([res.data])
+      pendingSend = null
       messageInput.value = ''
       
       // 更新会话列表的最后消息
@@ -519,8 +548,8 @@ async function sendMessage() {
       ElMessage.error(res.message || '发送失败')
     }
   } catch (error: any) {
-    ElMessage.error(error.message || '发送失败')
-  }
+    ElMessage.error(error.message || '发送失败，可再次发送重试')
+  } finally { sending.value = false }
 }
 
 // 处理图片上传
@@ -553,19 +582,12 @@ async function handleImageUpload(e: Event) {
         conversationId: currentConversation.value.conversationId,
         messageType: 2,
         content: uploadRes.data.url,
-        senderName: myNickName.value,
-        senderAvatar: myAvatar.value
+        clientMessageId: crypto.randomUUID()
       })
       
       if (res.code === 200 && res.data) {
         // 使用本地缓存的用户信息
-        const messageData = {
-          ...res.data,
-          senderId: myUserId.value,
-          senderName: myNickName.value,
-          senderAvatar: myAvatar.value
-        }
-        messages.value.push(messageData)
+        mergeMessages([res.data])
         updateConversationLastMessage('[图片]', 2)
         scrollToBottom()
       }
@@ -677,12 +699,13 @@ function showMessageMenu(e: MouseEvent, msg: any) {
 }
 
 // 初始化WebSocket
-function initWebSocket() {
-  const token = localStorage.getItem('token')
+async function initWebSocket() {
+  let token: string | null
+  try { token = await ensureAccessToken() } catch { return }
   if (!token) return
   
   // 如果已经有连接，先关闭
-  if (ws && ws.readyState === WebSocket.OPEN) {
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
     return
   }
   
@@ -695,6 +718,8 @@ function initWebSocket() {
   ws.onopen = () => {
     console.log('WebSocket连接成功')
     startHeartbeat()
+    fetchConversations()
+    catchUpMessages().catch(() => ElMessage.warning('网络已连接，消息同步失败，可重新打开会话'))
   }
   
   ws.onmessage = (event) => {
@@ -724,7 +749,7 @@ function handleWsMessage(data: any) {
     // 收到新消息
     if (currentConversation.value && data.conversationId === currentConversation.value.conversationId) {
       // 当前会话的消息
-      messages.value.push(data)
+      mergeMessages([data])
       markAsRead(currentConversation.value.conversationId)
       scrollToBottom()
     } else {
@@ -822,8 +847,15 @@ function goToUserSpace(userId: string) {
 }
 
 // 预览图片
-function previewImage(url: string) {
+function previewImage(url: string, event: MouseEvent) {
+  previewTrigger = event.currentTarget as HTMLElement
   previewImageUrl.value = url
+  nextTick(() => previewCloseRef.value?.focus())
+}
+
+function closeImagePreview() {
+  previewImageUrl.value = ''
+  nextTick(() => previewTrigger?.focus())
 }
 
 // 是否显示时间分隔线
@@ -1024,7 +1056,7 @@ onUnmounted(() => {
   left: 0;
   right: 0;
   bottom: 0;
-  background: #f5f7fa;
+  background: var(--ej-canvas);
   z-index: -2;
 }
 
@@ -1052,7 +1084,7 @@ onUnmounted(() => {
   gap: 8px;
   font-size: 28px;
   font-weight: bold;
-  color: #409eff;
+  color: var(--ej-accent);
   cursor: pointer;
 }
 
@@ -1060,7 +1092,7 @@ onUnmounted(() => {
   width: 32px;
   height: 32px;
   flex-shrink: 0;
-  fill: #409eff;
+  fill: var(--ej-accent);
 }
 
 .logo-text {
@@ -1154,7 +1186,7 @@ onUnmounted(() => {
 }
 
 .conversation-search input:focus {
-  border-color: #409eff;
+  border-color: var(--ej-accent);
 }
 
 .conversation-items {
@@ -1314,7 +1346,7 @@ onUnmounted(() => {
 }
 
 .chat-user-name:hover {
-  color: #409eff;
+  color: var(--ej-accent);
 }
 
 .chat-user-status {
@@ -1358,7 +1390,7 @@ onUnmounted(() => {
 .load-more {
   text-align: center;
   padding: 10px;
-  color: #409eff;
+  color: var(--ej-accent);
   cursor: pointer;
   font-size: 13px;
 }
@@ -1419,15 +1451,45 @@ onUnmounted(() => {
 }
 
 .message-item.self .msg-bubble {
-  background: #409eff;
+  background: var(--ej-accent);
   color: white;
   border-top-right-radius: 4px;
 }
 
 .msg-image {
-  max-width: 200px;
-  max-height: 200px;
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: min(320px, 100%);
+  max-height: 360px;
+  object-fit: contain;
   border-radius: 10px;
+  cursor: pointer;
+}
+
+.image-message-button {
+  display: block;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  cursor: zoom-in;
+}
+
+.image-message-button:focus-visible { outline: 2px solid var(--ej-ink); outline-offset: 4px; }
+
+.preview-close {
+  position: absolute;
+  top: max(20px, env(safe-area-inset-top));
+  right: 20px;
+  width: 40px;
+  height: 40px;
+  border: 1px solid #ffffff80;
+  border-radius: 50%;
+  background: #11110f;
+  color: white;
+  font-size: 26px;
   cursor: pointer;
 }
 
@@ -1470,7 +1532,7 @@ onUnmounted(() => {
 
 .tool-btn:hover {
   background: #f0f0f0;
-  color: #409eff;
+  color: var(--ej-accent);
 }
 
 .tool-btn svg {
@@ -1502,13 +1564,13 @@ onUnmounted(() => {
   align-items: center;
   gap: 8px;
   padding: 6px 12px;
-  background: #f5f7fa;
+  background: var(--ej-canvas);
   border-radius: 8px;
   margin-right: 10px;
 }
 .chat-upload-progress .progress-bar {
   height: 4px;
-  background: #409eff;
+  background: var(--ej-accent);
   border-radius: 2px;
   transition: width 0.2s ease;
   min-width: 4px;
@@ -1516,7 +1578,7 @@ onUnmounted(() => {
 }
 .chat-upload-progress .progress-text {
   font-size: 12px;
-  color: #409eff;
+  color: var(--ej-accent);
   font-weight: 500;
   min-width: 32px;
 }
@@ -1525,7 +1587,7 @@ onUnmounted(() => {
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  background: #409eff;
+  background: var(--ej-accent);
   color: white;
   border: none;
   cursor: pointer;
@@ -1536,7 +1598,7 @@ onUnmounted(() => {
 }
 
 .send-btn:hover:not(:disabled) {
-  background: #66b1ff;
+  background: var(--ej-ink);
 }
 
 .send-btn:disabled {
@@ -1565,8 +1627,10 @@ onUnmounted(() => {
 }
 
 .preview-image {
-  max-width: 90%;
-  max-height: 90%;
+  width: auto;
+  height: auto;
+  max-width: calc(100% - 32px);
+  max-height: calc(100dvh - 100px);
   object-fit: contain;
 }
 
@@ -1631,7 +1695,7 @@ onUnmounted(() => {
 }
 
 .emoji-tab.active {
-  background: #409eff;
+  background: var(--ej-accent);
   color: white;
 }
 

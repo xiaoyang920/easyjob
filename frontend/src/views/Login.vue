@@ -149,6 +149,7 @@
 </template>
 
 <script setup lang="ts">
+import { clearAccountStorage } from '@/utils/searchHistory'
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
@@ -257,7 +258,7 @@ async function handleLogin() {
       if (response.status === 'success') {
         ElMessage.success('登录成功')
         
-        localStorage.clear()
+        clearAccountStorage()
         localStorage.setItem('token', response.data.token)
         localStorage.setItem('userId', response.data.userId)
         localStorage.setItem('email', response.data.email)
@@ -356,7 +357,7 @@ async function handleCodeLogin() {
       if (response.code === 200) {
         ElMessage.success('登录成功')
         
-        localStorage.clear()
+        clearAccountStorage()
         localStorage.setItem('token', response.data.token)
         localStorage.setItem('userId', response.data.userId)
         localStorage.setItem('email', response.data.email)
@@ -390,7 +391,7 @@ async function handleCodeLogin() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, var(--ej-accent) 0%, #53664b 100%);
   position: relative;
   overflow: hidden;
 }
@@ -471,7 +472,7 @@ async function handleCodeLogin() {
   margin: 0;
   font-size: 28px;
   font-weight: 600;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, var(--ej-accent) 0%, #53664b 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -488,7 +489,7 @@ async function handleCodeLogin() {
 .login-tabs :deep(.el-tabs__active-bar) {
   height: 3px;
   border-radius: 3px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, var(--ej-accent) 0%, #53664b 100%);
 }
 
 .login-tabs :deep(.el-tabs__item) {
@@ -498,11 +499,11 @@ async function handleCodeLogin() {
 }
 
 .login-tabs :deep(.el-tabs__item:hover) {
-  color: #667eea;
+  color: var(--ej-accent);
 }
 
 .login-tabs :deep(.el-tabs__item.is-active) {
-  color: #667eea;
+  color: var(--ej-accent);
   font-weight: 600;
 }
 
@@ -529,12 +530,12 @@ async function handleCodeLogin() {
 }
 
 .login-tabs :deep(.el-input__wrapper:hover) {
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+  box-shadow: 0 4px 12px rgba(82, 115, 99, 0.15);
 }
 
 .login-tabs :deep(.el-input__wrapper.is-focus) {
-  box-shadow: 0 4px 16px rgba(102, 126, 234, 0.25);
-  border-color: #667eea;
+  box-shadow: 0 4px 16px rgba(82, 115, 99, 0.25);
+  border-color: var(--ej-accent);
 }
 
 .login-tabs :deep(.el-button) {
@@ -544,14 +545,14 @@ async function handleCodeLogin() {
 }
 
 .login-tabs :deep(.el-button--primary) {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, var(--ej-accent) 0%, #53664b 100%);
   border: none;
-  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+  box-shadow: 0 4px 15px rgba(82, 115, 99, 0.4);
 }
 
 .login-tabs :deep(.el-button--primary:hover) {
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.5);
+  box-shadow: 0 6px 20px rgba(82, 115, 99, 0.5);
 }
 
 .login-tabs :deep(.el-button--primary:active) {
@@ -587,7 +588,7 @@ async function handleCodeLogin() {
 }
 
 .login-footer a {
-  color: #667eea;
+  color: var(--ej-accent);
   text-decoration: none;
   margin-left: 5px;
   font-weight: 500;
@@ -602,12 +603,12 @@ async function handleCodeLogin() {
   left: 0;
   width: 0;
   height: 2px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, var(--ej-accent) 0%, #53664b 100%);
   transition: width 0.3s;
 }
 
 .login-footer a:hover {
-  color: #764ba2;
+  color: #53664b;
 }
 
 .login-footer a:hover::after {

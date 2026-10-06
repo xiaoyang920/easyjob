@@ -14,7 +14,12 @@
         SELECT 
             c.conversation_id AS conversationId,
             c.conversation_type AS conversationType,
-            c.last_message_content AS lastMessage,
+            CASE
+                WHEN last_msg.status = 1 THEN '[消息已撤回]'
+                WHEN last_msg.status = 2 THEN '[消息已删除]'
+                WHEN last_msg.message_type = 2 THEN '[图片]'
+                ELSE c.last_message_content
+            END AS lastMessage,
             c.last_message_time AS lastMessageTime,
             cm.unread_count AS unreadCount,
             cm.is_muted AS isMuted,
@@ -35,6 +40,7 @@
             AND c.conversation_type = 1
         -- 关联对方用户信息
         LEFT JOIN user_info u ON other_cm.user_id = u.user_id
+        LEFT JOIN message last_msg ON last_msg.message_id = c.last_message_id
         ORDER BY cm.is_top DESC, c.last_message_time DESC
     </select>
 

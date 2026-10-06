@@ -28,6 +28,69 @@ import java.util.Map;
 @RequestMapping("/api/auth")
 public class AuthController {
 
+    private static final String REFRESH_COOKIE = "easyjob_refresh";
+    @Autowired
+    private com.easyjob.service.AuthSessionService sessions;
+    @org.springframework.beans.factory.annotation.Value("${easyjob.jwt.cookie-secure:false}")
+    private boolean secureCookie;
+
+    private void sessionCookie(jakarta.servlet.http.HttpServletRequest request,
+                               jakarta.servlet.http.HttpServletResponse response,
+                               String value, long seconds) {
+        response.addHeader("Set-Cookie", org.springframework.http.ResponseCookie.from(REFRESH_COOKIE, value)
+            .httpOnly(true).secure(secureCookie || request.isSecure()).sameSite("Strict")
+            .path("/api/auth").maxAge(seconds).build().toString());
+        response.setHeader("Cache-Control", "no-store");
+    }
+
+    private String cookie(jakarta.servlet.http.HttpServletRequest request) {
+        if (request.getCookies() != null) for (jakarta.servlet.http.Cookie c : request.getCookies())
+            if (REFRESH_COOKIE.equals(c.getName())) return c.getValue();
+        return null;
+    }
+
+    private void requireBrowserHeader(jakarta.servlet.http.HttpServletRequest request) {
+        // Non-simple header plus SameSite cookie: a cross-site form cannot refresh or revoke.
+        if (!"1".equals(request.getHeader("X-Auth-Refresh"))
+                || "cross-site".equals(request.getHeader("Sec-Fetch-Site")))
+            throw new BusinessException(403, "不允许跨站登录操作");
+    }
+
+    @PostMapping("/refresh")
+    public ResponseVO<?> refresh(jakarta.servlet.http.HttpServletRequest request,
+                                  jakarta.servlet.http.HttpServletResponse response) {
+        requireBrowserHeader(request);
+        com.easyjob.service.AuthSessionService.Session session;
+        String credential = cookie(request);
+        if (credential == null) {
+            // One-time migration for still-valid legacy JWTs; expired tokens never extend themselves.
+            String token = jwtUtil.getTokenFromAuthorization(request.getHeader("Authorization"));
+            try {
+                if (jwtUtil.parseToken(token).get("sid") != null) throw new BusinessException(401, "续签凭证不存在");
+                session = sessions.create(userMapper.selectById(jwtUtil.getUserIdFromToken(token)));
+            } catch (io.jsonwebtoken.JwtException | IllegalArgumentException e) {
+                throw new BusinessException(401, "登录已过期，请重新登录");
+            }
+        } else session = sessions.refresh(credential);
+        // The browser cookie expires at the absolute deadline. Sliding the Redis idle
+        // deadline needs no Set-Cookie, avoiding old refresh responses overwriting a new login.
+        if (credential == null) sessionCookie(request, response, session.credential(), session.remainingSeconds());
+        response.setHeader("Cache-Control", "no-store");
+        Map<String, Object> data = new HashMap<>();
+        data.put("token", jwtUtil.generateSessionToken(session.user().getUserId(), session.id()));
+        data.put("userId", session.user().getUserId().toString());
+        return ResponseVO.success(data);
+    }
+
+    @PostMapping("/logout")
+    public ResponseVO<?> logout(jakarta.servlet.http.HttpServletRequest request,
+                                 jakarta.servlet.http.HttpServletResponse response) {
+        requireBrowserHeader(request);
+        sessions.revoke(cookie(request));
+        sessionCookie(request, response, "", 0);
+        return ResponseVO.success(null);
+    }
+
     @Autowired
     private JwtUtil jwtUtil;
     @Autowired
@@ -40,7 +103,9 @@ public class AuthController {
     private UserService userService;
 
     @PostMapping("/login")
-    public ResponseVO<?> login(@RequestBody UserAuthDTO authDTO) {
+    public ResponseVO<?> login(@RequestBody UserAuthDTO authDTO,
+                              jakarta.servlet.http.HttpServletRequest request,
+                              jakarta.servlet.http.HttpServletResponse response) {
         String email = authDTO.getEmail();
         String password = authDTO.getPassword();
         // 根据邮箱查询用户
@@ -66,7 +131,10 @@ public class AuthController {
             throw new BusinessException(401, "邮箱或密码错误");
         }
         // 生成token，包含用户ID
-        String token = jwtUtil.generateToken(user.getUserId());
+        sessions.revoke(cookie(request));
+        var session = sessions.create(user);
+        sessionCookie(request, response, session.credential(), session.remainingSeconds());
+        String token = jwtUtil.generateSessionToken(user.getUserId(), session.id());
         // 返回响应
         Map<String, Object> data = new HashMap<>();
         data.put("token", token);
@@ -196,7 +264,9 @@ public class AuthController {
         }
     }
     @PostMapping("/login-by-email")
-    public ResponseVO<?> loginByEmail(@RequestBody EmailDTO emailDTO) {
+    public ResponseVO<?> loginByEmail(@RequestBody EmailDTO emailDTO,
+                                     jakarta.servlet.http.HttpServletRequest request,
+                                     jakarta.servlet.http.HttpServletResponse response) {
         String email = emailDTO.getEmail();
         String code = emailDTO.getCode();
         if(StringTools.isEmpty( email)|| StringTools.isEmpty(code)){
@@ -216,7 +286,10 @@ public class AuthController {
         if(user == null){
             throw new BusinessException(400, "邮箱尚未注册");
         }
-        String token = jwtUtil.generateToken(user.getUserId());
+        sessions.revoke(cookie(request));
+        var session = sessions.create(user);
+        sessionCookie(request, response, session.credential(), session.remainingSeconds());
+        String token = jwtUtil.generateSessionToken(user.getUserId(), session.id());
 
         AuthVO authVO = new AuthVO();
         authVO.setToken(token);

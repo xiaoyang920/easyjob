@@ -12,7 +12,7 @@ import java.time.LocalDateTime;
  * 文章分类实体类
  */
 @Data
-@TableName("article_category")
+@TableName("category")
 public class ArticleCategory {
     
     /**

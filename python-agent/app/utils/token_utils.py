@@ -2,14 +2,12 @@
 Token 计数工具
 用于消息入库时计算 token、构建上下文时做预算控制
 
-【为什么不用 len(text) / 4 估算？】
-- 中文平均 1 字 ≈ 1~2 token，英文平均 1 词 ≈ 1.3 token
-- 混合内容（中英 + 代码）误差可达 50%+
-- tiktoken 用和 LLM 一致的 BPE 分词，偏差 <5%
+使用本地 BPE 估算；不同供应商的分词器与请求封装不同，
+不能视为 DeepSeek 的精确计费数。调用方必须预留安全余量。
 """
 import tiktoken
 
-# cl100k_base：GPT-4 / DeepSeek 系列通用编码
+# cl100k_base 用于本地预算估算，不声称与当前 DeepSeek 分词器一致。
 # 初始化一次，后续复用（线程安全）
 _encoder = tiktoken.get_encoding("cl100k_base")
 
@@ -24,7 +22,7 @@ def count_tokens(text: str) -> int:
     """
     if not text:
         return 0
-    return len(_encoder.encode(text))
+    return len(_encoder.encode(text, disallowed_special=()))
 
 
 def count_messages_tokens(messages: list[dict]) -> int:
@@ -47,7 +45,14 @@ def truncate_to_token_budget(text: str, max_tokens: int) -> str:
     将文本截断到不超过 max_tokens
     用于摘要超长时的兜底截断
     """
-    tokens = _encoder.encode(text)
+    if max_tokens < 0:
+        raise ValueError('max_tokens 必须非负')
+    tokens = _encoder.encode(text, disallowed_special=())
     if len(tokens) <= max_tokens:
         return text
-    return _encoder.decode(tokens[:max_tokens])
+    # A token can contain only part of a UTF-8 character. Drop an incomplete
+    # suffix rather than introducing replacement characters into the summary.
+    result = _encoder.decode_bytes(tokens[:max_tokens]).decode('utf-8', errors='ignore')
+    while count_tokens(result) > max_tokens:
+        result = result[:-1]
+    return result

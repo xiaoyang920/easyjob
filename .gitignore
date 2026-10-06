@@ -4,6 +4,9 @@
 *.md
 *.docx
 *.pdf
+!README.md
+!python-agent/evaluation/README.md
+!python-agent/app/skills/definitions/*.md
 
 # Local IDE and AI assistant state
 .idea/

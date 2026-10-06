@@ -17,6 +17,21 @@ import java.util.Map;
 @Component
 public class JwtUtil {
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.easyjob.service.AuthSessionService sessions;
+
+    @Value("${easyjob.jwt.access-ttl:1800000}")
+    private long accessTtl = 1800000;
+
+    public String generateSessionToken(Long userId, String sessionId) {
+        Date now = new Date();
+        return Jwts.builder().claim("userId", userId).claim("sid", sessionId)
+                .setSubject(userId.toString()).setIssuedAt(now)
+                .setExpiration(new Date(now.getTime() + accessTtl))
+                .signWith(io.jsonwebtoken.security.Keys.hmacShaKeyFor(secret.getBytes()), SignatureAlgorithm.HS512)
+                .compact();
+    }
+
     /**
      * 密钥 - 从配置文件读取
      */
@@ -63,11 +78,15 @@ public class JwtUtil {
      */
     //先解析令牌parsbuilder(),然后根据密钥解析token获得jwt对象，解析jwt对象获取body。
     public Claims parseToken(String token) {
-        return Jwts.parserBuilder()
+        Claims claims = Jwts.parserBuilder()
                 .setSigningKey(io.jsonwebtoken.security.Keys.hmacShaKeyFor(secret.getBytes()))
                 .build()
                 .parseClaimsJws(token)
                 .getBody();
+        String sid = claims.get("sid", String.class);
+        if (sid != null && !sessions.valid(sid, ((Number) claims.get("userId")).longValue()))
+            throw new io.jsonwebtoken.JwtException("Session revoked");
+        return claims;
     }
 
     /**

@@ -65,8 +65,7 @@ public class ChatWebSocketHandler  extends TextWebSocketHandler {
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) throws Exception {
         Long userId = getUserId(session);
-        if(userId != null){
-            SESSIONS.remove(userId);
+        if(userId != null && SESSIONS.remove(userId, session)){
             // 广播该用户下线
             log.info("用户 " + userId + " 已断开，当前在线人数: " + SESSIONS.size());
             broadcastOnlineStatus(userId, false);

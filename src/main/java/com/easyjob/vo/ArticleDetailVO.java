@@ -10,6 +10,16 @@ import java.util.List;
  */
 @Data
 public class ArticleDetailVO {
+    private String revisionId;
+    private Integer revisionState;
+    private String reviewReason;
+    private Boolean hasPublishedVersion;
+    private Integer requiredLevel;
+    private Integer readerLevel;
+    private Boolean canReadFull;
+    private Boolean viewerAdmin;
+    private Long secondsToUnlock;
+    private java.util.Map<String,Object> readingProgress;
     
     /**
      * 文章ID（转为字符串避免JavaScript精度丢失）
@@ -55,6 +65,7 @@ public class ArticleDetailVO {
      * 内容类型：1.富文本 2.Markdown
      */
     private Integer contentType;
+    private Integer status;
     
     /**
      * 分类ID

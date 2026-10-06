@@ -1,7 +1,5 @@
 <template>
   <div class="user-space-page">
-    <StarBackground />
-    
     <!-- 导航栏 -->
     <nav class="navbar">
       <div class="logo" @click="$router.push('/')">
@@ -15,36 +13,16 @@
       </div>
       
       <!-- 搜索框 -->
-      <div class="search-box">
-        <input 
-          v-model="searchKeyword"
-          type="search" 
-          placeholder="搜索文章、作者..."
-          @keyup.enter="handleSearch"
-          @keydown.enter="handleSearch"
-          @search="handleSearch"
-          enterkeyhint="search"
-        >
-        <button class="search-btn" @click="handleSearch">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
-          </svg>
-        </button>
-      </div>
+      <SearchBox v-model="searchKeyword" @search="handleSearch" />
       
-      <div class="nav-right">
-        <button class="nav-btn" @click="$router.push('/')">首页</button>
-        <template v-if="isOwner">
-          <button class="nav-btn" @click="$router.push('/draft-box')">草稿箱</button>
-          <button class="nav-btn primary" @click="$router.push('/create-article')">发布文章</button>
-        </template>
-        <button class="nav-btn logout" @click="logout">退出登录</button>
-      </div>
+      <AppNavigation />
     </nav>
 
     <!-- 用户信息头部 -->
     <div class="space-header">
-      <div class="header-content">
+      <ContentState v-if="profileLoading" kind="loading" title="正在加载个人空间" />
+      <ContentState v-else-if="profileError" kind="error" title="个人空间暂时无法加载" :description="profileError" @retry="fetchUserInfo" />
+      <div v-else class="header-content">
         <img 
           :src="getAvatarUrl(userInfo.avatar)" 
           alt="用户头像" 
@@ -52,6 +30,7 @@
           @error="handleAvatarError"
         >
         <div class="user-info">
+          <div class="space-kicker">个人空间</div>
           <div class="username">
             <span>{{ userInfo.nickName || '加载中...' }}</span>
             <span v-if="userInfo.role === 2" class="user-badge admin">管理员</span>
@@ -80,11 +59,12 @@
           <template v-else>
             <button 
               :class="['action-btn', isFollowing ? '' : 'primary']" 
+              :disabled="followBusy"
               @click="toggleFollow"
             >
               {{ isFollowing ? '已关注' : '关注' }}
             </button>
-            <button class="action-btn chat-btn" @click="startChat">
+            <button class="action-btn chat-btn" :disabled="chatBusy" @click="startChat">
               <svg width="16" height="16" viewBox="0 0 1024 1024" fill="currentColor">
                 <path d="M535.552 796.444444H739.555556q70.712889 0 120.661333-50.005333Q910.222222 696.490667 910.222222 625.777778V341.333333q0-70.712889-50.005333-120.661333Q810.268444 170.666667 739.555556 170.666667H284.444444q-70.712889 0-120.661333 50.005333Q113.777778 270.620444 113.777778 341.333333v284.444445q0 70.712889 50.005333 120.661333Q213.731556 796.444444 284.444444 796.444444h13.084445q4.266667 8.533333 9.898667 16.497778 21.219556 30.151111 55.751111 44.487111 34.531556 14.279111 70.883555 7.964445 39.310222-6.826667 68.152889-35.612445L535.552 796.444444zM739.555556 682.666667H512a56.888889 56.888889 0 0 0-40.220444 16.668444l-50.005334 50.005333q-6.485333 6.485333-15.018666 2.958223Q398.222222 748.771556 398.222222 739.555556a56.888889 56.888889 0 0 0-56.888889-56.888889H284.444444q-23.552 0-40.220444-16.668445T227.555556 625.777778V341.333333q0-23.552 16.668444-40.220444T284.444444 284.444444h455.111112q23.552 0 40.220444 16.668445T796.444444 341.333333v284.444445q0 23.552-16.668444 40.220444T739.555556 682.666667zM341.333333 540.444444a56.888889 56.888889 0 1 0 0-113.777777 56.888889 56.888889 0 0 0 0 113.777777z m170.666667 0a56.888889 56.888889 0 1 0 0-113.777777 56.888889 56.888889 0 0 0 0 113.777777z m170.666667 0a56.888889 56.888889 0 1 0 0-113.777777 56.888889 56.888889 0 0 0 0 113.777777z"/>
               </svg>
@@ -143,15 +123,21 @@
         </div>
 
         <!-- 文章列表 -->
-        <div v-if="loading" class="loading-state">加载中...</div>
-        <div v-else-if="articles.length === 0" class="empty-state">
-          暂无内容
-        </div>
+        <ContentState v-if="loading" kind="loading" title="正在加载内容" />
+        <ContentState v-else-if="articleError" kind="error" title="内容暂时无法加载" :description="articleError" @retry="fetchArticles()" />
+        <ContentState v-else-if="articles.length === 0" kind="empty" title="暂无内容" />
         <div v-else class="article-grid">
           <div 
-            v-for="article in articles" 
+            v-for="(article, articleIndex) in articles"
             :key="article.articleId"
             class="article-card"
+            tabindex="0"
+            role="link"
+            :aria-label="stripHtmlTags(article.title)"
+            @pointermove="moveCard"
+            @pointerleave="resetCard"
+            @pointercancel="resetCard"
+            @keydown.enter="viewArticle(article.articleId)"
             @click="viewArticle(article.articleId)"
           >
             <div class="cover-wrapper">
@@ -168,14 +154,15 @@
               <div 
                 v-else 
                 class="no-cover-placeholder"
-                :style="{ background: getGradientColor(article.articleId) }"
               >
                 <span class="placeholder-title">{{ stripHtmlTags(article.title) }}</span>
               </div>
             </div>
             <div class="article-info">
+              <div class="space-card-index"><span>{{ String(articleIndex + 1).padStart(2, '0') }} / 文章</span><span aria-hidden="true">↗</span></div>
               <div class="article-title">{{ article.title }}</div>
               <div class="article-meta">
+                <span v-if="article.requiredLevel > 0" class="reading-level-badge">L{{ article.requiredLevel }} 阅读</span>
                 <span>{{ article.viewCount || 0 }} 观看</span>
                 <span>{{ article.likeCount || 0 }} 点赞</span>
                 <span>{{ article.collectCount || 0 }} 收藏</span>
@@ -185,7 +172,7 @@
         </div>
 
         <!-- 分页 -->
-        <div v-if="articles.length > 0" class="pagination">
+        <div v-if="!loading && !articleError && articles.length > 0" class="pagination">
           <button 
             class="page-btn" 
             :disabled="currentPage === 1"
@@ -206,6 +193,7 @@
 
       <!-- 右侧边栏 -->
       <div class="content-right">
+        <ReadingProgress v-if="userInfo.readingProgress" :progress="userInfo.readingProgress" class="space-reading-progress" />
         <!-- 空间公告 -->
         <div class="sidebar-card">
           <div class="card-title">空间公告</div>
@@ -364,22 +352,37 @@
 </template>
 
 <script setup lang="ts">
+import { signOutSession } from '@/utils/authSession'
+import AppNavigation from '@/components/AppNavigation.vue'
+import SearchBox from '@/components/SearchBox.vue'
+import ContentState from '@/components/ContentState.vue'
+import { notify, errorMessage } from '@/utils/feedback'
+import { latestRequest } from '@/utils/latestRequest'
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import StarBackground from '../components/StarBackground.vue'
 import LoginForm from '../components/LoginForm.vue'
 import RegisterForm from '../components/RegisterForm.vue'
 import request from '../utils/request'
+import ReadingProgress from '@/components/ReadingProgress.vue'
 import { getThumbUrl } from '../utils/image'
 import { uploadFile } from '../utils/upload'
-import { eventBus, EVENT_AUTH_EXPIRED } from '../utils/eventBus'
+import { updateCardTilt, resetCardTilt } from '../utils/cardMotion'
+import { eventBus, EVENT_AUTH_EXPIRED, EVENT_AUTH_CHANGED } from '../utils/eventBus'
 
 const route = useRoute()
 const router = useRouter()
+const accountUserId = ref(localStorage.getItem('token') ? localStorage.getItem('userId') : null)
 
 const userInfo = ref<any>({})
 const articles = ref<any[]>([])
 const loading = ref(false)
+const profileLoading = ref(false)
+const profileError = ref('')
+const articleError = ref('')
+const articleRequests = latestRequest()
+const profileRequests = latestRequest()
+const followBusy = ref(false)
+const chatBusy = ref(false)
 const currentTab = ref('article')
 const currentOrder = ref('latest')
 const currentPage = ref(1)
@@ -403,11 +406,8 @@ const editProfile = ref({
   noticeInfo: ''
 })
 
-// 生成基于文章ID的随机颜色
-function getGradientColor(id: string | number): string {
-  // 统一返回灰色背景
-  return '#e8e8e8';
-}
+function moveCard(event: PointerEvent) { updateCardTilt(event.currentTarget as HTMLElement, event) }
+function resetCard(event: PointerEvent) { resetCardTilt(event.currentTarget as HTMLElement) }
 
 const filters = [
   { label: '最新发布', value: 'latest' },
@@ -418,7 +418,7 @@ const filters = [
 
 // 判断是否是自己的空间
 const isOwner = computed(() => {
-  const currentUserId = localStorage.getItem('userId')
+  const currentUserId = accountUserId.value
   const viewingUserId = route.params.id || currentUserId
   return currentUserId && currentUserId === String(viewingUserId)
 })
@@ -430,29 +430,37 @@ const userId = computed(() => {
   if (paramId && paramId !== 'undefined' && paramId !== 'null') {
     return paramId
   }
-  return localStorage.getItem('userId')
+  return accountUserId.value
 })
 
 // 获取用户信息
 async function fetchUserInfo() {
+  const ticket = profileRequests.begin()
+  profileLoading.value = true
+  profileError.value = ''
   try {
-    const res = await request.get(`/user/space/${userId.value}`)
-    console.log('用户信息:', res)
+    if (!userId.value) throw new Error('请先登录或选择要查看的用户')
+    const res = await request.get(`/user/space/${userId.value}`, { signal: ticket.signal })
+    if (!ticket.isCurrent()) return
     if (res.code === 200 && res.data) {
       userInfo.value = res.data
-    }
+    } else throw new Error('未找到这个用户')
   } catch (error) {
-    console.error('获取用户信息失败:', error)
+    if (ticket.isCurrent()) profileError.value = errorMessage(error, '请检查网络后重试')
+  } finally {
+    if (ticket.isCurrent()) profileLoading.value = false
   }
 }
 
 // 获取关注状态
 async function fetchFollowStatus() {
-  if (isOwner.value) return
+  isFollowing.value = false
+  if (isOwner.value || !localStorage.getItem('token') || !userId.value) return
+  const viewedId = userId.value
   
   try {
     const res = await request.get(`/user/${userId.value}/follow-status`)
-    if (res.code === 200 && res.data) {
+    if (viewedId === userId.value && res.code === 200 && res.data) {
       isFollowing.value = res.data.isFollowing
     }
   } catch (error) {
@@ -462,16 +470,16 @@ async function fetchFollowStatus() {
 
 // 获取文章列表
 async function fetchArticles(reset = false) {
+  const ticket = articleRequests.begin()
   if (reset) {
     currentPage.value = 1
   }
   
-  // 首次加载才显示loading
-  if (!initialized.value) {
-    loading.value = true
-  }
+  loading.value = true
+  articleError.value = ''
   
   try {
+    if (!userId.value) throw new Error('请先登录或选择要查看的用户')
     let url = ''
     if (currentTab.value === 'article') {
       url = `/article/user/${userId.value}?page=${currentPage.value}&size=12&order=${currentOrder.value}`
@@ -481,18 +489,17 @@ async function fetchArticles(reset = false) {
       url = `/action/user/${userId.value}/like?page=${currentPage.value}&size=12&order=${currentOrder.value}`
     }
     
-    const res = await request.get(url)
-    console.log('文章列表:', res)
+    const res = await request.get(url, { signal: ticket.signal })
+    if (!ticket.isCurrent()) return
     
     if (res.code === 200 && res.data) {
       articles.value = res.data.records || []
       totalPages.value = res.data.pages || 0
-    }
+    } else throw new Error('内容列表暂时不可用，请重新加载')
   } catch (error) {
-    console.error('获取文章列表失败:', error)
+    if (ticket.isCurrent()) articleError.value = errorMessage(error, '请检查网络后重试')
   } finally {
-    loading.value = false
-    initialized.value = true
+    if (ticket.isCurrent()) { loading.value = false; initialized.value = true }
   }
 }
 
@@ -518,20 +525,22 @@ function changePage(page: number) {
 
 // 关注/取消关注
 async function toggleFollow() {
+  if (followBusy.value) return
   const token = localStorage.getItem('token')
   if (!token) {
-    alert('请先登录')
-    router.push('/login')
+    showLoginDialog.value = true
     return
   }
   
+  followBusy.value = true
+  const viewedId = userId.value
   try {
     const url = isFollowing.value 
       ? `/user/${userId.value}/unfollow`
       : `/user/${userId.value}/follow`
     
     const res = await request.post(url)
-    if (res.code === 200) {
+    if (viewedId === userId.value && res.code === 200) {
       isFollowing.value = !isFollowing.value
       // 更新粉丝数
       if (isFollowing.value) {
@@ -539,11 +548,11 @@ async function toggleFollow() {
       } else {
         userInfo.value.followerCount = Math.max(0, (userInfo.value.followerCount || 0) - 1)
       }
-    } else {
-      alert(res.message || '操作失败')
     }
   } catch (error) {
-    console.error('关注操作失败:', error)
+    notify.error(errorMessage(error, '关注操作失败，请重试'))
+  } finally {
+    followBusy.value = false
   }
 }
 
@@ -576,18 +585,20 @@ function openEditModal() {
 
 // 关闭编辑资料弹窗
 function closeEditModal() {
+  if (saving.value || avatarUploading.value) return
   showEditModal.value = false
 }
 
 // 保存资料
 async function saveProfile() {
+  if (saving.value || avatarUploading.value) return
   if (!editProfile.value.nickName.trim()) {
-    alert('请输入昵称')
+    notify.warning('请输入昵称')
     return
   }
   
   if (editProfile.value.nickName.length < 2 || editProfile.value.nickName.length > 20) {
-    alert('昵称长度应在2-20个字符之间')
+    notify.warning('昵称长度应在2-20个字符之间')
     return
   }
   
@@ -605,6 +616,8 @@ async function saveProfile() {
     
     if (res.code === 200) {
       localStorage.setItem('nickName', editProfile.value.nickName)
+      localStorage.setItem('avatar', editProfile.value.avatar)
+      eventBus.emit(EVENT_AUTH_CHANGED)
       // 更新页面显示
       userInfo.value.nickName = editProfile.value.nickName
       userInfo.value.avatar = editProfile.value.avatar
@@ -614,14 +627,14 @@ async function saveProfile() {
       userInfo.value.personIntroduction = editProfile.value.personIntroduction
       userInfo.value.noticeInfo = editProfile.value.noticeInfo
       
-      closeEditModal()
-      alert('保存成功~')
+      showEditModal.value = false
+      notify.success('资料已保存')
     } else {
-      alert(res.message || '保存失败')
+      notify.error(res.message || '保存失败')
     }
   } catch (error) {
     console.error('保存失败:', error)
-    alert('保存失败')
+    notify.error(errorMessage(error, '保存失败，请重试'))
   } finally {
     saving.value = false
   }
@@ -634,7 +647,7 @@ async function uploadAvatar(event: Event) {
   if (!file) return
   
   if (file.size > 15 * 1024 * 1024) {
-    alert('文件大小不能超过15MB')
+    notify.warning('文件大小不能超过15MB')
     return
   }
   
@@ -652,13 +665,13 @@ async function uploadAvatar(event: Event) {
     
     if (res.code === 200 && res.data?.url) {
       editProfile.value.avatar = res.data.url
-      alert('头像上传成功~')
+      notify.success('头像已上传，保存资料后生效')
     } else {
-      alert(res.message || '上传失败')
+      notify.error(res.message || '上传失败')
     }
   } catch (error: any) {
     console.error('上传失败:', error)
-    alert(error.message || '上传失败')
+    notify.error(error.message || '上传失败')
   } finally {
     avatarUploading.value = false
     avatarProgress.value = 0
@@ -674,19 +687,20 @@ function handleSearch() {
 
 // 退出登录
 function logout() {
-  localStorage.clear()
+  void signOutSession().catch(() => notify.error('服务端注销失败，请重试'))
   router.push('/login')
 }
 
 // 开始私聊
 async function startChat() {
+  if (chatBusy.value) return
   const token = localStorage.getItem('token')
   if (!token) {
-    alert('请先登录')
-    router.push('/login')
+    showLoginDialog.value = true
     return
   }
   
+  chatBusy.value = true
   try {
     // 创建或获取聊天会话，传递对方用户ID
     const res = await request.post('/chat/conversation/create', {
@@ -697,7 +711,9 @@ async function startChat() {
     router.push('/chat')
   } catch (error: any) {
     console.error('创建聊天失败:', error)
-    alert(error.message || '创建聊天失败')
+    notify.error(error.message || '创建聊天失败')
+  } finally {
+    chatBusy.value = false
   }
 }
 
@@ -790,11 +806,18 @@ const dialogWidth = ref(window.innerWidth <= 480 ? '92%' : '420px')
 
 // 登录过期处理
 function handleAuthExpired() {
+  accountChanged()
   showLoginDialog.value = true
 }
 
 function handleLoginSuccess() {
   showLoginDialog.value = false
+  eventBus.emit(EVENT_AUTH_CHANGED)
+}
+
+function accountChanged() {
+  accountUserId.value = localStorage.getItem('token') ? localStorage.getItem('userId') : null
+  userInfo.value = {}
   fetchUserInfo()
   fetchFollowStatus()
   fetchArticles(true)
@@ -816,6 +839,7 @@ function switchToLogin() {
 }
 
 onMounted(() => {
+  eventBus.on(EVENT_AUTH_CHANGED, accountChanged)
   eventBus.on(EVENT_AUTH_EXPIRED, handleAuthExpired)
   fetchUserInfo()
   fetchFollowStatus()
@@ -823,6 +847,9 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  eventBus.off(EVENT_AUTH_CHANGED, accountChanged)
+  articleRequests.cancel()
+  profileRequests.cancel()
   eventBus.off(EVENT_AUTH_EXPIRED, handleAuthExpired)
 })
 </script>
@@ -842,7 +869,7 @@ onUnmounted(() => {
   left: 0;
   right: 0;
   bottom: 0;
-  background: #f5f7fa;
+  background: var(--ej-canvas);
   z-index: -2;
 }
 
@@ -870,7 +897,7 @@ onUnmounted(() => {
   gap: 8px;
   font-size: 28px;
   font-weight: bold;
-  color: #409eff;
+  color: var(--ej-accent);
   cursor: pointer;
 }
 
@@ -916,7 +943,7 @@ onUnmounted(() => {
 }
 
 .search-box input:focus {
-  border-color: #409eff;
+  border-color: var(--ej-accent);
   background: white;
 }
 
@@ -927,7 +954,7 @@ onUnmounted(() => {
   transform: translateY(-50%);
   width: 32px;
   height: 32px;
-  background: #409eff;
+  background: var(--ej-accent);
   border: none;
   border-radius: 50%;
   color: white;
@@ -939,7 +966,7 @@ onUnmounted(() => {
 }
 
 .search-btn:hover {
-  background: #66b1ff;
+  background: var(--ej-ink);
 }
 
 .nav-right {
@@ -965,7 +992,7 @@ onUnmounted(() => {
 }
 
 .nav-btn.primary {
-  background: #409eff;
+  background: var(--ej-accent);
   color: white;
   font-weight: 600;
 }
@@ -987,7 +1014,7 @@ onUnmounted(() => {
 .space-header {
   margin-top: 70px;
   height: 280px;
-  background: #f5f7fa;
+  background: var(--ej-canvas);
   border-bottom: 1px solid rgba(0, 0, 0, 0.05);
   position: relative;
   overflow: hidden;
@@ -1013,7 +1040,7 @@ onUnmounted(() => {
   left: -50px;
   width: 250px;
   height: 250px;
-  background: radial-gradient(circle, rgba(118, 75, 162, 0.15) 0%, transparent 70%);
+  background: radial-gradient(circle, rgba(17, 17, 15, 0.15) 0%, transparent 70%);
   border-radius: 50%;
   pointer-events: none;
 }
@@ -1053,8 +1080,8 @@ onUnmounted(() => {
 
 .user-badge {
   display: inline-block;
-  background: rgba(64, 158, 255, 0.8);
-  border: 1px solid rgba(64, 158, 255, 0.9);
+  background: rgba(17, 17, 15, 0.8);
+  border: 1px solid rgba(17, 17, 15, 0.9);
   color: white;
   padding: 3px 12px;
   border-radius: 3px;
@@ -1121,19 +1148,19 @@ onUnmounted(() => {
 }
 
 .action-btn:hover {
-  border-color: #409eff;
-  color: #409eff;
+  border-color: var(--ej-accent);
+  color: var(--ej-accent);
   transform: translateY(-2px);
 }
 
 .action-btn.primary {
-  background: #409eff;
-  border-color: #409eff;
+  background: var(--ej-accent);
+  border-color: var(--ej-accent);
   color: white;
 }
 
 .action-btn.primary:hover {
-  background: #66b1ff;
+  background: var(--ej-ink);
   color: white;
 }
 
@@ -1149,9 +1176,9 @@ onUnmounted(() => {
 }
 
 .action-btn.chat-btn:hover {
-  background: #409eff;
+  background: var(--ej-accent);
   color: white;
-  border-color: #409eff;
+  border-color: var(--ej-accent);
 }
 
 /* 主内容 */
@@ -1203,12 +1230,12 @@ onUnmounted(() => {
 }
 
 .tab-item:hover {
-  color: #409eff;
+  color: var(--ej-accent);
 }
 
 .tab-item.active {
-  color: #409eff;
-  border-bottom-color: #409eff;
+  color: var(--ej-accent);
+  border-bottom-color: var(--ej-accent);
   font-weight: 500;
 }
 
@@ -1247,9 +1274,9 @@ onUnmounted(() => {
 }
 
 .filter-btn.active {
-  background: #409eff;
+  background: var(--ej-accent);
   color: white;
-  border-color: #409eff;
+  border-color: var(--ej-accent);
 }
 
 /* 文章列表 */
@@ -1428,7 +1455,7 @@ onUnmounted(() => {
 .coin-value {
   font-size: 24px;
   font-weight: bold;
-  color: #409eff;
+  color: var(--ej-accent);
   margin-bottom: 4px;
 }
 
@@ -1495,8 +1522,8 @@ onUnmounted(() => {
 
 .live-btn {
   background: white;
-  color: #409eff;
-  border: 1px solid #409eff;
+  color: var(--ej-accent);
+  border: 1px solid var(--ej-accent);
   padding: 10px 24px;
   border-radius: 20px;
   cursor: pointer;
@@ -1505,7 +1532,7 @@ onUnmounted(() => {
 }
 
 .live-btn:hover {
-  background: #409eff;
+  background: var(--ej-accent);
   color: white;
   transform: scale(1.02);
 }
@@ -1908,7 +1935,7 @@ onUnmounted(() => {
 }
 
 .edit-avatar-upload:hover .edit-avatar-preview {
-  border-color: #409eff;
+  border-color: var(--ej-accent);
 }
 
 .edit-file-input {
@@ -1940,7 +1967,7 @@ onUnmounted(() => {
   bottom: 0;
   left: 0;
   width: 100%;
-  background: rgba(64, 158, 255, 0.3);
+  background: rgba(17, 17, 15, 0.3);
   transition: height 0.3s ease;
 }
 
@@ -1949,7 +1976,7 @@ onUnmounted(() => {
   z-index: 1;
   font-size: 14px;
   font-weight: 600;
-  color: #409eff;
+  color: var(--ej-accent);
 }
 
 .edit-form-item {
@@ -1991,8 +2018,8 @@ onUnmounted(() => {
 .edit-form-item textarea:focus,
 .edit-form-item select:focus {
   outline: none;
-  border-color: #409eff;
-  box-shadow: 0 0 0 3px rgba(64, 158, 255, 0.1);
+  border-color: var(--ej-accent);
+  box-shadow: 0 0 0 3px rgba(17, 17, 15, 0.1);
 }
 
 .edit-form-item select {
@@ -2035,7 +2062,7 @@ onUnmounted(() => {
 .modal-submit {
   flex: 1;
   padding: 12px;
-  background: #409eff;
+  background: var(--ej-accent);
   border: none;
   border-radius: 10px;
   color: white;
@@ -2046,7 +2073,7 @@ onUnmounted(() => {
 }
 
 .modal-submit:hover:not(:disabled) {
-  background: #66b1ff;
+  background: var(--ej-ink);
 }
 
 .modal-submit:disabled {

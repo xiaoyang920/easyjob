@@ -6,15 +6,20 @@ import java.util.List;
 
 /**
  * 文章列表VO（View Object）
- * 用于个人空间文章列表展示
+ * 用于首页、推荐及个人空间文章列表展示
  */
 @Data
 public class ArticleListVO {
+    private Integer requiredLevel;
+    private Boolean readableNow;
     
     /**
      * 文章ID（转为字符串避免JavaScript精度丢失）
      */
     private String articleId;
+    private String userId;
+    private String categoryId;
+    private String recommendationReason;
     
     /**
      * 文章标题
@@ -25,6 +30,12 @@ public class ArticleListVO {
      * 封面图片URL
      */
     private String coverImage;
+
+    /** 作者昵称，供首页和推荐卡片展示。 */
+    private String authorName;
+
+    /** 作者头像URL。 */
+    private String authorAvatar;
     
     /**
      * 浏览次数

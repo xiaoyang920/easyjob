@@ -1,18 +1,18 @@
 import axios from 'axios'
-import { eventBus, EVENT_AUTH_EXPIRED } from './eventBus'
+import { ensureAccessToken, recoverAccessToken, expireSession, waitForLogout } from './authSession'
 
-// 防止多个并发请求同时401时重复触发登录过期事件
-let isAuthExpiredEmitted = false
+type AuthConfig = import('axios').InternalAxiosRequestConfig & { _authRetried?: boolean; _authUser?: string | null }
 
-function emitAuthExpired() {
-  if (isAuthExpiredEmitted) return
-  isAuthExpiredEmitted = true
-  localStorage.clear()
-  eventBus.emit(EVENT_AUTH_EXPIRED)
-  // 延迟重置标记，允许后续新的401触发（如用户重新登录后再次过期）
-  setTimeout(() => {
-    isAuthExpiredEmitted = false
-  }, 3000)
+async function retryAuth(config: AuthConfig) {
+  if (config.url?.startsWith('/auth/')) throw new Error('登录信息不正确或已过期')
+  const authorization = String(config.headers.Authorization || '')
+  const rejected = authorization.startsWith('Bearer ') ? authorization.slice(7) : null
+  if (config._authRetried) { expireSession(rejected); throw new Error('登录已过期，请重新登录') }
+  const token = await recoverAccessToken(rejected, config._authUser ?? null)
+  if (!token) throw new Error('登录状态已改变，请重新操作')
+  config._authRetried = true
+  config.headers.Authorization = `Bearer ${token}`
+  return request(config)
 }
 
 const request = axios.create({
@@ -24,11 +24,16 @@ const request = axios.create({
 
 // 请求拦截器 - 自动添加token
 request.interceptors.request.use(
-  config => {
-    const token = localStorage.getItem('token')
+  async (config: AuthConfig) => {
+    const authEndpoint = config.url?.startsWith('/auth/')
+    const user = config._authUser !== undefined ? config._authUser : localStorage.getItem('userId')
+    if (authEndpoint) await waitForLogout()
+    const token = authEndpoint ? localStorage.getItem('token') : await ensureAccessToken()
+    if (!authEndpoint && user !== localStorage.getItem('userId')) throw new Error('登录账号已改变，请重新操作')
+    config._authUser = localStorage.getItem('userId')
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
-    }
+    } else delete config.headers.Authorization
     return config
   },
   error => {
@@ -45,7 +50,7 @@ request.interceptors.response.use(
     if (res.code && res.code !== 200 && res.status !== 'success') {
       // token过期：清除本地存储并通知UI弹出登录弹窗
       if (res.code === 401) {
-        emitAuthExpired()
+        return retryAuth(response.config)
       }
       // 抛出业务错误，message 来自后端
       return Promise.reject(new Error(res.message || '操作失败'))
@@ -54,12 +59,13 @@ request.interceptors.response.use(
     return res
   },
   error => {
+    if (axios.isCancel(error)) return Promise.reject(error)
     // HTTP 层面的错误（如 404、500、网络超时）
-    console.error('请求错误:', error)
+    console.error('请求失败:', error.response?.status || 'network')
     
     // token过期：清除本地存储并通知UI弹出登录弹窗
     if (error.response?.status === 401) {
-      emitAuthExpired()
+      return retryAuth(error.config)
     }
     
     // 优先使用后端返回的错误信息

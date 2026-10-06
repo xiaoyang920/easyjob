@@ -83,14 +83,12 @@ public class EsComponent {
                 client.update(u->u
                         .index(INDEX_NAME)
                         .id(docId)
-                        .doc(articleEsDTO),
+                        .script(s -> s.source("def previous = ctx._source.viewCount; ctx._source.putAll(params.document); if (previous != null && (ctx._source.viewCount == null || ctx._source.viewCount < previous)) { ctx._source.viewCount = previous; }")
+                            .params("document", JsonData.of(articleEsDTO))),
                         ArticleEsDTO.class
                 );
             }else {
-                articleEsDTO.setLikeCount(0);
-                articleEsDTO.setCollectCount(0);
-                articleEsDTO.setCommentCount(0);
-                articleEsDTO.setViewCount(0);
+                // Rebuilt documents keep the authoritative counters from MySQL.
                 client.index(i -> i
                         .index(INDEX_NAME)
                         .id(docId)
@@ -127,6 +125,18 @@ public class EsComponent {
      * @param fieldName 字段名（viewCount、likeCount、collectCount等）
      * @param count 增量值（正数增加，负数减少）
      */
+    public boolean syncViewCount(String articleId, int count) {
+        try {
+            client.update(u -> u.index(INDEX_NAME).id(articleId).script(s -> s
+                    .source("if (ctx._source.viewCount == null || ctx._source.viewCount < params.count) { ctx._source.viewCount = params.count; }")
+                    .params("count", co.elastic.clients.json.JsonData.of(count))), ArticleEsDTO.class);
+            return true;
+        } catch (Exception exception) {
+            log.warn("阅读量已提交MySQL，ES计数更新暂未完成: articleId={}, type={}", articleId, exception.getClass().getSimpleName());
+            return false;
+        }
+    }
+
     public void updateDocCount(String articleId, String fieldName, Integer count){
         try {
             // 脚本：count 字段 += params.count；null 时初始化为 0

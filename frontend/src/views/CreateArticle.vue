@@ -1,7 +1,5 @@
 <template>
   <div class="article-editor-page">
-    <StarBackground />
-    
     <!-- 顶部导航栏 -->
     <nav class="top-bar">
       <div class="top-bar-left">
@@ -16,14 +14,22 @@
         </div>
         <span class="page-title">{{ isEditMode ? '编辑文章' : '写文章' }}</span>
       </div>
-      <div class="top-bar-buttons">
-        <button class="btn btn-cancel" @click="goBack">取消</button>
-        <button class="btn btn-draft" @click="saveDraft">保存草稿</button>
-        <button class="btn btn-publish" @click="publishArticle">发布文章</button>
-      </div>
+      <AppNavigation />
     </nav>
 
-    <div class="editor-container">
+      <div class="editor-action-bar">
+        <button class="btn btn-cancel" @click="goBack">取消</button>
+        <button class="btn btn-draft" :disabled="!articleReady || saving || isPending" @click="saveDraft">{{ isPublished ? "保存修改草稿" : "保存草稿" }}</button>
+        <button class="btn btn-publish" :disabled="!articleReady || saving || isPending" @click="publishArticle">{{ isPending ? '审核中' : '提交审核' }}</button>
+      </div>
+
+    <div v-if="isPending || article.reviewReason || isPublished" class="revision-notice">
+      <span v-if="isPending">当前版本审核中，内容已锁定。需要修改时，请先撤回审核。</span>
+      <span v-else-if="article.reviewReason">审核意见：{{ article.reviewReason }}</span>
+      <span v-else>公开版本继续展示，修改保存为独立版本，审核通过后更新。</span>
+      <button v-if="isPending" :disabled="saving" @click="withdrawReview">撤回审核</button>
+    </div>
+    <div class="editor-container" :inert="isPending" :aria-disabled="isPending">
       <!-- 左侧主编辑区 -->
       <div class="editor-main">
         <!-- 标题输入 -->
@@ -39,9 +45,9 @@
         <textarea
           v-model="article.summary"
           class="summary-input"
-          placeholder="请输入文章摘要（选填，用于文章列表展示）..."
+          placeholder="请输入文章摘要（选填，建议150～300字符，最多500字符）..."
           rows="2"
-          maxlength="300"
+          maxlength="500"
         ></textarea>
         
         <!-- 富文本编辑器 -->
@@ -191,7 +197,7 @@
           <h3>快捷键</h3>
           <div class="shortcut-item">
             <span class="key">Ctrl + S</span>
-            <span>保存草稿</span>
+            <span>{{ isPublished ? '保存修改草稿' : '保存草稿' }}</span>
           </div>
           <div class="shortcut-item">
             <span class="key">Ctrl + B</span>
@@ -220,12 +226,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, shallowRef, computed, onMounted, onBeforeUnmount } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import StarBackground from '../components/StarBackground.vue'
+import { ref, shallowRef, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
+import AppNavigation from '@/components/AppNavigation.vue'
+import { ElMessageBox } from 'element-plus'
+import { notify } from '@/utils/feedback'
+import { goBackOr, returnTo } from '../utils/navigation'
 import LoginForm from '../components/LoginForm.vue'
 import RegisterForm from '../components/RegisterForm.vue'
 import request from '../utils/request'
+import { editableArticleStatus } from '../utils/articleLifecycle'
 import { uploadFile } from '../utils/upload'
 import { eventBus, EVENT_AUTH_EXPIRED } from '../utils/eventBus'
 import '@wangeditor/editor/dist/css/style.css'
@@ -239,6 +249,10 @@ const coverProgress = ref(0)
 
 const article = ref({
   articleId: '',
+  revisionId: '0',
+  expectedRevisionId: '0',
+  revisionState: 0,
+  reviewReason: '',
   title: '',
   summary: '',
   content: '',
@@ -265,6 +279,25 @@ const editorRef = shallowRef()
 const valueHtml = ref('')
 
 const isEditMode = computed(() => !!route.query.id)
+const articleReady = ref(!isEditMode.value)
+const saving = ref(false)
+const isPublished = computed(() => articleReady.value && article.value.status === 1)
+const isPending = computed(() => article.value.revisionState === 1)
+const savedSignature = ref('')
+function editorSignature() {
+  return JSON.stringify({ article: article.value, content: valueHtml.value === '<p><br></p>' ? '' : valueHtml.value, tags: tagList.value })
+}
+function markSaved() { savedSignature.value = editorSignature() }
+onBeforeRouteLeave(async () => {
+  if (!localStorage.getItem('token')) return true
+  if (!savedSignature.value || editorSignature() === savedSignature.value) return true
+  try {
+    await ElMessageBox.confirm('还有未保存的修改，离开后这些修改将丢失。', '未保存修改', {
+      confirmButtonText: '离开', cancelButtonText: '继续编辑', type: 'warning', closeOnClickModal: false,
+    })
+    return true
+  } catch { return false }
+})
 
 // 工具栏配置
 const toolbarConfig = {
@@ -429,15 +462,19 @@ function addHotTag(tagName: string) {
 // 获取文章详情（编辑模式）
 async function fetchArticle() {
   const articleId = route.query.id as string
-  if (!articleId) return
+  articleReady.value = !articleId
+  if (!articleId) { markSaved(); return }
   
   try {
-    const res = await request.get(`/article/detail/${articleId}`)
+    const res = await request.get(`/article/${articleId}/edit`)
     if (res.code === 200 && res.data) {
+      const status = editableArticleStatus(res.data.status)
       article.value = {
         ...article.value,
         ...res.data,
         articleId: articleId,
+        status,
+        expectedRevisionId: res.data.revisionId || '0',
         // categoryId: null转为空字符串，确保select能正确显示placeholder
         categoryId: res.data.categoryId || '',
         // isOriginal: 后端返回0/1，转为布尔值，null/undefined默认为true
@@ -451,14 +488,18 @@ async function fetchArticle() {
         // 兼容旧版：tags 是逗号分隔字符串
         tagList.value = res.data.tags.split(',').filter((t: string) => t.trim())
       }
+      articleReady.value = true
+      markSaved()
     }
-  } catch (error) {
-    console.error('获取文章失败:', error)
+  } catch (error: any) {
+    alert(error.message || '获取文章失败，请刷新后重试')
   }
 }
 
 // 保存草稿
 async function saveDraft() {
+  if (!articleReady.value || saving.value) return
+  if (isPending.value) return
   if (!article.value.title.trim()) {
     alert('请输入文章标题')
     return
@@ -469,6 +510,7 @@ async function saveDraft() {
     return
   }
   
+  saving.value = true
   try {
     const data = {
       ...article.value,
@@ -487,21 +529,30 @@ async function saveDraft() {
     }
     
     if (res.code === 200) {
-      alert('保存成功')
+      notify.success('版本草稿已保存，公开内容未改变')
+      if (res.data?.revisionId) { article.value.revisionId=res.data.revisionId; article.value.expectedRevisionId=res.data.revisionId; article.value.revisionState=res.data.revisionState; article.value.reviewReason=res.data.reviewReason || '' }
       if (!isEditMode.value && res.data?.articleId) {
-        router.replace(`/edit-article?id=${res.data.articleId}`)
+        article.value.articleId = res.data.articleId
+        markSaved()
+        await router.replace(`/edit-article?id=${res.data.articleId}`)
+        await fetchArticle()
+      } else {
+        markSaved()
       }
     } else {
       alert(res.message || '保存失败')
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('保存失败:', error)
-    alert('保存失败')
+    alert(error.message || '保存失败')
+  } finally {
+    saving.value = false
   }
 }
 
 // 发布文章
 async function publishArticle() {
+  if (!articleReady.value || saving.value) return
   if (!article.value.title.trim()) {
     alert('请输入文章标题')
     return
@@ -517,6 +568,8 @@ async function publishArticle() {
     return
   }
   
+  if (isPending.value) return
+  saving.value = true
   try {
     const data = {
       ...article.value,
@@ -535,15 +588,29 @@ async function publishArticle() {
     }
     
     if (res.code === 200) {
-      alert('发布成功')
-      router.push('/user-space')
+      notify.success('已提交审核，通过后才会公开或更新正文')
+      markSaved()
+      returnTo(router, '/draft-box')
     } else {
       alert(res.message || '发布失败')
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('发布失败:', error)
-    alert('发布失败')
+    alert(error.message || '保存失败')
+  } finally {
+    saving.value = false
   }
+}
+
+async function withdrawReview() {
+  if(saving.value)return
+  try {
+    await ElMessageBox.confirm('撤回后可以继续修改，该版本不再接受审核。', '撤回审核', { confirmButtonText:'撤回',cancelButtonText:'取消' })
+  } catch { return }
+  saving.value=true
+  try { await request.post(`/article/${article.value.articleId}/revisions/${article.value.revisionId}/withdraw`);await fetchArticle() }
+  catch(error:any){alert(error.message || '撤回失败，请刷新')}
+  finally{saving.value=false}
 }
 
 // 触发封面上传
@@ -616,12 +683,8 @@ function removeTag(index: number) {
 
 // 返回
 function goBack() {
-  if (valueHtml.value && valueHtml.value !== '<p><br></p>') {
-    if (!confirm('确定要离开吗？未保存的内容将丢失')) {
-      return
-    }
-  }
-  router.back()
+  // 直接打开编辑器链接时没有站内上一页，router.back() 会离开本站
+  goBackOr(router, '/user-space')
 }
 
 function getImageUrl(url: string | undefined): string {
@@ -669,13 +732,12 @@ function switchToLogin() {
   showLoginDialog.value = true
 }
 
+watch(() => route.query.id, fetchArticle, { immediate: true })
+
 onMounted(() => {
   eventBus.on(EVENT_AUTH_EXPIRED, handleAuthExpired)
   fetchCategories()  // 获取分类列表
   fetchHotTags()     // 获取热门标签
-  if (isEditMode.value) {
-    fetchArticle()
-  }
   document.addEventListener('keydown', handleKeydown)
 })
 
@@ -690,6 +752,8 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.revision-notice{max-width:1200px;margin:16px auto;padding:14px 20px;border:1px solid var(--ej-line);border-radius:14px;background:var(--ej-surface);color:var(--ej-muted);font-size:13px;display:flex;gap:16px;align-items:center;justify-content:space-between}.revision-notice button{flex-shrink:0;border:1px solid var(--ej-line);border-radius:99px;padding:8px 14px;background:transparent;cursor:pointer}
+
 .article-editor-page {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   min-height: 100vh;
@@ -705,7 +769,7 @@ onBeforeUnmount(() => {
   left: 0;
   right: 0;
   bottom: 0;
-  background: #f5f7fa;
+  background: var(--ej-canvas);
   z-index: -2;
 }
 
@@ -891,30 +955,7 @@ onBeforeUnmount(() => {
   line-height: 1.8;
 }
 
-/* 代码块样式 */
-:deep(pre) {
-  background: #1e1e1e !important;
-  border-radius: 8px;
-  padding: 16px;
-  margin: 12px 0;
-  overflow-x: auto;
-}
-
-:deep(pre code) {
-  font-family: 'Fira Code', 'Consolas', 'Monaco', monospace;
-  font-size: 14px;
-  line-height: 1.6;
-  color: #d4d4d4;
-}
-
-:deep(code) {
-  font-family: 'Fira Code', 'Consolas', 'Monaco', monospace;
-  background: #f6f8fa;
-  padding: 2px 6px;
-  border-radius: 4px;
-  color: #d73a49;
-  font-size: 14px;
-}
+/* 代码块样式统一在 styles/theme.css 中定义，编辑器与文章详情页共用同一套墨色代码块 */
 
 .editor-hint {
   margin-top: 12px;
@@ -992,8 +1033,8 @@ onBeforeUnmount(() => {
 }
 
 .cover-upload:hover {
-  border-color: #667eea;
-  background: rgba(102, 126, 234, 0.02);
+  border-color: var(--ej-accent);
+  background: rgba(17, 17, 15, 0.02);
 }
 
 .cover-preview {
@@ -1022,7 +1063,7 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   position: relative;
-  background: #f5f7fa;
+  background: var(--ej-canvas);
 }
 
 .upload-progress-bar {
@@ -1030,14 +1071,14 @@ onBeforeUnmount(() => {
   bottom: 0;
   left: 0;
   height: 4px;
-  background: #409eff;
+  background: var(--ej-accent);
   transition: width 0.2s ease;
 }
 
 .upload-progress-text {
   font-size: 14px;
   font-weight: 600;
-  color: #409eff;
+  color: var(--ej-accent);
 }
 
 .file-input {
@@ -1075,7 +1116,7 @@ onBeforeUnmount(() => {
 
 .radio-item input {
   cursor: pointer;
-  accent-color: #667eea;
+  accent-color: var(--ej-accent);
 }
 
 .radio-label {
@@ -1101,7 +1142,7 @@ onBeforeUnmount(() => {
 }
 
 .category-select:focus {
-  border-color: #667eea;
+  border-color: var(--ej-accent);
 }
 
 .required {
@@ -1127,15 +1168,15 @@ onBeforeUnmount(() => {
 }
 
 .tag-input:focus {
-  border-color: #667eea;
+  border-color: var(--ej-accent);
 }
 
 .tag-add-btn {
   width: 40px;
   height: 40px;
-  border: 1px solid #667eea;
+  border: 1px solid var(--ej-accent);
   background: white;
-  color: #667eea;
+  color: var(--ej-accent);
   border-radius: 8px;
   font-size: 20px;
   cursor: pointer;
@@ -1143,7 +1184,7 @@ onBeforeUnmount(() => {
 }
 
 .tag-add-btn:hover {
-  background: #667eea;
+  background: var(--ej-accent);
   color: white;
 }
 
@@ -1203,7 +1244,7 @@ onBeforeUnmount(() => {
   display: inline-block;
   padding: 4px 12px;
   background: #f8f9fa;
-  color: #667eea;
+  color: var(--ej-accent);
   border-radius: 12px;
   font-size: 12px;
   cursor: pointer;
@@ -1211,7 +1252,7 @@ onBeforeUnmount(() => {
 }
 
 .hot-tag-item:hover {
-  background: rgba(102, 126, 234, 0.1);
+  background: rgba(17, 17, 15, 0.1);
   transform: translateY(-2px);
 }
 
@@ -1227,8 +1268,8 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 6px;
   padding: 6px 12px;
-  background: rgba(102, 126, 234, 0.1);
-  color: #667eea;
+  background: rgba(17, 17, 15, 0.1);
+  color: var(--ej-accent);
   border-radius: 16px;
   font-size: 13px;
 }
