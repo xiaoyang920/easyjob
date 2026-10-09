@@ -23,9 +23,12 @@ class DelegatedTask(TaskSpec):
     allow_web: bool = False
     article_ids: list[PositiveInt] = Field(default_factory=list, max_length=8)
     filters: QueryFilters | None = None
+    search_query: str | None = Field(default=None, min_length=1, max_length=200)
 
     @model_validator(mode="after")
     def check_web_request(self):
+        if self.search_query is not None and self.subagent != "search":
+            raise ValueError("只有知识检索任务可指定检索词")
         if self.allow_web and self.subagent != "search":
             raise ValueError("只有检索任务可以请求联网能力")
         if self.article_ids and self.subagent != "search":
@@ -50,9 +53,12 @@ class ExecutionTask(TaskSpec):
     allow_web: bool = False
     article_ids: list[PositiveInt] = Field(default_factory=list, max_length=8)
     filters: QueryFilters | None = None
+    search_query: str | None = Field(default=None, min_length=1, max_length=200)
 
     @model_validator(mode="after")
     def check_execution(self):
+        if self.search_query is not None and (self.kind != "search" or self.retrieval_target == "memory"):
+            raise ValueError("只有知识检索任务可指定检索词")
         if self.kind == "search":
             # Existing checkpoints and delegated Search keep their knowledge semantics.
             if self.retrieval_target is None:

@@ -27,9 +27,10 @@
         where article_id = #{articleId}
     </update>
     <select id="selectArticleAndUser" resultType="com.easyjob.vo.ArticleDetailVO">
-        select a.*,u.nick_name author_name,u.avatar author_avatar
-        from article_info a, user_info u
-        where article_id = #{articleId} and a.user_id = u.user_id
+        select a.*,u.nick_name author_name,u.avatar author_avatar,c.category_name
+        from article_info a join user_info u on a.user_id=u.user_id
+        left join category c on c.category_id=a.category_id
+        where a.article_id = #{articleId}
     </select>
     <sql id="interestMatches">
         <choose><when test="topTagIds != null and topTagIds.size() > 0">
@@ -48,6 +49,11 @@
                  ELSE '社区优质内容' END AS recommendationReason
         FROM article_info a LEFT JOIN user_info u ON u.user_id=a.user_id
         WHERE a.status=1 AND a.deleted=0
+        <if test="userId != null">
+            AND NOT EXISTS (SELECT 1 FROM recommendation_feedback f
+                WHERE f.user_id=#{userId} AND ((f.kind='not_interested' AND f.article_id=a.article_id)
+                    OR (f.kind='hide_author' AND f.target_author_id=a.user_id)))
+        </if>
         <if test="readableOnly">AND <include refid="readableArticle"/></if>
         <if test="categoryId != null">AND a.category_id=#{categoryId}</if>
         <if test="tagIds != null and tagIds.size() > 0">

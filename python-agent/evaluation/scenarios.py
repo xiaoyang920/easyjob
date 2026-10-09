@@ -359,8 +359,8 @@ async def create_fixture(db, case, repetition):
     uid, suffix = snowflake.next_id(), secrets.token_hex(8)
     email = f'e2e-{suffix}@sample.invalid'
     await db.execute('''INSERT INTO user_info(user_id,nick_name,email,password,person_introduction,join_time,
-        sex,status,article_count,total_coin_count,current_coin_count,theme,role,follower_count,following_count)
-        VALUES(:uid,:name,:email,:password,'临时端到端评测账号',NOW(),2,1,0,0,0,1,1,0,0)''',
+        sex,status,article_count,total_coin_count,current_coin_count,theme,role,follower_count,following_count,data_source)
+        VALUES(:uid,:name,:email,:password,'临时端到端评测账号',NOW(),2,1,0,0,0,1,1,0,0,'evaluation')''',
         {'uid': uid, 'name': '场景评测' + suffix[:10], 'email': email, 'password': secrets.token_urlsafe(40)})
     return {'uid': uid, 'email': email, 'case_id': case['id'], 'repetition': repetition, 'cleaned': False}
 

@@ -523,7 +523,12 @@ async def main():
         await apply_revision_migration(db)
         await apply_view_sync_migration(db)
         await apply_maintenance_migration(db)
-        print("001..014: applied (existing data preserved)")
+        await apply_task_recovery_migration(db)
+        await apply_admin_user_migration(db)
+        await apply_category_migration(db)
+        await apply_statistics_category_migration(db)
+        await apply_platform_completion(db)
+        print("001..019: applied (existing data preserved)")
     finally:
         await db.disconnect()
 
@@ -549,6 +554,126 @@ async def check_maintenance_schema(database):
     names={r._mapping['column_name'] for r in columns}
     if not {'kind','last_id','last_key','next_at','lease_token','lease_until'}<=names:
         raise RuntimeError('维护表未迁移，请执行 python -m app.migrate')
+
+
+async def apply_task_recovery_migration(database):
+    migration = MIGRATION.with_name('015_task_recovery.sql')
+    checksum = hashlib.sha256(migration.read_bytes()).hexdigest()
+    async with database.connection() as connection:
+        if await connection.fetch_val("SELECT GET_LOCK('easyjob_agent_schema',10)") != 1:
+            raise RuntimeError('无法取得迁移锁')
+        try:
+            previous = await connection.fetch_val('SELECT checksum FROM agent_schema_migration WHERE version=:v', {'v': migration.name})
+            if previous and previous != checksum:
+                raise RuntimeError('子任务恢复迁移校验和发生变化')
+            for statement in migration.read_text(encoding='utf-8').split(';'):
+                if statement.strip().startswith('ALTER TABLE'):
+                    exists = await connection.fetch_val("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='agent_run' AND column_name='recovery_count'")
+                    if exists:
+                        continue
+                if statement.strip():
+                    await connection.execute(statement.strip())
+            await check_task_recovery_schema(connection)
+            await connection.execute('INSERT IGNORE INTO agent_schema_migration(version,checksum) VALUES (:v,:c)', {'v': migration.name, 'c': checksum})
+        finally:
+            await connection.fetch_val("SELECT RELEASE_LOCK('easyjob_agent_schema')")
+
+
+async def check_task_recovery_schema(database):
+    count = await database.fetch_val("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND ((table_name='agent_task_artifact' AND column_name IN ('run_id','task_id','input_hash','result_json','updated_at')) OR (table_name='agent_run' AND column_name='recovery_count' AND data_type='int'))")
+    if count != 6:
+        raise RuntimeError('子任务恢复表未迁移，请执行 python -m app.migrate')
+
+
+async def apply_admin_user_migration(database):
+    migration = MIGRATION.with_name('016_admin_user_edit.sql')
+    checksum = hashlib.sha256(migration.read_bytes()).hexdigest()
+    async with database.connection() as connection:
+        if await connection.fetch_val("SELECT GET_LOCK('easyjob_agent_schema',10)") != 1:
+            raise RuntimeError('无法取得迁移锁')
+        try:
+            previous = await connection.fetch_val('SELECT checksum FROM agent_schema_migration WHERE version=:v', {'v': migration.name})
+            if previous and previous != checksum:
+                raise RuntimeError('管理员用户编辑迁移校验和发生变化')
+            for statement in migration.read_text(encoding='utf-8').split(';'):
+                statement = statement.strip()
+                if not statement:
+                    continue
+                match = re.fullmatch(r'ALTER TABLE (\w+) ADD COLUMN (\w+) .+', statement)
+                if not match:
+                    raise RuntimeError('无效的管理员用户迁移语句')
+                exists = await connection.fetch_val("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name=:t AND column_name=:c", {'t': match[1], 'c': match[2]})
+                if not exists:
+                    await connection.execute(statement)
+            await connection.execute('INSERT IGNORE INTO agent_schema_migration(version,checksum) VALUES (:v,:c)', {'v': migration.name, 'c': checksum})
+        finally:
+            await connection.fetch_val("SELECT RELEASE_LOCK('easyjob_agent_schema')")
+
+
+async def apply_category_migration(database):
+    migration = MIGRATION.with_name('017_admin_categories.sql')
+    checksum = hashlib.sha256(migration.read_bytes()).hexdigest()
+    async with database.connection() as connection:
+        if await connection.fetch_val("SELECT GET_LOCK('easyjob_agent_schema',10)") != 1:
+            raise RuntimeError('无法取得迁移锁')
+        try:
+            previous = await connection.fetch_val('SELECT checksum FROM agent_schema_migration WHERE version=:v', {'v': migration.name})
+            if previous and previous != checksum:
+                raise RuntimeError('分类迁移校验和发生变化')
+            indexes = await connection.fetch_all("SELECT column_name AS columnName,non_unique AS nonUnique FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='category' AND index_name='uq_category_parent_name' ORDER BY seq_in_index")
+            if indexes:
+                if [r['columnName'] for r in indexes] != ['parent_id','category_name'] or any(r['nonUnique'] != 0 for r in indexes):
+                    raise RuntimeError('分类唯一索引结构不兼容')
+            else:
+                duplicates = await connection.fetch_val('SELECT COUNT(*) FROM (SELECT parent_id,category_name FROM category WHERE parent_id IS NOT NULL GROUP BY parent_id,category_name HAVING COUNT(*)>1) d')
+                if duplicates:
+                    raise RuntimeError('存在同一父分类下的重名分类，请人工确认后再迁移；不会自动删除或合并分类')
+                await connection.execute(migration.read_text(encoding='utf-8').strip().rstrip(';'))
+            await connection.execute('INSERT IGNORE INTO agent_schema_migration(version,checksum) VALUES (:v,:c)', {'v': migration.name, 'c': checksum})
+        finally:
+            await connection.fetch_val("SELECT RELEASE_LOCK('easyjob_agent_schema')")
+
+
+async def apply_statistics_category_migration(database):
+    migration = MIGRATION.with_name('018_statistics_and_category_management.sql')
+    checksum = hashlib.sha256(migration.read_bytes()).hexdigest()
+    async with database.connection() as connection:
+        if await connection.fetch_val("SELECT GET_LOCK('easyjob_agent_schema',10)") != 1:
+            raise RuntimeError('无法取得迁移锁')
+        try:
+            previous = await connection.fetch_val('SELECT checksum FROM agent_schema_migration WHERE version=:v', {'v': migration.name})
+            if previous and previous != checksum:
+                raise RuntimeError('统计与分类管理迁移校验和发生变化')
+            for statement in migration.read_text(encoding='utf-8').split(';'):
+                statement = statement.strip()
+                if not statement: continue
+                match = re.fullmatch(r'ALTER TABLE (\w+) ADD COLUMN (\w+) .+',statement)
+                if match:
+                    if await connection.fetch_val('SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name=:t AND column_name=:c', {'t':match[1],'c':match[2]}):continue
+                elif previous:
+                    continue
+                await connection.execute(statement)
+            await connection.execute('INSERT IGNORE INTO agent_schema_migration(version,checksum) VALUES (:v,:c)', {'v':migration.name,'c':checksum})
+        finally:
+            await connection.fetch_val("SELECT RELEASE_LOCK('easyjob_agent_schema')")
+
+
+async def apply_platform_completion(database):
+    migration = MIGRATION.with_name('019_platform_completion.sql')
+    checksum = hashlib.sha256(migration.read_bytes()).hexdigest()
+    async with database.connection() as connection:
+        if await connection.fetch_val("SELECT GET_LOCK('easyjob_agent_schema',10)") != 1:
+            raise RuntimeError('无法取得迁移锁')
+        try:
+            previous = await connection.fetch_val('SELECT checksum FROM agent_schema_migration WHERE version=:v', {'v':migration.name})
+            if previous:
+                if previous != checksum: raise RuntimeError('平台补齐迁移校验和发生变化')
+                return
+            for sql in migration.read_text(encoding='utf-8').split(';'):
+                if sql.strip(): await connection.execute(sql.strip())
+            await connection.execute('INSERT INTO agent_schema_migration(version,checksum) VALUES (:v,:c)', {'v':migration.name,'c':checksum})
+        finally:
+            await connection.fetch_val("SELECT RELEASE_LOCK('easyjob_agent_schema')")
 
 
 if __name__ == "__main__":

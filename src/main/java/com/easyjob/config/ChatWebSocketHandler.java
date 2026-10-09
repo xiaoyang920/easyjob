@@ -22,6 +22,12 @@ public class ChatWebSocketHandler  extends TextWebSocketHandler {
      * 存储用户ID和WebSocketSession的映射关系
      */
     private static final Map<Long, WebSocketSession> SESSIONS = new ConcurrentHashMap<>();
+
+    public void disconnectUser(Long id) {
+        WebSocketSession session=SESSIONS.get(id);
+        if(session!=null) try {session.close(CloseStatus.POLICY_VIOLATION);}
+        catch(IOException e){log.warn("Cannot close revoked chat session for {}",id,e);}
+    }
     /**
      * 连接建立
      * @param session

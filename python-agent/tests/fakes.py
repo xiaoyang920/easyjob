@@ -15,13 +15,6 @@ def article_chunk(aid="42", index=0, html="<p>current public evidence</p>", cont
             "chunk_id": f"{aid}_html-dom-v1_{fingerprint}_{index}", "section_path": [title], **extra}
 
 
-async def select_fixture_evidence(goal, candidates):
-    """External relevance model fake for existing protocol/permission fixtures."""
-    from app.services.evidence_selection import EvidenceSelection
-    return EvidenceSelection(selected_ids=[c["id"] for c in candidates],
-                             adequacy="sufficient" if candidates else "none", reason="offline fixture")
-
-
 def repository():
     run = {"run_id": RUN_ID, "conversation_id": 11, "user_id": 7,
            "execution_token": "executor", "status": "running", "draft_article_id": None}

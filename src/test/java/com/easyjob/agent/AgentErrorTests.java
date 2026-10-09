@@ -95,6 +95,32 @@ class AgentErrorTests {
                 .andExpect(jsonPath("$.code").value(409));
     }
 
+    @Test void recoveryUsesAuthenticatedIdentityAndKeepsUpstreamConflict() throws Exception {
+        var upstream = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        var authenticated = new java.util.concurrent.atomic.AtomicBoolean();
+        String runId = "ae0bd008-98cf-4018-b809-e80860386b01";
+        upstream.createContext("/runs/" + runId + "/recover", exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            authenticated.set("POST".equals(exchange.getRequestMethod())
+                    && "7".equals(exchange.getRequestHeaders().getFirst("X-Agent-User"))
+                    && exchange.getRequestHeaders().getFirst("X-Agent-Key") != null);
+            byte[] body = "{\"detail\":\"cannot recover\"}".getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(409, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        upstream.start();
+        try {
+            var service = service();
+            ReflectionTestUtils.setField(service, "pythonUrl", "http://127.0.0.1:" + upstream.getAddress().getPort());
+            var error = assertThrows(ResponseStatusException.class, () -> service.recoverRun(runId, 7L).blockLast(Duration.ofSeconds(5)));
+            assertEquals(409, error.getStatusCode().value());
+            assertTrue(authenticated.get());
+            assertThrows(ResponseStatusException.class, () -> service.recoverRun("invalid/path", 7L));
+        } finally { upstream.stop(0); }
+    }
+
     @Test void realWebClientStreamingErrorKeeps409() throws Exception {
         var upstream = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         upstream.createContext("/chat/resume/stream", exchange -> {

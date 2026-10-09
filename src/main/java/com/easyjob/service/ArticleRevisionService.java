@@ -43,7 +43,7 @@ public class ArticleRevisionService {
 
     private static long number(Map<String,Object> row,String key){return ((Number)row.get(key)).longValue();}
     private Map<String,Object> article(long aid,Long uid,boolean admin) {
-        if(admin && !access.isAdmin(uid)) throw new BusinessException(403,"只有管理员可以审核文章");
+        if(admin && !access.isAdmin(uid) && !access.hasPermission(uid,"reviews.read")) throw new BusinessException(403,"只有管理员可以审核文章");
         var rows=jdbc.queryForList("SELECT * FROM article_info WHERE article_id=? AND deleted=0 FOR UPDATE",aid);
         if(rows.isEmpty() || (!admin && !Objects.equals(number(rows.getFirst(),"user_id"),uid)))
             throw new BusinessException(404,"文章不存在或无权操作");
@@ -86,8 +86,12 @@ public class ArticleRevisionService {
         Long category=null;
         if(dto.getCategoryId()!=null && !dto.getCategoryId().isBlank()) {
             try{category=Long.valueOf(dto.getCategoryId());}catch(Exception e){throw new BusinessException(400,"分类无效");}
-            if(jdbc.queryForObject("SELECT COUNT(*) FROM category WHERE category_id=? AND status=1",Integer.class,category)!=1)
+            category=CategoryRouting.resolve(jdbc,category);
+            var selected=jdbc.queryForList("SELECT status,parent_id FROM category WHERE category_id=? FOR SHARE",category);
+            if(selected.isEmpty() || number(selected.getFirst(),"status")!=1)
                 throw new BusinessException(400,"请选择有效分类");
+            long parent=number(selected.getFirst(),"parent_id");
+            if(parent>0){var parents=jdbc.queryForList("SELECT status FROM category WHERE category_id=? FOR SHARE",parent);if(parents.isEmpty() || number(parents.getFirst(),"status")!=1)throw new BusinessException(400,"请选择有效分类");}
         } else if(submitting) throw new BusinessException(400,"提交审核前请选择分类");
         var names=dto.getTagNames()==null?(dto.getTags()==null?List.<String>of():Arrays.asList(dto.getTags().split(","))):dto.getTagNames();
         if(names.size()>10 || names.stream().anyMatch(s->s==null || s.strip().isEmpty() || s.length()>30))
@@ -103,6 +107,7 @@ public class ArticleRevisionService {
     }
     private ArticleCreateDTO dto(Map<String,Object> p) {return json.convertValue(p,ArticleCreateDTO.class);}
     private Map<String,Object> displayPayload(Map<String,Object> p) {
+        if(p.get("categoryId")!=null)p.put("categoryId",CategoryRouting.resolve(jdbc,Long.valueOf(p.get("categoryId").toString())).toString());
         if(p.get("categoryId")!=null){var names=jdbc.queryForList("SELECT category_name FROM category WHERE category_id=?",p.get("categoryId"));p.put("categoryName",names.isEmpty()?"分类已删除":names.getFirst().get("category_name"));}
         return p;
     }
@@ -142,6 +147,8 @@ public class ArticleRevisionService {
     }
     @Transactional public Map<String,Object> save(Long uid,long aid,ArticleCreateDTO dto) {
         var a=article(aid,uid,false);expected(a,dto.getExpectedRevisionId());
+        // Source is inherited from the authenticated owner, never from author input.
+        jdbc.update("UPDATE article_info a JOIN user_info u ON u.user_id=a.user_id SET a.data_source='evaluation' WHERE a.article_id=? AND a.user_id=? AND u.data_source='evaluation'",aid,uid);
         if(number(a,"status")==2)throw new BusinessException(409,"下架文章不能编辑，请联系管理员");
         var p=payload(dto,Integer.valueOf(1).equals(dto.getStatus()));
         if(number(a,"latest_revision_id")!=0 && number(revision(number(a,"latest_revision_id")),"state")==PENDING)
@@ -190,7 +197,7 @@ public class ArticleRevisionService {
         var detail=articles.selectArticleAndUser(aid);detail.setTags(tags.getTagsByArticleId(aid));
         long head=number(a,"latest_revision_id");detail.setRevisionId(Long.toString(head));detail.setHasPublishedVersion(number(a,"status")==1);
         detail.setRevisionState(DRAFT);detail.setReviewReason("");
-        if(head!=0){var r=revision(head);var p=decode(r.get("payload"));
+        if(head!=0){var r=revision(head);var p=displayPayload(decode(r.get("payload")));
             BeanUtil.copyProperties(dto(p),detail,"tags","status","expectedRevisionId");
             detail.setTags(dto(p).getTagNames().stream().map(name->{var tag=new TagVO();tag.setTagName(name);return tag;}).toList());
             detail.setRevisionState((int)number(r,"state"));detail.setReviewReason(r.get("review_reason").toString());}
@@ -221,7 +228,7 @@ public class ArticleRevisionService {
     }
     static void bounds(int page,int size){if(page<1 || page>10000 || size<1 || size>100)throw new BusinessException(400,"分页参数无效");}
     public PageVO<Map<String,Object>> queue(Long uid,Integer state,int page,int size) {
-        if(!access.isAdmin(uid))throw new BusinessException(403,"只有管理员可以审核文章");bounds(page,size);
+        if(!access.isAdmin(uid) && !access.hasPermission(uid,"reviews.read"))throw new BusinessException(403,"没有文章审核权限");bounds(page,size);
         if(state==null)state=PENDING;if(!List.of(1,2,3,4).contains(state))throw new BusinessException(400,"审核状态无效");
         String from="FROM article_revision r JOIN article_info a ON a.article_id=r.article_id LEFT JOIN user_info u ON u.user_id=r.author_id WHERE a.deleted=0 AND r.state=?";
         long total=jdbc.queryForObject("SELECT COUNT(*) "+from,Long.class,state);
@@ -229,7 +236,7 @@ public class ArticleRevisionService {
         return new PageVO<>(rows,total,(long)size,(long)page,(total+size-1)/size);
     }
     @Transactional public Map<String,Object> reviewDetail(Long uid,long rid) {
-        if(!access.isAdmin(uid))throw new BusinessException(403,"只有管理员可以审核文章");
+        if(!access.isAdmin(uid) && !access.hasPermission(uid,"reviews.read"))throw new BusinessException(403,"没有文章审核权限");
         // Look up the relation first, then always acquire locks in article -> revision order.
         var a=article(revisionArticle(rid),uid,true);var r=revision(rid);
         var result=metadata(r);result.put("articleId",r.get("article_id").toString());result.put("payload",displayPayload(decode(r.get("payload"))));
@@ -239,7 +246,7 @@ public class ArticleRevisionService {
         result.put("logs",jdbc.queryForList("SELECT CAST(id AS CHAR) AS id,action,reason,created_at AS createdAt,CAST(actor_id AS CHAR) AS actorId FROM article_review_log WHERE article_id=? ORDER BY id DESC LIMIT 100",number(a,"article_id")));return result;
     }
     @Transactional public void review(Long uid,long rid,String decision,String reason) {
-        if(!access.isAdmin(uid))throw new BusinessException(403,"只有管理员可以审核文章");
+        if(!access.isAdmin(uid) && !access.hasPermission(uid,"reviews.manage"))throw new BusinessException(403,"没有文章审核权限");
         if(!List.of("approve","reject").contains(decision==null?"":decision))throw new BusinessException(400,"审核操作无效");
         reason=reason==null?"":reason.strip();if(reason.length()>1000 || (decision.equals("reject") && reason.isEmpty()))throw new BusinessException(400,"驳回需填写原因，最多1000字");
         var a=article(revisionArticle(rid),uid,true);var r=revision(rid);

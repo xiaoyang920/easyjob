@@ -87,7 +87,7 @@
           <div class="reading-filter">
             <label><input v-model="readableOnly" type="checkbox" @change="changeReadableFilter">只看可读</label>
             <span>{{ readableOnly ? (isLogin ? '仅展示你现在可以阅读全文的文章' : '仅展示游客可读的文章') : (currentSort === 'recommend' ? '优先推荐可读文章，兼顾关注领域、近期互动与新内容' : '文章卡片会标明阅读等级') }}</span>
-            <RouterLink v-if="isLogin && currentSort === 'recommend'" to="/ai-memory">调整关注领域 ↗</RouterLink>
+            <RouterLink v-if="isLogin && currentSort === 'recommend'" to="/ai-memory">调整关注领域 ↗</RouterLink><button v-if="isLogin && currentSort==='recommend'" class="recommend-preferences" @click="showRecommendationPreferences=true">推荐偏好</button>
           </div>
           <div v-if="loading" class="loading">加载中...</div>
           <div v-else-if="articles.length === 0" class="empty-state">
@@ -151,6 +151,7 @@
                 <div class="article-title">{{ article.title }}</div>
                 <p v-if="article.summary" class="article-deck">{{ stripHtmlTags(article.summary) }}</p>
                 <div v-if="currentSort === 'recommend' && article.recommendationReason" class="recommendation-reason">{{ article.recommendationReason }}</div>
+                <div v-if="isLogin && currentSort==='recommend'" class="recommend-feedback" @click.stop @keydown.stop><el-dropdown trigger="click" @command="(kind:string)=>recommendationFeedback(article.articleId || article.id,kind)"><button :disabled="!!feedbackBusy" :aria-label="`调整《${article.title}》的推荐`">调整推荐 ···</button><template #dropdown><el-dropdown-menu><el-dropdown-item command="not_interested">不感兴趣</el-dropdown-item><el-dropdown-item command="hide_author">不再推荐该作者</el-dropdown-item></el-dropdown-menu></template></el-dropdown></div>
                 <div class="article-byline"><span>{{ article.authorName || article.nickName || '社区创作者' }}</span><span>{{ formatNumber(article.viewCount || 0) }} 次阅读</span></div>
               </div>
             </div>
@@ -218,9 +219,11 @@
       </div>
     </div>
   </div>
+  <RecommendationPreferences v-model="showRecommendationPreferences" @changed="loadArticles" />
 </template>
 
 <script setup lang="ts">
+import RecommendationPreferences from '@/components/RecommendationPreferences.vue'
 import { clearAccountStorage } from '@/utils/searchHistory'
 import AppNavigation from '@/components/AppNavigation.vue'
 import SearchBox from '@/components/SearchBox.vue'
@@ -282,6 +285,8 @@ onUnmounted(() => {
 const loading = ref(false)
 const articles = ref<any[]>([])
 const currentSort = ref('recommend')
+const showRecommendationPreferences=ref(false),feedbackBusy=ref('')
+async function recommendationFeedback(id:string,kind:string){if(feedbackBusy.value)return;feedbackBusy.value=id;try{await request.put(`/recommendation/feedback/${id}`,{kind});ElMessage.success('推荐偏好已更新');await loadArticles()}catch(e){ElMessage.error(e instanceof Error?e.message:'反馈失败，请重试')}finally{feedbackBusy.value=''}}
 const readableOnly = ref(false)
 const currentPage = ref(1)
 const totalPages = ref(0)
@@ -763,6 +768,8 @@ function stripHtmlTags(str: string): string {
 </script>
 
 <style scoped>
+.recommend-preferences,.recommend-feedback button{font:inherit;font-size:12px;border:0;background:transparent;color:var(--ej-ink);cursor:pointer}.recommend-preferences:hover,.recommend-feedback button:hover{text-decoration:underline}.recommend-feedback{margin:8px 0}.recommend-feedback button:disabled{opacity:.5;cursor:wait}
+
 .reading-filter { display:flex; align-items:center; flex-wrap:wrap; gap:10px 18px; margin:0 0 24px; font-size:12px; color:#73756b; }
 .reading-filter label { display:flex; align-items:center; gap:8px; color:#171714; cursor:pointer; white-space:nowrap; }
 .reading-filter input { accent-color:#9dc82f; width:16px; height:16px; }

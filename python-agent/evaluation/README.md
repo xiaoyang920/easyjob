@@ -167,3 +167,41 @@ live-route 在 answer 动作中会生成首轮回复，live-rag 不生成答案�
 `../scripts/maintenance-check.py` 使用临时管理员、作者、文章和 ES 文档，真实验证后台访问权限、参数边界、任务元数据脱敏、失败重试审计、阅读量单调同步，以及孤儿正文/分块删除。默认自动清理临时数据；`--preview` 仅用于界面检查，按 Enter 清理。所有模型和 Embedding 调用均为 0，不生成新的回答准确率或线上恢复率。
 
 离线边界测试见 `tests/test_index_reconciliation.py`，包括版本重查、当前数据优先、过期租约不能提交、达到重试上限后不自动重置、分块序号/总数校验和清理保留审批记录。Java 运行管理与推荐多样性测试随 `mvn test` 运行；前端测试随 `npm test` 运行。GitHub Actions 将三套离线检查及前端构建串入独立任务；数据库和模型评测保留为显式本地操作。
+
+## 检索成本、流式合并与进程恢复（2026-10-07）
+
+在 python-agent 目录运行：
+
+```powershell
+.\.venv\Scripts\python.exe -m evaluation.runtime --output evaluation/results/runtime-new
+# 可选：需要本机 MySQL、Redis Stack，创建并清理独立测试账号、会话和检查点。
+.\.venv\Scripts\python.exe -m evaluation.runtime --live-fault --output evaluation/results/runtime-fault-new
+```
+
+离线探针包含 48 个完整查询及 8 个歧义查询、48 个查询各重复 8 次的向量请求、1000 段含中文/换行/emoji 的流式文本。校验跳过改写的调用量、缓存调用量、合并前后事件数、完整文字及控制事件顺序。提供方是测试替身，报告中的首帧耗时只计合并器，不含数据库、Java、网络和前端，不能用于宣称模型提速或答案准确率。测试目录拒绝覆盖。
+
+`--live-fault` 在独立子进程使用实际委派调度器、MySQL 任务产物和 Redis Checkpointer。完成任务 A、开始依赖 A 的任务 B 后强制结束该测试进程，再使用新的执行代次恢复；核验 A 不重复、B 重跑、已记账预算延续、第二次恢复被拒绝。只替换外部工作模型，不结束用户实际服务；测试账户身份核验后清理该账户的数据和检查点。此项验证故障恢复边界，不能代表真实模型任务完成率。
+
+生产恢复只支持同一运行中失败/过期的只读委派任务，最多一次；取消、草稿审批、已保存草稿、已有更新运行不能从恢复入口重新执行。产物受输入指纹、用户归属和文章来源版本校验保护。运行的决策轮数与任务数来自原检查点，Token 用量由持久化计量延续。
+
+配置 `AGENT_QUERY_VECTOR_CACHE_CAPACITY`（默认512、0关闭）、`AGENT_QUERY_VECTOR_CACHE_TTL_SECONDS`（默认600）、`AGENT_STREAM_COALESCE_MS`（默认120、0关闭）控制容量、过期和合并间隔。缓存仅存向量及不可逆查询键，模型/维度/凭据变化隔离缓存；不缓存检索结果或权限判断。文章和记忆召回仍实时校验过滤条件及 MySQL 内容。第一段文本和控制事件立即发送，最终答案帧及持久化事件游标保留原协议。
+
+## 管理员编辑用户回归
+
+执行 `python -m evaluation.admin_users`，创建两个隔离测试账号，调用真实本地 Java / MySQL / Redis，验证非管理员拦截、资料更新、并发旧表单拦截、阅读等级校正、角色与状态变更后的令牌撤销、自身账号保护及完整审计。默认清理临时数据；`--keep-ui` 保留明确标记的账号供界面检查，检查完成后执行 `python -m evaluation.admin_users --cleanup`。测试拒绝远程数据库或服务，不修改真实用户，不调用模型。报告位于工作区 `temp/admin-user-results.json`。
+
+## 后台图表与 EasyExcel 导出回归
+
+执行 `python -m evaluation.admin_statistics`，使用本机 Java 与 MySQL 创建隔离账号、未公开/下架文章、跨日阅读记录及校正成长时长。验证管理员权限、日期范围边界、7/30/90 天补零、SQL 与接口聚合一致、实际阅读与成长时长分离，并打开导出 XLSX，逐日比对日期、数量、阅读秒数和人数，检查四个工作表、文件类型及下载头。默认清理测试数据；`--keep-ui` 保留标记账号供界面检查，完成后执行 `python -m evaluation.admin_statistics --cleanup`。不调用 LLM 或 Embedding，不产生阅读推荐与回答准确率指标。报告及 Excel 样例位于 `temp/admin-statistics-results.json` 和 `temp/admin-statistics-*days.xlsx`。
+
+## 管理员新增分类回归
+
+执行 `python -m evaluation.admin_categories`，需要本地 Java/MySQL 及迁移 017。创建明确标记的临时管理员、普通用户和分类，验证权限、字段边界、父分类有效性、两级分类立即可见、同级重名/不同父分类同名、10 路同名并发只创建一条，以及成功变更与审计一一对应。按确切 ID 与测试标记核验后清理，不修改已有分类、不调用模型。报告：`temp/admin-categories-results.json`。
+
+## 完整平台接口及浏览器回归
+
+迁移019后，执行 `python -m evaluation.platform` 验证审核员/运营员能力、非授权模块和审核操作拦截、角色变更后的令牌撤销、推荐文章与作者屏蔽及跨用户隔离、恢复推荐，以及Agent指标与SQL夹具的一致性。默认清理精确标记的账号及其文章、分类、运行、索引和Redis登录凭证，不产生模型效果指标。`EASYJOB_TEST_API` 可指定本机隔离Java服务端口，默认8080；数据库只允许本机地址。
+
+`--seed-browser` 保留临时夹具供 `frontend` 中的 `npm run test:browser` 使用；Chromium实际执行工作簿下载、审核通过、分类编辑、推荐屏蔽与恢复。完成后执行 `python -m evaluation.platform --cleanup`。不要提交 `temp/platform-browser-fixture.json`，它包含仅用于该次测试的随机登录凭证。浏览器结果及失败截图位于 `temp/playwright-report` 与 `temp/playwright-results`，随机测试凭证不用于真实账号。
+
+GitHub `integration.yml` 在全新独立数据库中执行这些接口和页面检查，以虚拟模型密钥初始化客户端并关闭索引消息投递，不调用模型或Embedding。`evaluation.ci_bootstrap` 仅允许 `EASYJOB_CI=1` 且名称以`_ci`结尾的空数据库，基础结构不包含业务数据，之后仍须执行 `app.migrate`。

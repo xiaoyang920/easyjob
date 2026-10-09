@@ -21,7 +21,7 @@ from app.models.draft import DraftOutput
 from app.security.capabilities import (effective_capabilities, require_capability,
                                        require_draft_approval, task_capabilities)
 from app.services.query_rewrite import QueryFilters, ResolvedFilters
-from fakes import RUN_ID, repository, select_fixture_evidence
+from fakes import RUN_ID, repository
 
 
 def execution_state(kind="search", actor="main", allow_web=False):
@@ -144,11 +144,6 @@ class CapabilityPolicyTests(unittest.TestCase):
 
 
 class CapabilityBoundaryTests(unittest.IsolatedAsyncioTestCase):
-    def setUp(self):
-        selector = patch.object(search_worker.evidence_selector, "select", AsyncMock(side_effect=select_fixture_evidence))
-        selector.start()
-        self.addCleanup(selector.stop)
-
     async def test_web_failure_keeps_verified_platform_evidence(self):
         with patch.object(settings, "AGENT_WEB_SEARCH_ENABLED", True):
             state = execution_state(allow_web=True)

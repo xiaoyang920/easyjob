@@ -49,7 +49,7 @@ class BoundedDeliveryTests(unittest.TestCase):
             'retrieval_report':{'quality':{'adequacy':'partial'}}}}}
         reply=bounded_evidence_reply(state,'limit')
         self.assertEqual(reply['citations'],[source]); self.assertIn('[r:web1]',reply['final_reply'])
-        self.assertIn('尚不足以满足全部要求',reply['final_reply'])
+        self.assertIn('当前未完成全部要求',reply['final_reply'])
 
     def test_limit_does_not_turn_irrelevant_or_failed_results_into_evidence(self):
         from app.graph.main_agent import bounded_evidence_reply

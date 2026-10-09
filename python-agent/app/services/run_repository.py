@@ -165,6 +165,38 @@ class RunRepository:
                 WHERE run_id=:rid""", {"rid": run_id, "token": token, "ttl": settings.RUN_TIMEOUT_SECONDS, "lease": settings.EXECUTOR_LEASE_SECONDS})
             return await self.get(run_id)
 
+    async def persist_metrics(self, run_id, token, metrics):
+        await self.db.execute('''UPDATE agent_run SET result_json=JSON_SET(
+            COALESCE(result_json,JSON_OBJECT()),'$.metrics',CAST(:metrics AS JSON))
+            WHERE run_id=:rid AND execution_token=:token AND status='running' ''',
+            {'rid': run_id, 'token': token, 'metrics': json.dumps(metrics)})
+
+    async def mark_recovery_node(self, run_id, token, node):
+        await self.db.execute('''UPDATE agent_run SET result_json=JSON_SET(
+            COALESCE(result_json,JSON_OBJECT()),'$.recovery_node',:node)
+            WHERE run_id=:rid AND execution_token=:token AND status='running' ''',
+            {'rid': run_id, 'token': token, 'node': node})
+
+    async def claim_recovery(self, cid, uid, rid):
+        async with self.db.transaction():
+            await self._lock_conversation(cid, uid)
+            row = await self.db.fetch_one('SELECT * FROM agent_run WHERE run_id=:rid FOR UPDATE', {'rid': rid})
+            if not row or row._mapping['user_id'] != uid or row._mapping['conversation_id'] != cid:
+                raise HTTPException(404, '运行不存在')
+            run = dict(row._mapping)
+            latest = await self.latest(cid, uid)
+            active = await self.db.fetch_val('SELECT run_id FROM agent_run WHERE active_conversation_id=:cid', {'cid': cid})
+            if (run['status'] not in ('failed', 'expired') or run.get('draft_article_id')
+                    or run.get('recovery_count', 0) >= 1 or active or not latest or latest['run_id'] != rid):
+                raise HTTPException(409, '该运行不能恢复，请重新提问')
+            token = str(uuid4())
+            await self.db.execute('''UPDATE agent_run SET status='running',execution_token=:token,
+                recovery_count=recovery_count+1,deadline=TIMESTAMPADD(SECOND,:ttl,UTC_TIMESTAMP(6)),
+                executor_lease_until=TIMESTAMPADD(SECOND,:lease,UTC_TIMESTAMP(6)),updated_at=UTC_TIMESTAMP(6)
+                WHERE run_id=:rid''', {'rid': rid, 'token': token, 'ttl': settings.RUN_TIMEOUT_SECONDS,
+                                     'lease': settings.EXECUTOR_LEASE_SECONDS})
+            return await self.get(rid)
+
     async def settle(self, cid, uid, run_id, token, status, result, append_message=None):
         async with self.db.transaction():
             await self._lock_conversation(cid, uid)

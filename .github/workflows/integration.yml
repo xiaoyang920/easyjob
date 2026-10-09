@@ -1,0 +1,98 @@
+name: Integration and browser checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  platform:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-local-only
+          MYSQL_DATABASE: easyjob_ci
+          TZ: Asia/Shanghai
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -pci-local-only"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+      redis:
+        image: redis:7.4
+        ports: ['6379:6379']
+      rabbit:
+        image: rabbitmq:4.1
+        ports: ['5672:5672']
+    env:
+      EASYJOB_CI: '1'
+      TZ: Asia/Shanghai
+      MYSQL_HOST: 127.0.0.1
+      MYSQL_USER: root
+      MYSQL_PASSWORD: ci-local-only
+      MYSQL_DB: easyjob_ci
+      MYSQL_URL: jdbc:mysql://127.0.0.1:3306/easyjob_ci?serverTimezone=GMT%2B8
+      SPRING_PROFILES_ACTIVE: ci
+      DEEPSEEK_API_KEY: offline-test-key
+      ZHIPUAI_API_KEY: offline-test-key
+      DASHSCOPE_API_KEY: offline-test-key
+      AGENT_SERVICE_KEY: ci-local-only-service-key-32-chars
+      MAIL_HOST: 127.0.0.1
+      MAIL_USERNAME: ci@example.invalid
+      LANGFUSE_TRACING_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '21', cache: maven}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12', cache: pip, cache-dependency-path: python-agent/requirements.txt}
+      - uses: actions/setup-node@v4
+        with: {node-version: '24', cache: npm, cache-dependency-path: frontend/package-lock.json}
+      - name: Bootstrap disposable schema and apply migrations
+        working-directory: python-agent
+        run: |
+          pip install -r requirements.txt
+          python -m evaluation.ci_bootstrap
+          python -m app.migrate
+      - name: Build and start Java with dummy credentials and model dispatch disabled
+        run: |
+          mkdir -p temp logs
+          cp src/main/resources/application-example.yml temp/application-ci.yml
+          export JWT_SECRET_KEY="$(python -c 'import base64,secrets; print(base64.b64encode(secrets.token_bytes(64)).decode())')"
+          mvn -B -DskipTests package
+          java -jar target/easyjob-0.0.1-SNAPSHOT.jar --spring.config.location=file:./temp/application-ci.yml --spring.rabbitmq.listener.simple.auto-startup=false --agent.index-outbox.enabled=false > logs/integration-java.log 2>&1 &
+          python - <<'PY'
+          import urllib.request,time
+          for _ in range(60):
+              try:
+                  urllib.request.urlopen('http://127.0.0.1:8080/api/article/list',timeout=2)
+                  break
+              except Exception: time.sleep(2)
+          else: raise RuntimeError('Java startup failed')
+          PY
+      - name: Real API, SQL and workbook regression
+        working-directory: python-agent
+        run: |
+          python -m evaluation.admin_statistics
+          python -m evaluation.admin_categories
+          python -m evaluation.platform --seed-browser
+      - name: Browser regression
+        working-directory: frontend
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npx playwright test
+      - name: Cleanup isolated fixtures
+        if: always()
+        working-directory: python-agent
+        run: |
+          if test -f ../temp/platform-browser-fixture.json; then python -m evaluation.platform --cleanup; fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-results
+          path: |
+            temp/*-results.json
+            temp/playwright-report/
+            temp/playwright-results/
+            logs/integration-java.log
+          retention-days: 7

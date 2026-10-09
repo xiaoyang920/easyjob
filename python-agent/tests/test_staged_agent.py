@@ -18,7 +18,7 @@ from langgraph.types import Command
 from fastapi import HTTPException
 
 from app import main
-from app.graph import builder, staged_runtime as runtime, main_agent as agent
+from app.graph import builder, staged_runtime as runtime, main_agent as agent, action_runtime as actions
 from app.graph.main_agent import MainDecision
 from test_main_agent import llm
 from app.graph.staged_plan import (DependencyPlan, DelegatedTask, DraftRequest, ExecutionTask,
@@ -130,6 +130,7 @@ class GraphExecutionTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(agent, "get_llm", return_value=model), \
              patch.object(runtime, "search_worker_node", search), patch.object(runtime, "analysis_worker_node", analysis), \
              patch.object(runtime, "run_repository", repo), patch.object(writing_worker, "generate_draft", AsyncMock(side_effect=draft)) as generate, \
+             patch.object(actions, "task_artifacts", SimpleNamespace(load=AsyncMock(return_value=None), save=AsyncMock())), \
              patch.object(writing_worker, "save_approved_draft", AsyncMock(return_value=99)) as save:
             graph = builder._build_graph().compile(checkpointer=InMemorySaver())
             state = create_initial_state(7, "collect compare write", [])

@@ -67,6 +67,7 @@ public class AgentDraftService {
         article.setStatus(0); article.setDeleted(0);
         article.setCreateTime(LocalDateTime.now()); article.setUpdateTime(LocalDateTime.now());
         articles.insert(article);
+        jdbc.update("UPDATE article_info a JOIN user_info u ON u.user_id=a.user_id SET a.data_source=u.data_source WHERE a.article_id=? AND a.user_id=?",draft.articleId(),userId);
         jdbc.update("UPDATE agent_run SET draft_article_id=?,updated_at=UTC_TIMESTAMP(6) WHERE run_id=?", draft.articleId(), draft.runId());
         return Map.of("articleId", draft.articleId().toString());
     }

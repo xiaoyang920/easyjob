@@ -84,7 +84,7 @@ class RunService:
         run, created = await self.repository.create(conv_id, request.user_id, request_id, input_hash)
         if not created:
             raise HTTPException(409, "请求已经存在")
-        config = self.config(run)
+        config = self.config(run, repository=self.repository)
         try:
             if admission_ticket:
                 await self.repository.bind_admission(run['run_id'], run['execution_token'], admission_ticket)
@@ -113,12 +113,54 @@ class RunService:
         return conv_id, config, state
 
     @staticmethod
-    def config(run, replay=False):
+    def config(run, replay=False, repository=None):
         previous = json.loads(run.get('result_json') or '{}').get('metrics')
+        persist = (lambda metrics: repository.persist_metrics(run['run_id'], run['execution_token'], metrics)) \
+                  if repository and hasattr(repository, 'persist_metrics') else None
         return {"configurable": {"thread_id": f"run_{run['run_id']}", "run_id": run["run_id"],
                                  "execution_token": run["execution_token"], "replay": replay},
-                "callbacks": [] if replay else [RunMetrics(previous)],
+                "callbacks": [] if replay else [RunMetrics(previous, persist=persist)],
                 "recursion_limit": 80}
+
+    @staticmethod
+    def recovery_candidate(run):
+        result = run.get('result_json') or '{}'
+        result = json.loads(result) if isinstance(result, str) else result
+        return (run['status'] in ('failed', 'expired') and not run.get('draft_article_id')
+                and not run.get('recovery_count', 0) and result.get('recovery_node') == 'main_delegate')
+
+    async def recovery_snapshot(self, run, graph):
+        if not self.recovery_candidate(run):
+            return None
+        snapshot = await graph.aget_state(self.config(run))
+        if (tuple(snapshot.next) != ('main_delegate',) or snapshot.values.get('cancelled')
+                or snapshot.values.get('business_complete') or interrupt_payload(snapshot)):
+            return None
+        from app.graph.staged_plan import load_execution_plan
+        try:
+            plan = load_execution_plan(snapshot.values['plan'], 'subagent')
+        except (KeyError, ValueError):
+            return None
+        if any(task.kind not in ('search', 'analysis') for task in plan.tasks):
+            return None
+        return snapshot
+
+    async def prepare_recovery(self, rid, uid, graph, ticket):
+        run = await self.repository.get(rid)
+        if not run or run['user_id'] != uid:
+            raise HTTPException(404, '运行不存在')
+        await self.conversations.require_owner(run['conversation_id'], uid)
+        if await self.recovery_snapshot(run, graph) is None:
+            raise HTTPException(409, '只支持恢复未完成的只读委派任务')
+        run = await self.repository.claim_recovery(run['conversation_id'], uid, rid)
+        try:
+            await self.repository.bind_admission(rid, run['execution_token'], ticket)
+        except BaseException:
+            await self.repository.fail(rid, run['execution_token'])
+            raise
+        config = self.config(run, repository=self.repository)
+        config['configurable']['admission_ticket'] = run['execution_token']
+        return run['conversation_id'], config
 
     async def approval_conflict(self, rid, detail):
         try:
@@ -145,7 +187,7 @@ class RunService:
             if exc.status_code == 409:
                 await self.approval_conflict(str(request.run_id), str(exc.detail))
             raise
-        config = self.config(run)
+        config = self.config(run, repository=self.repository)
         if admission_ticket:
             try:
                 await self.repository.bind_admission(run['run_id'], run['execution_token'], admission_ticket)

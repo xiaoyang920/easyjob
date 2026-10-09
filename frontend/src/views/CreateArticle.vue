@@ -115,8 +115,8 @@
           
           <!-- 文章分类 -->
           <div class="setting-item">
-            <label>文章分类 <span class="required">*</span></label>
-            <select v-model="article.categoryId" class="category-select" :class="{ 'placeholder': !article.categoryId }">
+            <label class="category-setting-label">文章分类 <span class="required">*</span><button v-if="categoryAdmin" type="button" class="category-create-link" @click="creatingCategory=true">＋ 新增分类</button></label>
+            <select v-model="article.categoryId" class="category-select" :class="{ 'placeholder': !article.categoryId }" @focus="fetchCategories">
               <option value="">请选择分类</option>
               <option v-for="category in categories" :key="category.categoryId" :value="category.categoryId">
                 {{ category.categoryName }}
@@ -217,6 +217,7 @@
   </div>
 
   <!-- 登录弹窗 -->
+  <AdminCategoryCreator v-if="categoryAdmin" v-model="creatingCategory" @created="categoryCreated" />
   <el-dialog v-model="showLoginDialog" title="" :width="dialogWidth" :close-on-click-modal="true" class="modern-dialog">
     <LoginForm @success="handleLoginSuccess" @switchToRegister="switchToRegister" />
   </el-dialog>
@@ -229,6 +230,8 @@
 import { ref, shallowRef, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import AppNavigation from '@/components/AppNavigation.vue'
+import AdminCategoryCreator from '@/components/AdminCategoryCreator.vue'
+import { categoryOptions,type CategoryRow } from '@/utils/categories'
 import { ElMessageBox } from 'element-plus'
 import { notify } from '@/utils/feedback'
 import { goBackOr, returnTo } from '../utils/navigation'
@@ -273,6 +276,12 @@ let searchTimeout: any = null  // 防抖定时器
 
 // 分类列表
 const categories = ref<any[]>([])
+const categoryAdmin=ref(false),creatingCategory=ref(false)
+async function checkCategoryAdmin(){
+  const id=localStorage.getItem('userId');if(!id)return
+  try{const result:any=await request.get(`/user/space/${id}`);categoryAdmin.value=[2,4].includes(result.data.role) && result.data.status===1}catch{categoryAdmin.value=false}
+}
+async function categoryCreated(row:CategoryRow){await fetchCategories();article.value.categoryId=row.categoryId}
 
 // 编辑器实例
 const editorRef = shallowRef()
@@ -389,7 +398,7 @@ async function fetchCategories() {
   try {
     const res = await request.get('/category/list')
     if (res.code === 200) {
-      categories.value = res.data || []
+      categories.value = categoryOptions(res.data || [])
     }
   } catch (error) {
     console.error('获取分类失败:', error)
@@ -735,6 +744,7 @@ function switchToLogin() {
 watch(() => route.query.id, fetchArticle, { immediate: true })
 
 onMounted(() => {
+  void checkCategoryAdmin()
   eventBus.on(EVENT_AUTH_EXPIRED, handleAuthExpired)
   fetchCategories()  // 获取分类列表
   fetchHotTags()     // 获取热门标签
@@ -752,6 +762,7 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.category-setting-label{display:flex;align-items:center;gap:6px}.category-create-link{margin-left:auto;border:0;background:transparent;color:var(--ej-ink);font-size:12px;cursor:pointer;padding:4px 0;white-space:nowrap}.category-create-link:hover{text-decoration:underline}
 .revision-notice{max-width:1200px;margin:16px auto;padding:14px 20px;border:1px solid var(--ej-line);border-radius:14px;background:var(--ej-surface);color:var(--ej-muted);font-size:13px;display:flex;gap:16px;align-items:center;justify-content:space-between}.revision-notice button{flex-shrink:0;border:1px solid var(--ej-line);border-radius:99px;padding:8px 14px;background:transparent;cursor:pointer}
 
 .article-editor-page {

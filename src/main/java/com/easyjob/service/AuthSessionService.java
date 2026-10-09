@@ -54,7 +54,7 @@ public class AuthSessionService {
         long duration = Math.min(idleSeconds, maxSeconds);
         if (duration <= 0) throw new IllegalStateException("Invalid auth session duration");
         String value = user.getUserId() + ":" + (System.currentTimeMillis() + maxSeconds * 1000)
-            + ":" + digest(user.getPassword());
+            + ":" + digest(user.getPassword()) + ":" + version(user);
         redis.opsForValue().set(PREFIX + id, value, Duration.ofSeconds(duration));
         return new Session(credential, id, user, maxSeconds);
     }
@@ -65,7 +65,7 @@ public class AuthSessionService {
         String value = redis.opsForValue().get(PREFIX + id);
         if (value == null) throw expired();
         String[] fields = value.split(":", -1);
-        if (fields.length != 3) throw expired();
+        if (fields.length != 3 && fields.length != 4) throw expired();
         long uid, remaining;
         try {
             uid = Long.parseLong(fields[0]);
@@ -73,8 +73,7 @@ public class AuthSessionService {
         } catch (NumberFormatException e) { throw expired(); }
         if (remaining <= 0) { redis.delete(PREFIX + id); throw expired(); }
         User user = users.selectById(uid);
-        if (user == null || !Integer.valueOf(1).equals(user.getStatus())
-                || !digest(user.getPassword()).equals(fields[2])) {
+        if (!matches(user, fields)) {
             redis.delete(PREFIX + id);
             throw expired();
         }
@@ -88,7 +87,23 @@ public class AuthSessionService {
     public boolean valid(String id, Long uid) {
         if (id == null || !id.matches("[a-f0-9]{64}") || uid == null) return false;
         String value = redis.opsForValue().get(PREFIX + id);
-        return value != null && value.startsWith(uid + ":");
+        if(value==null) return false;
+        String[] fields=value.split(":",-1);
+        if((fields.length!=3 && fields.length!=4) || !uid.toString().equals(fields[0])) return false;
+        try {if(Long.parseLong(fields[1])<=System.currentTimeMillis())return false;}
+        catch(NumberFormatException e){return false;}
+        return matches(users.selectById(uid),fields);
+    }
+
+    public boolean validLegacy(Long uid) {
+        User user=uid==null?null:users.selectById(uid);
+        return user!=null && Integer.valueOf(1).equals(user.getStatus()) && version(user)==0;
+    }
+    private static long version(User user){return user.getAuthVersion()==null?0:user.getAuthVersion();}
+    private static boolean matches(User user,String[] fields) {
+        return user!=null && Integer.valueOf(1).equals(user.getStatus()) && user.getPassword()!=null
+                && digest(user.getPassword()).equals(fields[2])
+                && Long.toString(version(user)).equals(fields.length==4?fields[3]:"0");
     }
 
     public void revoke(String credential) {

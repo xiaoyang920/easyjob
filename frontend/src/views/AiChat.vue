@@ -159,6 +159,8 @@
                 :preview-teleported="true"
               />
               <AgentActivity v-if="msg.agent" :state="msg.agent" />
+              <button v-if="msg.recoverable" class="interrupt-btn" :disabled="loading || resuming"
+                @click="recoverReadOnlyRun(msg)">继续未完成任务</button>
               <div v-if="msg.role === 'assistant' && !msg.content && !msg.agent" class="typing-indicator">
                 <span></span><span></span><span></span>
               </div>
@@ -484,6 +486,7 @@ interface ChatMessage {
   citations?: Citation[]
   agent?: AgentStreamState
   runId?: string
+  recoverable?: boolean
   draftRevision?: string
   approvalNotice?: string
   interrupted?: boolean  // 是否被 interrupt 暂停
@@ -965,7 +968,15 @@ async function consumeAgentStream(response: Response, index: number, session: Se
       if (finished) return
       throw new Error('连接提前结束')
     } catch (error: any) {
-      if (error.name === 'AbortError' || error.terminal || !runId || attempt === 3) throw error
+      if (error.name === 'AbortError' || error.terminal || !runId || attempt === 3) {
+        if (error.name !== 'AbortError' && runId) {
+          try {
+            const status: any = await request.get(`/agent/runs/${runId}`)
+            session.messages[index]!.recoverable = !!status.data?.recoverable
+          } catch { /* Keep the original stream error if status is unavailable. */ }
+        }
+        throw error
+      }
       await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)))
       if (!mounted || controller.signal.aborted) throw new DOMException('已停止', 'AbortError')
       response = await authenticatedFetch(`/api/agent/runs/${runId}/events?after=${after}`, {
@@ -984,6 +995,9 @@ async function reconnectActiveRun(session: Session = activeSession.value) {
   const run = response.data
   if (!run) return
   const rid = run.runId
+  for (const msg of session.messages) if (msg.runId !== rid) msg.recoverable = false
+  const failedMessage = [...session.messages].reverse().find(msg => msg.role === 'assistant' && msg.runId === rid)
+  if (failedMessage) failedMessage.recoverable = !!run.recoverable
   const preview = session.messages.find(msg => msg.interrupted && msg.interruptPayload?.runId === rid)
   if (preview && run.status !== 'running') {
     const recovered = approvalRecovery(run)
@@ -1013,7 +1027,7 @@ async function reconnectActiveRun(session: Session = activeSession.value) {
       if (!preview) session.messages.push(reply)
     }
     if (['failed', 'expired', 'cancelled'].includes(run.status) && session.messages.at(-1)?.role === 'user') {
-      session.messages.push({ role: 'assistant', runId: rid,
+      session.messages.push({ role: 'assistant', runId: rid, recoverable: !!run.recoverable,
         content: run.status === 'cancelled' ? '上次生成已停止，可以重新发送请求。' : '上次生成已中断或超时，已释放运行，可以重新发送请求。' })
     }
     return
@@ -1038,6 +1052,31 @@ async function reconnectActiveRun(session: Session = activeSession.value) {
       }
       ElMessage.error(error.message || '恢复运行失败')
     }
+  } finally { finishSession(session, operation) }
+}
+
+async function recoverReadOnlyRun(msg: ChatMessage) {
+  const session = activeSession.value
+  if (!msg.runId || session.loading || session.resuming || session.cancelling) return
+  const index = session.messages.indexOf(msg)
+  if (index < 0) return
+  const operation = beginChatOperation(session)
+  session.abortController = new AbortController()
+  try {
+    const response = await authenticatedFetch(`/api/agent/runs/${msg.runId}/recover`, {
+      method: 'POST', headers: { Accept: 'text/event-stream' }, signal: session.abortController.signal,
+    })
+    if (!response.ok) {
+      await response.body?.cancel()
+      if (response.status === 409 || response.status === 404) msg.recoverable = false
+      throw new Error(response.status === 409 ? '该任务已无法恢复，请重新提问。' : '任务恢复失败，请稍后重试。')
+    }
+    msg.content = ''
+    msg.recoverable = false
+    msg.agent = createAgentState()
+    await consumeAgentStream(response, index, session)
+  } catch (error: any) {
+    if (error.name !== 'AbortError') ElMessage.warning(error.message || '任务恢复失败')
   } finally { finishSession(session, operation) }
 }
 

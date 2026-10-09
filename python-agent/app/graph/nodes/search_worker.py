@@ -25,7 +25,6 @@ from app.services.reranker import RerankerService
 from app.services.citation_builder import CitationBuilder
 from app.tools.web_search import do_search, WebSearchError
 from app.services.agent_events import activity
-from app.services.evidence_selection import evidence_selector
 # 服务实例
 query_rewrite_service = QueryRewriteService()
 reranker_service = RerankerService()
@@ -164,7 +163,8 @@ async def retrieve_evidence(state: AgentState) -> dict:
 
     # 1. Query Rewriting
     await activity(state, "query", "整理检索条件")
-    rewrite_result = await _measure_stage(state, 'query_rewrite', query_rewrite_service.rewrite(task_input, history_messages))
+    rewrite_result = await _measure_stage(state, 'query_rewrite', query_rewrite_service.rewrite_request(
+        state['current_task'], task_input, history_messages))
     log.info("[retrieval] 查询改写 | semantic=%s | keywords=%s",
              rewrite_result.get("semantic_queries"), rewrite_result.get("keywords"))
     #2. 自然语言 filter 解析为可执行 filter。LLM 不直接生成 category_id/user_id
@@ -173,7 +173,7 @@ async def retrieve_evidence(state: AgentState) -> dict:
         await activity(state, "query", "整理检索条件", "error", "条件解析失败，未扩大检索范围")
         return {"status": "tool_error", "result": "查询条件解析失败，请保留原筛选条件重试。",
                 "citations": [], "article_cards": [], "rag_context": "",
-                "retrieval_report": {"quality": {"adequacy": "none", "reason": "query_rewrite_failed"}}}
+                "retrieval_report": {"assessment_owner": "main", "failure_reason": "query_rewrite_failed"}}
     raw_filters = QueryFilters.model_validate(authoritative) if authoritative is not None else rewrite_result["filters"]
     try:
         resolved_filters = await filter_resolver_instance.resolve(raw_filters)
@@ -181,7 +181,7 @@ async def retrieve_evidence(state: AgentState) -> dict:
         await activity(state, "query", "整理检索条件", "error", str(exc))
         return {"status": "insufficient_evidence", "result": str(exc), "citations": [],
                 "article_cards": [], "rag_context": "", "retrieval_report": {
-                    "quality": {"adequacy": "none", "reason": "required_filter_unresolved"}}}
+                    "assessment_owner": "main", "failure_reason": "required_filter_unresolved"}}
     # Main's explicit knowledge scope is independent of the conversation origin;
     # rewriting cannot broaden it, and an empty list means all public articles.
     requested_article_ids = state["current_task"].get("article_ids", [])
@@ -194,9 +194,9 @@ async def retrieve_evidence(state: AgentState) -> dict:
                   or raw_filters.required_tags or raw_filters.time_range not in (None, "all"))
     if scoped:
         need_web_search = False
-    report = {"platform": {"status": "empty", "candidates": 0, "selected": 0},
+    report = {"assessment_owner": "main", "platform": {"status": "empty", "candidates": 0},
               "web": {"status": "not_requested" if not state["current_task"].get("allow_web") else "blocked",
-                      "candidates": 0, "selected": 0}}
+                      "candidates": 0}}
     report["query_rewrite"] = {"status": rewrite_result.get("status", "completed")}
     if scoped and state["current_task"].get("allow_web"):
         report["web"].update(status="blocked", reason="required_platform_filters")
@@ -214,7 +214,7 @@ async def retrieve_evidence(state: AgentState) -> dict:
         candidates = await _verify_candidates_from_mysql(candidates, article_ids=requested_article_ids, filters=resolved_filters)
         await activity(state, "retrieval", "搜索平台文章", "done", f"找到 {len(candidates)} 个当前公开的资料块")
 
-        # Fallback remains a candidate list, never evidence without relevance verification.
+        # Main reads these candidates and judges relevance together with its next action.
         if candidates:
             await activity(state, "rerank", "筛选相关资料")
             ranked = await _measure_stage(state, 'rerank', reranker_service.rerank(task_input, candidates))
@@ -222,7 +222,7 @@ async def retrieve_evidence(state: AgentState) -> dict:
             report['platform']['rerank'] = {'status': 'degraded' if degraded else 'completed',
                 'reason': 'reranker_unavailable' if degraded else None}
             await activity(state, "rerank", "筛选相关资料", "done",
-                           f"精排暂不可用，{len(ranked)} 个候选待相关性核验" if degraded else f"保留 {len(ranked)} 个资料块")
+                           f"精排暂不可用，{len(ranked)} 个粗排候选交由主代理判断" if degraded else f"保留 {len(ranked)} 个候选资料块")
             log.info("[retrieval] 精排完成 | 排序后=%d | top3=%s",
                      len(ranked),
                      [{"title": d.get("title", "")[:40], "score": round(d.get("score", 0), 3)}
@@ -271,50 +271,34 @@ async def retrieve_evidence(state: AgentState) -> dict:
             if not task.done():
                 task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
-    candidates_for_selection = [{"id": f"platform_{i}", "article_id": str(doc.get("article_id", "")), "title": doc.get("title", ""),
-        "heading": doc.get("section_path", []), "content": doc.get("content", "")[:4000],
-        'ranking_status': doc.get('rerank_status', 'completed')} for i, doc in enumerate(ranked)]
-    candidates_for_selection += [{"id": f"web_{i}", "title": item.get("title", ""), "url": item["url"],
-        "content": item["content"][:1200]} for i, item in enumerate(web_results)]
-    await activity(state, "relevance", "核对资料相关性")
-    try:
-        selection_goal = f"用户目标：{state.get('request_goal', task_input)}\n本次检索任务：{task_input}"
-        selection = await _measure_stage(state, 'evidence_verification', evidence_selector.select(selection_goal, candidates_for_selection))
-    except Exception as exc:
-        # Only the read-only relevance call is softened. Source/permission guards
-        # run outside this block and must still fail closed.
-        log.warning("资料相关性校验不可用: %s", type(exc).__name__)
-        report["quality"] = {"adequacy": "unknown", "reason": "相关性校验未完成，候选资料尚不能作为有效证据"}
-        await activity(state, "relevance", "核对资料相关性", "error", "校验未完成")
-        return {"status": "tool_error", "result": "资料相关性校验暂时不可用，尚不能确认这些资料能支撑目标。",
-                "citations": [], "article_cards": [], "rag_context": "", "retrieval_report": report}
-    selected = set(selection.selected_ids)
-    ranked = [doc for i, doc in enumerate(ranked) if f"platform_{i}" in selected]
-    web_results = [item for i, item in enumerate(web_results) if f"web_{i}" in selected]
-    for source, items in (("platform", ranked), ("web", web_results)):
-        report[source]["selected"] = len(items)
-        if report[source]["status"] == "found" and not items:
-            report[source]["status"] = "irrelevant"
-    report["quality"] = {"adequacy": selection.adequacy, "reason": selection.reason, 'verification': 'completed'}
-    await activity(state, "relevance", "核对资料相关性", "done", f"保留 {len(selected)} 条相关资料")
+    # No semantic verdict here: found/succeeded only means candidates were fetched.
+    # Main selects original citation IDs and assesses coverage in its next model call.
     article_cards = _build_cards_from_results(ranked)
     citations, rag_context = citation_builder_instance.build(ranked, id_prefix=f"{state['task_id']}:" if state.get("task_id") else "")
     if not ranked:
         rag_context = ""
     citation_dicts = [c.to_dict() for c in citations]
+    # Keep complete selected chunks available to dependent writing tasks;
+    # citation.excerpt is only a bounded UI preview, not the full source.
+    contents = {(str(doc.get('article_id')), int(doc.get('chunk_index', 0))): doc.get('content', '').strip()
+                for doc in ranked}
+    citation_contents = {str(c['id']): contents.get((str(c.get('articleId')), int(c.get('chunkIndex', 0))), c.get('excerpt', ''))
+                         for c in citation_dicts}
     for item in web_results:
         cid = f"{state.get('task_id', 'web')}:web{len(citation_dicts)+1}"
         citation_dicts.append({"id": cid, "articleId": "", "title": item.get("title", "网页资料"),
                               "chunkIndex": 0, "excerpt": item["content"][:1200], "url": item["url"], "source": "web"})
+        citation_contents[cid] = item['content'][:1200]
         rag_context += f"\n\n[{cid}] {item.get('title', '')}\n{item['content'][:1200]}"
     if web_error:
         rag_context += f"\n\n联网搜索未完成：{web_error}。不得声称已核实实时网页信息。"
     if not citation_dicts:
-        return {"status": "tool_error" if web_error else "insufficient_evidence", "result": web_error or "返回资料无法支撑当前目标。",
+        return {"status": "tool_error" if web_error else "insufficient_evidence", "result": web_error or "本次检索未返回可用候选资料。",
                 "citations": [], "article_cards": [], "rag_context": "", "retrieval_report": report}
 
     return {"status": "succeeded", "rag_context": rag_context,
-            "citations": citation_dicts, "article_cards": article_cards, "retrieval_report": report}
+            "citations": citation_dicts, "citation_contents": citation_contents,
+            "article_cards": article_cards, "retrieval_report": report}
 
 
 @trace_node("search_worker")

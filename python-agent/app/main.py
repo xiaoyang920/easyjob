@@ -33,6 +33,7 @@ from app.services.run_repository import run_repository
 from app.services.memory_management import memory_management, ProfileEdit, RecordEdit
 from app.migrate import check_runtime_schema, check_memory_schema
 from app.migrate import check_optimization_schema, check_heartbeat_schema, check_maintenance_schema
+from app.migrate import check_task_recovery_schema
 
 setup_logging(level="INFO")
 log = get_logger(__name__)
@@ -58,6 +59,7 @@ async def lifespan(app: FastAPI):
         await check_optimization_schema(mysql_client.db)
         await check_heartbeat_schema(mysql_client.db)
         await check_maintenance_schema(mysql_client.db)
+        await check_task_recovery_schema(mysql_client.db)
         if len(settings.AGENT_SERVICE_KEY.encode()) < 32:
             raise RuntimeError("请为 Java 和 Python 配置相同的 AGENT_SERVICE_KEY，至少32字节")
         from app.clients.es_client import BaseEsClient
@@ -309,6 +311,18 @@ async def replay_events(run_id: UUID, after: int = Query(default=0, ge=0), princ
         media_type='text/event-stream', headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
 
+@app.post('/runs/{run_id}/recover')
+async def recover_run(run_id: UUID, principal: Principal = Depends(require_principal)):
+    graph = await get_graph()
+    ticket = await execution_admission.acquire(principal.user_id)
+    try:
+        cid, config = await run_service.prepare_recovery(str(run_id), principal.user_id, graph, ticket)
+        return _stream(graph, None, cid, principal.user_id, config)
+    except BaseException:
+        await asyncio.shield(execution_admission.release(ticket))
+        raise
+
+
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
@@ -495,7 +509,9 @@ async def reconciled_run_status(run, uid):
     if run["status"] in ("running", "awaiting_approval"):
         await run_repository.expire_existing(run["conversation_id"], uid, run["run_id"])
         run = await run_repository.get(run["run_id"])
+    recoverable = RunService.recovery_candidate(run)
     return {"runId": run["run_id"], "conversationId": str(run['conversation_id']), "status": run["status"],
+            "recoverable": recoverable,
             "draftHash": run["draft_hash"], "deadline": run["deadline"].isoformat() + 'Z',
             "result": json.loads(run["result_json"]) if run["result_json"] else None,
             "draftArticleId": str(run["draft_article_id"]) if run["draft_article_id"] else None}

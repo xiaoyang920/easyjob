@@ -21,14 +21,7 @@ public class ArticleCategoryServiceImpl extends ServiceImpl<ArticleCategoryMappe
     private RedisComponent redisComponent;
     @Override
     public List<CategoryVO> listAll() {
-        //先从redis中获取，如果为空则从数据库中获取
-        List<CategoryVO> categoryVOList = redisComponent.getCategories();
-        if(categoryVOList != null&& !categoryVOList.isEmpty()){
-            log.info("从redis中获取文章分类列表");
-            return categoryVOList;
-        }
-        categoryVOList = articleCategoryMapper.listAll();
-        redisComponent.saveCategories(categoryVOList);
-        return categoryVOList;
+        // 分类体积小，直接读取可避免新增分类后旧缓存或并发回填影响可见性。
+        return articleCategoryMapper.listAll();
     }
 }

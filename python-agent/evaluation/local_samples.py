@@ -74,6 +74,7 @@ async def seed(client, uid, articles):
             if result.get('code') != 200: raise ValueError('Local sample publish failed: ' + str(result.get('code')))
             aid = str(result['data']['articleId'])
         mapping[sample['id']] = {'article_id': aid, 'source_hash': fingerprint}
+        await db.execute("UPDATE article_info SET data_source='evaluation' WHERE article_id=:aid AND user_id=:uid",{'aid':int(aid),'uid':uid})
         (LOCAL / 'manifest.json').write_text(json.dumps({'author_id': uid, 'author_name': AUTHOR, 'samples': mapping,
             'annotation_source': 'synthetic_authored'}, ensure_ascii=False, indent=2), encoding='utf-8')
         print(f"{sample['id']} -> {aid}", flush=True)
@@ -137,6 +138,7 @@ async def main(action):
                 {'uid': uid, 'name': AUTHOR, 'email': EMAIL, 'password': secrets.token_urlsafe(60), 'intro': intro})
         else:
             uid = int(row['user_id'])
+        await db.execute("UPDATE user_info SET data_source='evaluation' WHERE user_id=:uid AND email=:email",{'uid':uid,'email':EMAIL})
         async with httpx.AsyncClient(base_url='http://127.0.0.1:3000/api', timeout=30,
                                    headers={'Authorization': 'Bearer ' + local_token(uid)}) as client:
             if action == 'seed': await seed(client, uid, articles)

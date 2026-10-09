@@ -15,7 +15,6 @@ from app.config import settings
 from app.services.retrieval_service import RetrievalService
 from app.services.query_rewrite import ResolvedFilters, QueryFilters
 from app.graph.nodes import search_worker as search
-from app.services.evidence_selection import EvidenceSelection
 from app.services.memory import MemoryService
 from app.services.conversation import summary_prompt
 from app.services.durable_jobs import BackgroundWorker, DurableJobs, LeaseLost
@@ -83,8 +82,7 @@ class ParallelRetrievalTests(unittest.IsolatedAsyncioTestCase):
              patch.object(search.filter_resolver_instance, 'resolve', AsyncMock(return_value=ResolvedFilters())), \
              patch.object(search.retrieval_service_instance, 'hybrid_search', platform), \
              patch.object(search, '_verify_candidates_from_mysql', AsyncMock(return_value=[])), \
-             patch.object(search, 'do_search', web), \
-             patch.object(search.evidence_selector, 'select', AsyncMock(return_value=EvidenceSelection(selected_ids=['web_0'], adequacy='partial', reason='one source'))):
+             patch.object(search, 'do_search', web):
             result = await search.retrieve_evidence(state)
         self.assertEqual(result['retrieval_report']['web']['status'], 'found')
         self.assertEqual(result['status'], 'succeeded')

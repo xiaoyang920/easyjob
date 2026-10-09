@@ -95,7 +95,7 @@ async function loadAccountStats() {
     fetchedStats.value = { followingCount: Number(result.data.followingCount) || 0, followerCount: Number(result.data.followerCount) || 0, articleCount: Number(result.data.articleCount) || 0 }
     const level = result.data.readingProgress?.level
     if (Number.isInteger(level) && level >= 0) readingLevel.value = level
-    administrator.value = result.data.role === 2 && result.data.status === 1
+    administrator.value = [2,3,4].includes(result.data.role) && result.data.status === 1
   } catch { /* 保留占位，下一次展开时可重试。 */ }
   finally { statsLoading = false }
 }

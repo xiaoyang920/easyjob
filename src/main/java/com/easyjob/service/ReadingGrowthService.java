@@ -34,7 +34,7 @@ public class ReadingGrowthService {
         var result=summary(millis,earned);
         int computed=((Number)result.get("level")).intValue();
         if(!rows.isEmpty() && computed>earned)
-            jdbc.update("UPDATE user_reading_progress SET earned_level=GREATEST(earned_level,?) WHERE user_id=?",computed,uid);
+            jdbc.update("UPDATE user_reading_progress SET earned_level=GREATEST(earned_level,?) WHERE user_id=? AND total_millis=? AND earned_level=?",computed,uid,millis,earned);
         return result;
     }
     private Map<String,Object> summary(long millis, int earned) {

@@ -9,6 +9,8 @@ from langchain_community.embeddings import ZhipuAIEmbeddings
 
 from app.config import settings
 from app.services.dependency_policy import embedding_policy
+from app.services.query_vector_cache import query_vector_cache
+import hashlib
 
 
 class EmbeddingService:
@@ -33,7 +35,11 @@ class EmbeddingService:
 
     async def aembed(self, text: str) -> list[float]:
         """异步版本"""
-        return await embedding_policy.run(lambda: self.client.aembed_query(text))
+        scope = hashlib.sha256(settings.ZHIPUAI_API_KEY.encode()).hexdigest()
+        namespace = f"zhipu:{settings.ZHIPU_EMBEDDING_MODEL}:{settings.ZHIPU_EMBEDDING_DIMENSIONS}:{scope}"
+        return await query_vector_cache.get_or_compute(namespace, text,
+            settings.ZHIPU_EMBEDDING_DIMENSIONS,
+            lambda: embedding_policy.run(lambda: self.client.aembed_query(text)))
 
     async def aembed_batch(self, texts: list[str]) -> list[list[float]]:
         """异步批量版本，一次 API 请求，比多次 aembed 更高效"""

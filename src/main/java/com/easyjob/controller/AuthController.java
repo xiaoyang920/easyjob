@@ -123,8 +123,11 @@ public class AuthController {
             passwordMatch = password.equals(user.getPassword());
             //如果验证通过，则更新为加密密码
             if (passwordMatch) {
-                user.setPassword(PasswordUtil.encode(password));
-                userMapper.updateById(user);
+                String encoded=PasswordUtil.encode(password);
+                userMapper.upgradeLegacyPassword(user.getUserId(),user.getPassword(),encoded);
+                user=userMapper.selectById(user.getUserId());
+                if(user==null || !PasswordUtil.matches(password,user.getPassword()))
+                    throw new BusinessException(401,"登录信息已变化，请重试");
             }
         }
         if (!passwordMatch) {
@@ -144,8 +147,7 @@ public class AuthController {
         data.put("avatar", user.getAvatar());
 
         // 更新用户信息
-        user.setLastLoginTime(LocalDateTime.now());
-        userMapper.updateById(user);
+        userMapper.touchLogin(user.getUserId());
         return ResponseVO.success("登录成功", data);
     }
 
@@ -298,8 +300,7 @@ public class AuthController {
         authVO.setEmail(user.getEmail());
         authVO.setAvatar(user.getAvatar());
         // 更新用户信息
-        user.setLastLoginTime(LocalDateTime.now());
-        userMapper.updateById(user);
+        userMapper.touchLogin(user.getUserId());
         return ResponseVO.success("登录成功", authVO);
     }
 }

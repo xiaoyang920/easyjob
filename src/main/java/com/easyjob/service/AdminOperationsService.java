@@ -16,7 +16,7 @@ public class AdminOperationsService {
     private static final Map<String,String> QUEUES=Map.of("memory","agent_background_job","article","article_index_outbox");
     private static final Set<String> KINDS=Set.of("article","memory","article_orphan","memory_orphan","chunk_orphan");
     public Map<String,Object> summary(Long uid) {
-        admin.requireAdmin(uid);var result=new LinkedHashMap<String,Object>();
+        admin.requirePermission(uid,"operations.read");var result=new LinkedHashMap<String,Object>();
         for(var queue:QUEUES.entrySet()) result.put(queue.getKey(),jdbc.queryForList("SELECT status,COUNT(*) AS count,COALESCE(MAX(TIMESTAMPDIFF(SECOND,created_at,UTC_TIMESTAMP(6))),0) AS oldestSeconds FROM "+queue.getValue()+" GROUP BY status"));
         result.put("runs",jdbc.queryForList("SELECT status,COUNT(*) AS count FROM agent_run WHERE created_at>=TIMESTAMPADD(DAY,-1,NOW(6)) GROUP BY status"));
         result.put("views",jdbc.queryForMap("SELECT COUNT(*) AS pending,COALESCE(MAX(attempts),0) AS maxAttempts FROM article_view_sync"));
@@ -24,7 +24,7 @@ public class AdminOperationsService {
         return result;
     }
     public PageVO<Map<String,Object>> jobs(Long uid,String queue,String state,int page,int size) {
-        admin.requireAdmin(uid);String table=QUEUES.get(queue==null?"":queue);
+        admin.requirePermission(uid,"operations.read");String table=QUEUES.get(queue==null?"":queue);
         if(table==null || !Set.of("all","pending","running","dispatched","completed","dead").contains(state==null?"":state))throw new BusinessException(400,"任务筛选无效");
         ArticleRevisionService.bounds(page,size);
         String where=state.equals("all")?"":" WHERE status=?";var args=new ArrayList<Object>();if(!state.equals("all"))args.add(state);
@@ -35,7 +35,7 @@ public class AdminOperationsService {
         return new PageVO<>(rows,count,(long)size,(long)page,(count+size-1)/size);
     }
     public PageVO<Map<String,Object>> runs(Long uid,String state,int page,int size) {
-        admin.requireAdmin(uid);ArticleRevisionService.bounds(page,size);
+        admin.requirePermission(uid,"operations.read");ArticleRevisionService.bounds(page,size);
         if(!Set.of("all","running","awaiting_approval","succeeded","failed","cancelled","expired").contains(state==null?"":state))throw new BusinessException(400,"运行筛选无效");
         var args=new ArrayList<Object>();String where=state.equals("all")?"":" WHERE status=?";if(!state.equals("all"))args.add(state);
         long count=jdbc.queryForObject("SELECT COUNT(*) FROM agent_run"+where,Long.class,args.toArray());args.add(size);args.add((page-1)*size);
@@ -43,7 +43,7 @@ public class AdminOperationsService {
         return new PageVO<>(rows,count,(long)size,(long)page,(count+size-1)/size);
     }
     @Transactional public void retry(Long uid,String queue,String id) {
-        admin.requireAdmin(uid);String table=QUEUES.get(queue==null?"":queue);
+        admin.requirePermission(uid,"operations.manage");String table=QUEUES.get(queue==null?"":queue);
         if(table==null || id==null || !id.matches(queue.equals("article")?"[a-f0-9-]{36}":"[a-f0-9]{64}"))throw new BusinessException(400,"任务标识无效");
         var rows=jdbc.queryForList("SELECT status,"+(queue.equals("article")?"article_id":"user_id")+" AS target_id"+(queue.equals("memory")?",kind":"")+" FROM "+table+" WHERE job_id=? FOR UPDATE",id);
         if(rows.isEmpty())throw new BusinessException(404,"任务不存在");var row=rows.getFirst();
@@ -53,7 +53,7 @@ public class AdminOperationsService {
         jdbc.update("INSERT INTO admin_operation_log(admin_user_id,action,target_type,target_id,before_value,after_value) VALUES (?,'task_retry',?,?,?,'pending')",uid,queue,((Number)row.get("target_id")).longValue(),id);
     }
     @Transactional public void reconcile(Long uid,String kind) {
-        admin.requireAdmin(uid);if(!KINDS.contains(kind==null?"":kind))throw new BusinessException(400,"对账类型无效");
+        admin.requirePermission(uid,"operations.manage");if(!KINDS.contains(kind==null?"":kind))throw new BusinessException(400,"对账类型无效");
         int changed=jdbc.update("UPDATE maintenance_cursor SET next_at=UTC_TIMESTAMP(6) WHERE kind=? AND (lease_until IS NULL OR lease_until<=UTC_TIMESTAMP(6)) AND next_at>UTC_TIMESTAMP(6)",kind);
         if(changed==0)throw new BusinessException(409,"对账已在等待或执行中，请稍后刷新");
         jdbc.update("INSERT INTO admin_operation_log(admin_user_id,action,target_type,target_id,before_value,after_value) VALUES (?,'index_reconcile','maintenance',?,'idle',?)",uid,uid,kind);

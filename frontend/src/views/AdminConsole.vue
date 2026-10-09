@@ -9,8 +9,8 @@
     <div v-else class="admin-layout">
       <aside class="admin-sidebar">
         <p>工作台</p>
-        <button v-for="item in sections" :key="item.key" :class="{selected:section === item.key}" :aria-current="section === item.key ? 'page' : undefined" @click="changeSection(item.key)"><component :is="item.icon" />{{ item.title }}<span>↗</span></button>
-        <div class="admin-sidebar-note"><span class="admin-dot"></span>管理员权限已验证<p>每次操作由后端校验<br>变更记录可在日志查看</p></div>
+        <button v-for="item in availableSections" :key="item.key" :class="{selected:section === item.key}" :aria-current="section === item.key ? 'page' : undefined" @click="changeSection(item.key)"><component :is="item.icon" />{{ item.title }}<span>↗</span></button>
+        <div class="admin-sidebar-note"><span class="admin-dot"></span>后台权限已验证<p>每次操作由后端校验<br>变更记录可在日志查看</p></div>
       </aside>
       <main class="admin-main">
         <div class="admin-page-heading"><div><small>{{ section === 'overview' ? '工作台 / 概览' : `工作台 / ${currentSection.title}` }}</small><h1>{{ currentSection.title }}</h1><p>{{ currentSection.description }}</p></div><button class="admin-button" :disabled="loading || refreshing" @click="refresh">刷新 <Refresh /></button></div>
@@ -19,13 +19,16 @@
           <div class="admin-metrics">
             <div v-for="metric in metrics" :key="metric.label" class="admin-metric"><span>{{ metric.label }}</span><strong>{{ overview ? metric.value : '—' }}</strong><small>{{ metric.note }}</small></div>
           </div>
+          <AdminStatisticsPanel v-if="can('statistics.read')" ref="statisticsPanel" />
           <div class="admin-overview-panels">
             <section class="admin-panel"><div class="admin-panel-heading"><h2>阅读成长规则</h2><span class="admin-pill">永久累计</span></div><p>用户阅读解锁内容，达到累计时间后升级，已获得等级不衰减。</p><div v-for="rule in rules" :key="rule.level" class="admin-rule"><span>L{{ rule.level }}</span><strong>{{ rule.minSeconds === 0 ? '公开阅读' : readingDuration(rule.minSeconds) }}</strong></div></section>
-            <section class="admin-panel admin-quick-start"><h2>内容管理</h2><p>在文章列表设置阅读门槛，或下架与恢复已发布内容。</p><button class="admin-button primary" @click="changeSection('articles')">管理文章 <ArrowRight /></button><div class="admin-policy"><strong>下架与草稿分开</strong><p>下架内容不会进入作者草稿箱。恢复后保留原发布时间与阅读等级。</p></div><div class="admin-policy"><strong>用户资料按需查看</strong><p>用户列表提供角色、账号状态和阅读成长查询，保留现有等级。</p></div></section>
+            <section class="admin-panel admin-quick-start"><h2>内容管理</h2><p>在文章列表设置阅读门槛，或下架与恢复已发布内容。</p><button v-if="can('articles.read')" class="admin-button primary" @click="changeSection('articles')">管理文章 <ArrowRight /></button><div class="admin-policy"><strong>下架与草稿分开</strong><p>下架内容不会进入作者草稿箱。恢复后保留原发布时间与阅读等级。</p></div><div class="admin-policy"><strong>用户资料与成长管理</strong><p>编辑资料、角色与账号状态，按需校正阅读时长。每次修改均保留原因与操作记录。</p></div></section>
           </div>
         </template>
         <ArticleReviewPanel v-else-if="section==='reviews'" ref="reviewPanel" @changed="loadOverview" />
         <AdminOperationsPanel v-else-if="section==='operations'" ref="operationsPanel" />
+        <AdminCategoriesPanel v-else-if="section==='categories'" ref="categoriesPanel" />
+        <AdminAgentMetricsPanel v-else-if="section==='agentMetrics'" ref="agentMetricsPanel" />
         <section v-else class="admin-panel admin-list-panel">
           <form v-if="section !== 'logs'" class="admin-filters" @submit.prevent="search">
             <label class="admin-search"><Search /><input v-model="keyword" maxlength="80" :placeholder="section === 'articles' ? '搜索文章标题、作者' : '搜索昵称、用户 ID'" :aria-label="section === 'articles' ? '搜索文章标题、作者' : '搜索昵称、用户 ID'"></label>
@@ -37,13 +40,14 @@
           <ContentState v-else-if="!records.length" kind="empty" title="暂无匹配记录" />
           <div v-else class="admin-table-wrap">
             <table v-if="section === 'articles'" class="admin-table"><thead><tr><th>文章 / 作者</th><th>状态</th><th>阅读门槛</th><th>阅读量</th><th>更新于</th><th>操作</th></tr></thead><tbody><tr v-for="row in records" :key="row.articleId"><td class="admin-title-cell"><strong>{{ row.title }}</strong><small>{{ row.authorName || '作者已删除' }} · {{ row.articleId }}</small></td><td><span class="admin-pill" :class="{removed:row.status===2}">{{ articleStatus(row.status) }}</span></td><td><div class="admin-inline-editor"><select v-model.number="row.selectedLevel" :disabled="!!busy" :aria-label="`${row.title}的阅读等级`"><option v-for="rule in rules" :key="rule.level" :value="rule.level">L{{ rule.level }}{{ rule.level===0?' · 公开':'' }}</option></select><button class="admin-text-button" :disabled="!!busy || row.selectedLevel===row.requiredLevel" @click="saveLevel(row)">保存</button></div></td><td>{{ row.viewCount || 0 }}</td><td class="admin-time">{{ time(row.updateTime) }}</td><td><div class="admin-row-actions"><RouterLink v-if="row.status===1" :to="`/article/${row.articleId}`" target="_blank">查看 ↗</RouterLink><button v-if="row.status===1 || row.status===2" class="admin-text-button" :class="{danger:row.status===1}" :disabled="!!busy" @click="setVisibility(row)">{{ busy===row.articleId ? '处理中…' : row.status===1?'下架':'恢复' }}</button><span v-else class="admin-muted">由作者发布</span></div></td></tr></tbody></table>
-            <table v-else-if="section === 'users'" class="admin-table"><thead><tr><th>用户</th><th>角色</th><th>状态</th><th>阅读等级</th><th>累计有效阅读</th><th>注册于</th></tr></thead><tbody><tr v-for="row in records" :key="row.userId"><td class="admin-title-cell"><RouterLink :to="`/user-space/${row.userId}`" target="_blank">{{ row.nickName }} ↗</RouterLink><small>{{ row.userId }}</small></td><td>{{ row.role===2?'管理员':'普通用户' }}</td><td>{{ row.status===1?'正常':'已禁用' }}</td><td><span class="admin-pill">L{{ row.readingLevel }}</span></td><td>{{ readingDuration(row.readingSeconds) }}</td><td class="admin-time">{{ time(row.joinTime) }}</td></tr></tbody></table>
-            <table v-else class="admin-table"><thead><tr><th>操作时间</th><th>管理员</th><th>操作</th><th>目标 ID</th><th>变更</th></tr></thead><tbody><tr v-for="row in records" :key="row.id"><td class="admin-time">{{ time(row.createdAt) }}</td><td>{{ row.adminName || row.adminUserId }}</td><td>{{ logLabel(row.action) }}</td><td>{{ row.targetId }}</td><td>{{ logChange(row) }}</td></tr></tbody></table>
+            <table v-else-if="section === 'users'" class="admin-table"><thead><tr><th>用户</th><th>角色</th><th>状态</th><th>阅读等级</th><th>累计有效阅读</th><th>注册于</th><th>操作</th></tr></thead><tbody><tr v-for="row in records" :key="row.userId"><td class="admin-title-cell"><RouterLink :to="`/user-space/${row.userId}`" target="_blank">{{ row.nickName }} ↗</RouterLink><small>{{ row.userId }}</small></td><td>{{ roleName(row.role) }}</td><td>{{ row.status===1?'正常':'已禁用' }}</td><td><span class="admin-pill">L{{ row.readingLevel }}</span></td><td>{{ readingDuration(row.readingSeconds) }}</td><td class="admin-time">{{ time(row.joinTime) }}</td><td><button class="admin-text-button" @click="editUser(row)">编辑</button></td></tr></tbody></table>
+            <table v-else class="admin-table"><thead><tr><th>操作时间</th><th>管理员</th><th>操作</th><th>目标 ID</th><th>变更</th></tr></thead><tbody><tr v-for="row in records" :key="row.id"><td class="admin-time">{{ time(row.createdAt) }}</td><td>{{ row.adminName || row.adminUserId }}</td><td>{{ logLabel(row.action) }}</td><td>{{ row.targetId }}</td><td>{{ logChange(row) }}<small v-if="row.reason" class="admin-log-reason">原因：{{ row.reason }}</small><details v-if="row.detailsJson" class="admin-log-details"><summary>完整变更</summary><pre>{{ formatDetails(row.detailsJson) }}</pre></details></td></tr></tbody></table>
           </div>
           <div class="admin-pagination"><span>共 {{ total }} 条</span><div><button class="admin-button" :disabled="loading || page<=1" @click="turnPage(-1)">上一页</button><span>{{ page }} / {{ Math.max(1,pages) }}</span><button class="admin-button" :disabled="loading || page>=pages" @click="turnPage(1)">下一页</button></div></div>
         </section>
       </main>
     </div>
+    <AdminUserEditor v-model="editingUser" :user-id="editingUserId" :operator-id="operator?.userId" @changed="userChanged" />
   </div>
 </template>
 
@@ -55,25 +59,35 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import ContentState from '@/components/ContentState.vue'
 import ArticleReviewPanel from '@/components/ArticleReviewPanel.vue'
 import AdminOperationsPanel from '@/components/AdminOperationsPanel.vue'
+import AdminUserEditor from '@/components/AdminUserEditor.vue'
+import AdminStatisticsPanel from '@/components/AdminStatisticsPanel.vue'
+import AdminCategoriesPanel from '@/components/AdminCategoriesPanel.vue'
+import AdminAgentMetricsPanel from '@/components/AdminAgentMetricsPanel.vue'
 import request from '@/utils/request'
 import { latestRequest } from '@/utils/latestRequest'
 import { readingDuration } from '@/utils/readingGrowth'
 
-type Section = 'overview'|'articles'|'users'|'logs'|'reviews'|'operations'
-type Row = { articleId:string;title:string;authorName:string;status:number;requiredLevel:number;selectedLevel:number;viewCount:number;updateTime:string;userId:string;nickName:string;role:number;readingLevel:number;readingSeconds:number;joinTime:string;id:string;action:string;adminName:string;adminUserId:string;targetId:string;beforeValue:string;afterValue:string;createdAt:string }
+type Section = 'overview'|'articles'|'users'|'logs'|'reviews'|'operations'|'categories'|'agentMetrics'
+type Row = { articleId:string;title:string;authorName:string;status:number;requiredLevel:number;selectedLevel:number;viewCount:number;updateTime:string;userId:string;nickName:string;role:number;readingLevel:number;readingSeconds:number;joinTime:string;id:string;action:string;adminName:string;adminUserId:string;targetId:string;beforeValue:string;afterValue:string;createdAt:string;reason?:string;detailsJson?:string }
 type Overview = { users:number;published:number;restricted:number;removed:number;readingSeconds:number;pendingReviews:number;rules:{level:number;minSeconds:number}[] }
 const router=useRouter(),route=useRoute()
 const sections=[
   {key:'overview' as Section,title:'概览',description:'社区内容与阅读成长，一眼掌握。',icon:DataAnalysis},
   {key:'reviews' as Section,title:'文章审核',description:'查看完整提交版本，通过后更新公开内容。',icon:Tickets},
   {key:'articles' as Section,title:'文章管理',description:'调整阅读门槛，管理已发布内容的可见状态。',icon:Document},
-  {key:'users' as Section,title:'用户与成长',description:'查询用户角色、账号状态与累计阅读进度。',icon:User},
+  {key:'categories' as Section,title:'分类管理',description:'添加文章分类，组织社区内容与创作选项。',icon:Document},
+  {key:'users' as Section,title:'用户与成长',description:'管理用户资料、角色、账号状态与阅读成长。',icon:User},
   {key:'operations' as Section,title:'运行与任务',description:'检查后台积压、失败任务和索引同步状态。',icon:DataAnalysis},
-  {key:'logs' as Section,title:'操作日志',description:'查看内容管理、任务重试与索引对账操作。',icon:Tickets}
+  {key:'agentMetrics' as Section,title:'Agent 指标',description:'查看运行结果、活跃时长及供应商实际返回的 Token 使用量。',icon:DataAnalysis},
+  {key:'logs' as Section,title:'操作日志',description:'查看用户与内容变更、任务重试及索引对账记录。',icon:Tickets}
 ]
 const section=ref<Section>(sections.some(s=>s.key===route.query.section)?route.query.section as Section:'overview')
 const currentSection=computed(()=>sections.find(s=>s.key===section.value)!)
-const operator=ref<{userId:string;nickName:string}>(),authorizing=ref(true),accessError=ref('')
+const operator=ref<{userId:string;nickName:string;permissions:string[]}>(),authorizing=ref(true),accessError=ref('')
+const sectionPermission:Record<Section,string>={overview:'overview.read',articles:'articles.read',reviews:'reviews.read',users:'users.read',categories:'categories.read',operations:'operations.read',logs:'logs.read',agentMetrics:'metrics.read'}
+const can=(permission:string)=>operator.value?.permissions?.includes(permission) || false
+const availableSections=computed(()=>sections.filter(s=>can(sectionPermission[s.key])))
+const roleName=(role:number)=>({1:'普通用户',2:'管理员',3:'审核员',4:'运营员'}[role] || '未知角色')
 const overview=ref<Overview>(),overviewError=ref(''),refreshing=ref(false)
 const rules=computed(()=>overview.value?.rules || [])
 const metrics=computed(()=>[
@@ -86,17 +100,24 @@ const metrics=computed(()=>[
 ])
 const keyword=ref(''),status=ref(''),page=ref(1),pages=ref(0),total=ref(0),records=ref<Row[]>([])
 const loading=ref(false),error=ref(''),busy=ref('')
+const editingUser=ref(false),editingUserId=ref('')
+function editUser(row:Row){editingUserId.value=row.userId;editingUser.value=true}
+async function userChanged(){await refresh();try{const result:any=await request.get('/admin/me');if(!disposed)operator.value=result.data}catch(e){ElMessage.error(message(e))}}
+const formatDetails=(value:string)=>{try{return JSON.stringify(typeof value==='string'?JSON.parse(value):value,null,2)}catch{return value}}
 const gate=latestRequest();let disposed=false
 const reviewPanel=ref<{reload:()=>Promise<void>}>()
+const statisticsPanel=ref<{reload:()=>Promise<void>}>()
 const operationsPanel=ref<{reload:()=>Promise<void>}>()
+const categoriesPanel=ref<{reload:()=>Promise<void>}>()
+const agentMetricsPanel=ref<{reload:()=>Promise<void>}>()
 const message=(error:unknown)=>error instanceof Error?error.message:'请求失败，请稍后重试'
 const articleStatus=(status:number)=>({0:'草稿',1:'已发布',2:'已下架'}[status] || '其他状态')
-const logLabel=(action:string)=>({reading_level:'设置阅读等级',visibility:'调整文章状态',task_retry:'重试后台任务',index_reconcile:'安排索引对账'}[action] || action)
-const logChange=(row:Row)=>row.action==='reading_level'?`L${row.beforeValue} → L${row.afterValue}`:row.action==='visibility'?`${articleStatus(Number(row.beforeValue))} → ${articleStatus(Number(row.afterValue))}`:`${row.beforeValue} → ${row.afterValue}`
+const logLabel=(action:string)=>({category_create:'新增文章分类',category_update:'修改文章分类',category_migrate:'迁移文章分类',user_update:'修改用户资料',reading_level:'设置阅读等级',visibility:'调整文章状态',task_retry:'重试后台任务',index_reconcile:'安排索引对账'}[action] || action)
+const logChange=(row:Row)=>row.action==='category_create'?`新增：${row.afterValue}`:row.action==='reading_level'?`L${row.beforeValue} → L${row.afterValue}`:row.action==='visibility'?`${articleStatus(Number(row.beforeValue))} → ${articleStatus(Number(row.afterValue))}`:`${row.beforeValue} → ${row.afterValue}`
 const time=(value:string)=>value?value.replace('T',' ').slice(0,16):'—'
 async function authorize(){
   authorizing.value=true;accessError.value=''
-  try{const result:any=await request.get('/admin/me');if(disposed)return;operator.value=result.data;await refresh()}
+  try{const result:any=await request.get('/admin/me');if(disposed)return;operator.value=result.data;if(!can(sectionPermission[section.value])){section.value='overview';await router.replace('/admin')}await refresh()}
   catch(err){if(!disposed)accessError.value=message(err)}finally{if(!disposed)authorizing.value=false}
 }
 async function loadOverview(){
@@ -107,6 +128,8 @@ async function loadRecords(){
   if(section.value==='overview')return
   if(section.value==='reviews'){await reviewPanel.value?.reload();return}
   if(section.value==='operations'){await operationsPanel.value?.reload();return}
+  if(section.value==='categories'){await categoriesPanel.value?.reload();return}
+  if(section.value==='agentMetrics'){await agentMetricsPanel.value?.reload();return}
   const run=gate.begin();loading.value=true;error.value=''
   try{
     const result:any=await request.get(`/admin/${section.value}`,{params:{keyword:keyword.value.trim(),page:page.value,size:20,...(section.value==='articles' && status.value!==''?{status:Number(status.value)}:{})},signal:run.signal})
@@ -114,8 +137,8 @@ async function loadRecords(){
     records.value=result.data.records.map((row:Row)=>({...row,selectedLevel:row.requiredLevel}));total.value=result.data.total;pages.value=result.data.pages
   }catch(err){if(run.isCurrent() && !disposed)error.value=message(err)}finally{if(run.isCurrent() && !disposed)loading.value=false}
 }
-async function refresh(){refreshing.value=true;await Promise.all([loadOverview(),loadRecords()]);if(!disposed)refreshing.value=false}
-function changeSection(next:Section){gate.cancel();section.value=next;keyword.value='';status.value='';page.value=1;records.value=[];total.value=0;pages.value=0;error.value='';loading.value=false;void router.replace({path:'/admin',query:next==='overview'?{}:{section:next}});void loadRecords()}
+async function refresh(){refreshing.value=true;await Promise.all([loadOverview(),loadRecords(),statisticsPanel.value?.reload()]);if(!disposed)refreshing.value=false}
+function changeSection(next:Section){if(!can(sectionPermission[next]))return;gate.cancel();section.value=next;keyword.value='';status.value='';page.value=1;records.value=[];total.value=0;pages.value=0;error.value='';loading.value=false;void router.replace({path:'/admin',query:next==='overview'?{}:{section:next}});void loadRecords()}
 function search(){page.value=1;void loadRecords()}
 function turnPage(delta:number){page.value+=delta;void loadRecords()}
 async function saveLevel(row:Row){
@@ -135,6 +158,7 @@ onUnmounted(()=>{disposed=true;gate.cancel()})
 </script>
 
 <style scoped>
+.admin-log-reason{display:block;margin-top:8px;color:var(--ej-muted);font-size:11px;overflow-wrap:anywhere}.admin-log-details{margin-top:8px;font-size:11px}.admin-log-details summary{cursor:pointer}.admin-log-details pre{white-space:pre-wrap;overflow-wrap:anywhere;max-width:500px;max-height:300px;overflow:auto;padding:12px;background:var(--ej-canvas);border-radius:8px}
 .admin-console{min-height:100vh;background:var(--ej-canvas);color:var(--ej-ink);font-family:var(--ej-font)}
 .admin-header{height:76px;border-bottom:1px solid var(--ej-line);display:flex;align-items:center;justify-content:space-between;padding:0 36px;background:var(--ej-surface);gap:20px}
 .admin-brand{display:flex;align-items:center;gap:10px;font-size:22px;font-weight:800;text-decoration:none;color:inherit;white-space:nowrap}.admin-brand>span{background:var(--ej-ink);color:var(--ej-surface);border-radius:50%;width:36px;height:36px;display:grid;place-items:center;font-style:italic}.admin-brand small{font-size:12px;font-weight:500;color:var(--ej-muted);border-left:1px solid var(--ej-line);margin-left:8px;padding-left:18px}

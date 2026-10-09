@@ -24,14 +24,14 @@ async def save_draft_to_article_info(user_id: int, draft: DraftOutput, article_i
             category_id, tags,
             view_count, like_count, collect_count, comment_count, share_count,
             status, is_top, is_essence, is_original,
-            publish_time, create_time, update_time, deleted
+            publish_time, create_time, update_time, deleted, data_source
         ) VALUES (
             :aid, :uid,
             :title, NULL, :summary, :content, 2,
             NULL, '',
             0, 0, 0, 0, 0,
             0, 0, 0, 1,
-            NULL, :now, :now, 0
+            NULL, :now, :now, 0, COALESCE((SELECT data_source FROM user_info WHERE user_id=:uid),'business')
         ) ON DUPLICATE KEY UPDATE article_id = article_id
         """,
         {

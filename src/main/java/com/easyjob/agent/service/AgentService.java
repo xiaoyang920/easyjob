@@ -106,6 +106,14 @@ public class AgentService {
             throw upstreamError(exception.getStatusCode(), "/runs/" + runId);
         }
     }
+    public Flux<String> recoverRun(String runId, Long uid) {
+        try {
+            UUID.fromString(runId);
+        } catch (IllegalArgumentException invalid) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "运行标识无效");
+        }
+        return stream("/runs/" + runId + "/recover", uid, Map.of());
+    }
     public Map<String,Object> runOverview(Long uid) {
         try {
             return JSON.parseObject(restTemplate.exchange(pythonUrl + "/run-overview", HttpMethod.GET,

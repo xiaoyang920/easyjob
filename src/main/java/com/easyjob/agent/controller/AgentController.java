@@ -180,6 +180,11 @@ public class AgentController {
             return ResponseVO.success(agentService.runStatus(runId, UserContext.getUserId()));
         }
 
+        @PostMapping(value = "/runs/{runId}/recover", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+        public Flux<String> recoverRun(@PathVariable String runId) {
+            return agentService.recoverRun(runId, UserContext.getUserId());
+        }
+
         @GetMapping("/conversations/{conversationId}/run")
         public ResponseVO conversationRun(@PathVariable Long conversationId) {
             return ResponseVO.success(agentService.conversationRun(conversationId, UserContext.getUserId()));

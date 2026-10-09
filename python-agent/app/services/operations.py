@@ -110,7 +110,11 @@ class Operations:
                 rerank_calls += 1
                 degraded += r['status'] == 'degraded'
             approval_conflicts += name == 'approval' and r['status'] == 'conflict'
-        return {'window_hours': 24, 'sampled_runs': len(sampled), 'runs_truncated': len(rows) > 2000,
+        from app.services.query_vector_cache import query_vector_cache
+        return {'query_vector_cache': {'scope': 'current process since startup',
+                    'hits': query_vector_cache.hits, 'misses': query_vector_cache.misses,
+                    'coalesced': query_vector_cache.coalesced, 'entries': len(query_vector_cache.values)},
+                'window_hours': 24, 'sampled_runs': len(sampled), 'runs_truncated': len(rows) > 2000,
                 'events_truncated': len(events) > 10000, 'runs_with_metrics': len(measured),
                 'model_calls': calls, 'observed_model_failures': failures,
                 'model_failure_rate': failures / calls if calls and all('failed_llm_calls' in m for m in measured) else None,

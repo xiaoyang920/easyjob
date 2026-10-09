@@ -139,8 +139,8 @@ async def live(args, cases, output, manifest):
             uid, email = snowflake.next_id(), 'e2e-' + secrets.token_hex(8) + '@sample.invalid'
             password = secrets.token_urlsafe(30)
             await db.execute("""INSERT INTO user_info(user_id,nick_name,email,password,person_introduction,
-                join_time,sex,status,article_count,total_coin_count,current_coin_count,theme,role,follower_count,following_count)
-                VALUES(:uid,:name,:email,:password,'临时端到端评测账号',NOW(),2,1,0,0,0,1,1,0,0)""",
+                join_time,sex,status,article_count,total_coin_count,current_coin_count,theme,role,follower_count,following_count,data_source)
+                VALUES(:uid,:name,:email,:password,'临时端到端评测账号',NOW(),2,1,0,0,0,1,1,0,0,'evaluation')""",
                 {'uid': uid, 'email': email, 'name': 'Agent评测' + email[4:12], 'password': password})
             (output / 'fixture.json').write_text(json.dumps({'uid': uid, 'email': email, 'password': password}), encoding='utf-8')
         async with httpx.AsyncClient(base_url='http://127.0.0.1:8080/api', timeout=args.timeout,

@@ -80,6 +80,15 @@ class QueryRewriteService:
         from app.config import settings
         self.llm = get_llm(max_tokens=min(2048, settings.MAIN_OUTPUT_MAX_TOKENS))
 
+    async def rewrite_request(self, task, query, history_messages):
+        import re
+        direct = (task.get('search_query') or '').strip()
+        ambiguous = re.search(r'这篇|上一篇|它|刚才|前面|上述|之前|\b(it|that|previous|above)\b', direct, re.I)
+        if direct and not ambiguous and task.get('filters') is not None and query == task.get('instruction'):
+            return {'semantic_queries': [direct], 'keywords': [direct], 'web_query': direct,
+                    'filters': QueryFilters.model_validate(task['filters']), 'status': 'bypassed'}
+        return await self.rewrite(query, history_messages)
+
     async def rewrite(self, query: str, history_messages: list[dict]) -> dict:
         """
         改写查询

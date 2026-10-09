@@ -11,7 +11,7 @@
         <result property="articleCount" column="articleCount"/>
         <result property="status" column="status"/>
         <result property="createTime" column="createTime"/>
-        <collection property="children" ofType="com.easyjob.vo.CategoryVO">
+        <collection property="children" ofType="com.easyjob.vo.CategoryVO" notNullColumn="child_categoryId">
             <id property="categoryId" column="child_categoryId"/>
             <result property="categoryName" column="child_categoryName"/>
             <result property="parentId" column="child_parentId"/>
@@ -42,8 +42,8 @@
             b.status AS child_status,
             b.create_time AS child_createTime
         FROM category AS a
-                 LEFT JOIN category AS b ON a.category_id = b.parent_id
-        WHERE a.parent_id = 0
-        ORDER BY a.sort_order
+                 LEFT JOIN category AS b ON a.category_id = b.parent_id AND b.status = 1
+        WHERE a.parent_id = 0 AND a.status = 1
+        ORDER BY a.sort_order,a.category_id,b.sort_order,b.category_id
     </select>
 </mapper>

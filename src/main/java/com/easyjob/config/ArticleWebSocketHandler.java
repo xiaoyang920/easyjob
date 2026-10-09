@@ -33,6 +33,13 @@ public class ArticleWebSocketHandler extends TextWebSocketHandler {
     private static final Map<String, Set<WebSocketSession>> ARTICLE_SESSIONS = new ConcurrentHashMap<>();
     private static final Map<WebSocketSession, UserInfo> SESSIONS = new ConcurrentHashMap<>();
 
+    public void disconnectUser(Long id) {
+        SESSIONS.forEach((session,user)->{
+            if(id.toString().equals(user.getUserId())) try {session.close(CloseStatus.POLICY_VIOLATION);}
+            catch(IOException e){log.warn("Cannot close revoked article session for {}",id,e);}
+        });
+    }
+
     /**
      * 连接建立成功
      * @param session

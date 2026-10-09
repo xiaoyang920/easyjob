@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 import java.util.concurrent.TimeUnit;
 
 @Component
+@org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(name="agent.index-outbox.enabled",havingValue="true",matchIfMissing=true)
 @Slf4j
 public class ArticleIndexRelay {
     private final ArticleIndexOutbox outbox;

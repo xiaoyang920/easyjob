@@ -43,6 +43,24 @@ def task_context(state, task):
         if not result or result["status"] != "succeeded":
             raise ValueError("必需依赖缺失或未成功")
         dependencies[dep] = result_view(state, dep, result)
+    assessment = (state.get('main_decision') or {}).get('evidence_assessment')
+    if assessment is not None and task.actor == 'main' and task.kind in ('analysis', 'writing'):
+        # Main-authored artifacts/drafts inherit only its chosen sources. Do not
+        # mutate stored results or pre-judge new sources inside a delegated DAG.
+        selected = set(assessment['selected_ids'])
+        for dep, result in list(dependencies.items()):
+            citations = [c for c in result.get('citations', []) if str(c['id']) in selected]
+            articles = {str(c.get('articleId')) for c in citations if c.get('articleId')}
+            filtered = {**result, 'citations': citations, 'article_cards': [
+                card for card in result.get('article_cards', []) if str(card['articleId']) in articles]}
+            if result.get('retrieval_report', {}).get('assessment_owner') == 'main':
+                contents = result.get('citation_contents', {})
+                filtered['result'] = '\n\n'.join(
+                    f"[{c['id']}] {c.get('title', '')}\n{contents.get(str(c['id']), c.get('excerpt', ''))}" for c in citations)
+            dependencies[dep] = filtered
+    for result in dependencies.values():
+        # Internal source storage must not duplicate full chunks in model inputs.
+        result.pop('citation_contents', None)
     evidence = {}
     for result in dependencies.values():
         for citation in result.get("citations", []):
@@ -132,6 +150,9 @@ def task_result(state, update, *, raw_retrieval=False):
             "retrieval_target": task.retrieval_target, "result": result["result"], "citations": citations,
             "article_cards": cards,
             **({"retrieval_report": update["retrieval_report"]} if update.get("retrieval_report") else {}),
+            **({'citation_contents': {str(c['id']): update['citation_contents'][str(c['id'])]
+                                     for c in citations if str(c['id']) in update['citation_contents']}}
+               if raw_retrieval and update.get('citation_contents') else {}),
             **({"memory_sources": update.get("memory_sources", []), "memory_found": update["memory_found"],
                 "memory_match_count": update["memory_match_count"]} if memory_lookup else {}),
             "draft_article_id": update.get("draft_article_id"),
@@ -162,11 +183,17 @@ def guard_node(name, function):
         label = f"{state['task_id']}.{name}" if state.get("task_id") else f"round_{round_number}.{name}"
         if run_id:
             await run_repository.event(run_id, label, "started")
+            if hasattr(run_repository, 'mark_recovery_node'):
+                await run_repository.mark_recovery_node(run_id, executor_token(state), name)
         await node_activity(state, name, "active")
         try:
             output = function(state)
             if inspect.isawaitable(output):
                 output = await output
+            from app.services.run_metrics import metrics_from
+            metrics = metrics_from(get_config())
+            if run_id and metrics and hasattr(run_repository, 'persist_metrics'):
+                await run_repository.persist_metrics(run_id, executor_token(state), metrics)
             if run_id:
                 await run_repository.event(run_id, label, "succeeded", int((time.perf_counter()-started)*1000))
             await node_activity(state, name, "done")
@@ -177,6 +204,10 @@ def guard_node(name, function):
             await node_activity(state, name, "paused")
             raise
         except BaseException:
+            from app.services.run_metrics import metrics_from
+            metrics = metrics_from(get_config())
+            if run_id and metrics and hasattr(run_repository, 'persist_metrics'):
+                await run_repository.persist_metrics(run_id, executor_token(state), metrics)
             if run_id:
                 await run_repository.event(run_id, label, "failed", int((time.perf_counter()-started)*1000))
             await node_activity(state, name, "error")

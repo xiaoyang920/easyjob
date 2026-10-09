@@ -12,7 +12,7 @@ class AdminOperationsTests {
     final AdminOperationsService service=new AdminOperationsService(jdbc,admin);
     final String id="e5b1f115-a7d4-4cb8-87a4-50a1200dc531";
     @Test void allEntrypointsRequireAdministratorBeforeQuery() {
-        doThrow(new BusinessException(403,"denied")).when(admin).requireAdmin(3L);
+        doThrow(new BusinessException(403,"denied")).when(admin).requirePermission(eq(3L),anyString());
         assertThrows(BusinessException.class,()->service.summary(3L));
         assertThrows(BusinessException.class,()->service.jobs(3L,"article","dead",1,20));
         assertThrows(BusinessException.class,()->service.runs(3L,"all",1,20));

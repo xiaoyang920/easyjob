@@ -20,6 +20,10 @@ async def maintain_executor(repository, config):
             await asyncio.sleep(settings.EXECUTOR_HEARTBEAT_SECONDS)
             try:
                 await asyncio.wait_for(repository.renew_executor(cfg['run_id'], cfg['execution_token']), 5)
+                from app.services.run_metrics import metrics_from
+                metrics = metrics_from(config)
+                if metrics and hasattr(repository, 'persist_metrics'):
+                    await asyncio.wait_for(repository.persist_metrics(cfg['run_id'], cfg['execution_token'], metrics), 5)
             except Exception as error:
                 # Settlement ends execution, but delivery may still be writing terminal frames.
                 if isinstance(error, HTTPException) and error.status_code == 409 and hasattr(repository, 'get'):

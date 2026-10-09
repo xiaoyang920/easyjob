@@ -6,6 +6,7 @@ from app.config import settings
 from app.services.execution_admission import execution_admission
 from app.services.run_repository import run_repository
 from app.services.executor_heartbeat import maintain_executor
+from app.services.stream_coalescing import coalesce_previews
 
 log = logging.getLogger(__name__)
 
@@ -39,7 +40,7 @@ class StreamDelivery:
                 if not existing:
                     config = {'configurable': {'run_id': rid, 'execution_token': token, 'replay': replay}}
                     async with maintain_executor(self.repository, config):
-                        async for frame in source:
+                        async for frame in coalesce_previews(source, interval=settings.STREAM_COALESCE_MS / 1000):
                             await self.append(rid, token, frame)
             except asyncio.CancelledError:
                 await asyncio.shield(self.repository.fail(rid, token))

@@ -78,4 +78,25 @@ class AuthSessionTests {
         service.revoke("a".repeat(43));
         verify(redis).delete("auth:session:" + id);
     }
+    @Test void managementVersionRevokesAccessRefreshAndLegacyEvenAfterReenable() {
+        session(System.currentTimeMillis()+120000);
+        User changed=user();changed.setAuthVersion(2L);when(users.selectById(7L)).thenReturn(changed);
+        assertFalse(service.valid(AuthSessionService.digest("a".repeat(43)),7L));
+        assertFalse(service.validLegacy(7L));
+        assertThrows(BusinessException.class,()->service.refresh("a".repeat(43)));
+    }
+    @Test void newLoginUsesCurrentVersionAndDisabledUsersLoseAccessImmediately() {
+        session(System.currentTimeMillis()+120000);
+        User changed=user();changed.setAuthVersion(3L);when(users.selectById(7L)).thenReturn(changed);
+        when(values.get(anyString())).thenReturn("7:"+(System.currentTimeMillis()+120000)+":"+AuthSessionService.digest("encoded-password")+":3");
+        assertTrue(service.valid(AuthSessionService.digest("a".repeat(43)),7L));
+        changed.setStatus(0);
+        assertFalse(service.valid(AuthSessionService.digest("a".repeat(43)),7L));
+    }
+    @Test void malformedOrExpiredAccessCredentialsFailClosed() {
+        session(System.currentTimeMillis()-1000);
+        assertFalse(service.valid(AuthSessionService.digest("a".repeat(43)),7L));
+        when(values.get(anyString())).thenReturn("7:invalid:hash:0");
+        assertFalse(service.valid(AuthSessionService.digest("a".repeat(43)),7L));
+    }
 }

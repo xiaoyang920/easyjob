@@ -116,4 +116,7 @@ public class User {
      * 角色：1普通用户 2管理员（与当前登录及空间页面约定一致）
      */
     private Integer role;
+    /** Persisted session generation; management role/status edits revoke previous logins. */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private Long authVersion;
 }

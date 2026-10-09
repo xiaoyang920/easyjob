@@ -55,6 +55,7 @@ class AgentBoundaryTests {
         String status = "running", hash, token = "token";
         Long savedId;
         List<String> queries = new ArrayList<>();
+        List<String> updates = new ArrayList<>();
         int writes;
         @Override public List<Map<String,Object>> queryForList(String sql, Object... args) {
             queries.add(sql);
@@ -67,7 +68,7 @@ class AgentBoundaryTests {
             row.put("draft_article_id", savedId); row.put("alive", 1);
             return row;
         }
-        @Override public int update(String sql, Object... args) { writes++; savedId=(Long)args[0]; return 1; }
+        @Override public int update(String sql, Object... args) { writes++;updates.add(sql);if(sql.startsWith("UPDATE agent_run"))savedId=(Long)args[0];return 1; }
     }
     @Test void draftCommitIsIdempotentAndUsesHtmlBusinessFormat() {
         var jdbc = new LedgerJdbc();
@@ -80,7 +81,9 @@ class AgentBoundaryTests {
         var service = new AgentDraftService(jdbc, mapper);
         assertEquals("99", service.save(7, request).get("articleId"));
         assertEquals("99", service.save(7, request).get("articleId"));
-        assertEquals(1, inserted.size()); assertEquals(1, jdbc.writes);
+        assertEquals(1, inserted.size()); assertEquals(2, jdbc.writes);
+        assertEquals(1,jdbc.updates.stream().filter(sql->sql.contains("a.data_source=u.data_source")).count());
+        assertEquals(1,jdbc.updates.stream().filter(sql->sql.startsWith("UPDATE agent_run SET draft_article_id")).count());
         assertEquals(1, inserted.getFirst().getContentType()); assertEquals(0, inserted.getFirst().getStatus());
         assertTrue(jdbc.queries.get(1).contains("ai_conversation"));
         assertTrue(jdbc.queries.get(1).contains("FOR UPDATE"));

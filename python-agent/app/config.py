@@ -86,6 +86,9 @@ class Settings:
     
     # RAG 参数
     COARSE_TOP_K: int = max(1, min(100, int(os.getenv("COARSE_TOP_K", "20"))))
+    QUERY_VECTOR_CACHE_CAPACITY: int = max(0, min(4096, int(os.getenv("AGENT_QUERY_VECTOR_CACHE_CAPACITY", "512"))))
+    QUERY_VECTOR_CACHE_TTL_SECONDS: int = max(1, int(os.getenv("AGENT_QUERY_VECTOR_CACHE_TTL_SECONDS", "600")))
+    STREAM_COALESCE_MS: int = max(0, min(500, int(os.getenv("AGENT_STREAM_COALESCE_MS", "120"))))
     COARSE_SIMILARITY_THRESHOLD: float = 0.5
     RERANK_TOP_K: int = max(1, min(20, int(os.getenv("RERANK_TOP_K", "5"))))
     RELEVANCE_THRESHOLD: float = 0.3

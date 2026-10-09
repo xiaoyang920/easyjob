@@ -24,6 +24,13 @@ public class ArticleAccessService {
     public boolean isAdmin(Long uid) {
         return uid!=null && !jdbc.queryForList("SELECT user_id FROM user_info WHERE user_id=? AND role=2 AND status=1",uid).isEmpty();
     }
+    public static final Set<String> ADMIN_PERMISSIONS=Set.of("overview.read","statistics.read","articles.read","articles.manage","reviews.read","reviews.manage","categories.read","categories.manage","users.read","users.manage","operations.read","operations.manage","metrics.read","logs.read");
+    public Set<String> permissions(Long uid){
+        if(isAdmin(uid))return ADMIN_PERMISSIONS;
+        if(uid==null)return Set.of();
+        return new HashSet<>(jdbc.queryForList("SELECT p.permission FROM user_info u JOIN admin_role_permission p ON p.role_id=u.role WHERE u.user_id=? AND u.status=1",String.class,uid));
+    }
+    public boolean hasPermission(Long uid,String permission){return ADMIN_PERMISSIONS.contains(permission) && permissions(uid).contains(permission);}
     public boolean canRead(Long uid,Long author,int required) {
         return required==0 || (uid!=null && uid.equals(author)) || isAdmin(uid)
                 || ((Number)growth.summary(uid).get("level")).intValue()>=required;
@@ -40,7 +47,7 @@ public class ArticleAccessService {
         if(!allowed) detail.setContent(null);
     }
     @Transactional public void setRequiredLevel(Long aid,Long uid,Integer level) {
-        if(!isAdmin(uid)) throw new BusinessException(403,"只有管理员可以设置文章阅读等级");
+        if(!isAdmin(uid) && !hasPermission(uid,"articles.manage")) throw new BusinessException(403,"没有设置文章阅读等级的权限");
         if(level==null || growth.rules().stream().noneMatch(r->((Number)r.get("level")).intValue()==level))
             throw new BusinessException(400,"阅读等级无效");
         var rows=jdbc.queryForList("SELECT user_id FROM article_info WHERE article_id=? AND deleted=0 FOR UPDATE",aid);

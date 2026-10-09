@@ -1,5 +1,6 @@
 """Count real model usage without retaining prompts, replies or credentials."""
 from time import perf_counter
+import asyncio
 from langchain_core.callbacks import AsyncCallbackHandler
 from app.config import settings
 from app.utils.token_utils import count_tokens
@@ -11,7 +12,7 @@ class RunTokenBudgetExceeded(RuntimeError):
 
 class RunMetrics(AsyncCallbackHandler):
     raise_error = True
-    def __init__(self, previous=None):
+    def __init__(self, previous=None, persist=None):
         self.previous = previous or {}
         self.started = perf_counter()
         self.calls = set()
@@ -20,8 +21,17 @@ class RunMetrics(AsyncCallbackHandler):
         self.models = set(self.previous.get('models') or [])
         self.errors = set()
         self.reservations = {}
+        self.persist = persist
+        self.persist_lock = asyncio.Lock()
         self.charged = int(self.previous.get('budget_charged_tokens') or
                            self.previous.get('measured_input_tokens', 0) + self.previous.get('measured_output_tokens', 0))
+
+    async def checkpoint(self):
+        if self.persist:
+            # Store the reservation before starting the model, so an immediate
+            # process crash cannot resume with an uncharged in-flight call.
+            async with self.persist_lock:
+                await asyncio.wait_for(self.persist(self.snapshot()), 5)
 
     def reserve(self, key, text, kwargs):
         if key in self.reservations or key in self.finished: return
@@ -35,10 +45,12 @@ class RunMetrics(AsyncCallbackHandler):
     async def on_chat_model_start(self, serialized, messages, *, run_id, **kwargs):
         self.reserve(str(run_id), '\n'.join(str(m.content) for batch in messages for m in batch), kwargs)
         self.calls.add(str(run_id))
+        await self.checkpoint()
 
     async def on_llm_start(self, serialized, prompts, *, run_id, **kwargs):
         self.reserve(str(run_id), '\n'.join(prompts), kwargs)
         self.calls.add(str(run_id))
+        await self.checkpoint()
 
     async def on_llm_end(self, response, *, run_id, **kwargs):
         key = str(run_id)
@@ -63,6 +75,7 @@ class RunMetrics(AsyncCallbackHandler):
             self.reservations.pop(key, None)
         else:
             self.charged += self.reservations.pop(key, 0)
+        await self.checkpoint()
 
     async def on_llm_error(self, error, *, run_id, **kwargs):
         # Provider failures may still have incurred usage; conservatively charge the reservation.
@@ -72,6 +85,7 @@ class RunMetrics(AsyncCallbackHandler):
         self.errors.add(key)
         self.finished.add(key)
         self.charged += self.reservations.pop(key, 0)
+        await self.checkpoint()
 
     def snapshot(self):
         previous = self.previous
@@ -92,7 +106,8 @@ class RunMetrics(AsyncCallbackHandler):
 
 
 def metrics_from(config):
-    for callback in (config or {}).get('callbacks') or []:
+    callbacks = (config or {}).get('callbacks') or []
+    for callback in getattr(callbacks, 'handlers', callbacks):
         if isinstance(callback, RunMetrics):
             return callback.snapshot()
     return None

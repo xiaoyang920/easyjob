@@ -23,7 +23,8 @@ from app.graph.state_factory import create_initial_state
 from app.models.draft import DraftOutput
 from app.services import evidence_verifier
 from app.services.query_rewrite import QueryFilters, ResolvedFilters
-from fakes import repository, RUN_ID, article_chunk, select_fixture_evidence
+from fakes import repository, RUN_ID, article_chunk
+from app.models.evidence_assessment import EvidenceAssessment
 
 
 def llm(decisions, replies=()):
@@ -176,7 +177,7 @@ class MainAgentTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn('[web:1]', result['final_reply'])
             self.assertEqual(control.ainvoke.await_count, 2)
             self.assertEqual(result['citations'], evidence('web')['citations'])
-            self.assertEqual('尚不足以满足全部要求' in result['final_reply'], fallback)
+            self.assertEqual('当前未完成全部要求' in result['final_reply'], fallback)
 
     async def test_irrelevant_retrieval_does_not_force_citation_on_no_results_answer(self):
         model, control = llm([MainDecision(action='answer', reply='没有找到相关资料')])
@@ -187,11 +188,6 @@ class MainAgentTests(unittest.IsolatedAsyncioTestCase):
             result = await agent.decide_main_action(state)
         self.assertIsNone(result['citations'])
         self.assertEqual(control.ainvoke.await_count, 1)
-
-    def setUp(self):
-        selector = patch.object(search_worker.evidence_selector, "select", AsyncMock(side_effect=select_fixture_evidence))
-        selector.start()
-        self.addCleanup(selector.stop)
 
     async def test_simple_answer_is_one_model_call_without_planner_or_subagent(self):
         model, control = llm([MainDecision(action="answer", reply="你好，有什么可以帮你？")])
@@ -213,11 +209,12 @@ class MainAgentTests(unittest.IsolatedAsyncioTestCase):
     async def test_direct_retrieval_uses_shared_rag_and_final_source_recheck(self):
         decision = MainDecision(action="retrieve", retrieval=RetrievalRequest(instruction="find RAG articles"))
         decision.retrieval.task_id = "main"
-        model, control = llm([decision, MainDecision(action="answer", reply="回答 [main:1]")])
+        model, control = llm([decision, MainDecision(action="answer", reply="回答 [main:1]",
+            evidence_assessment=EvidenceAssessment(selected_ids=['main:1'], adequacy='sufficient', reason='正文覆盖目标'))])
         source = "<p>current public evidence</p>"
         source_row = SimpleNamespace(_mapping={"article_id": 42, "title": "RAG", "content": source})
         db = SimpleNamespace(fetch_all=AsyncMock(return_value=[source_row]))
-        rewrite = SimpleNamespace(rewrite=AsyncMock(return_value={"semantic_queries": ["RAG"], "keywords": ["RAG"],
+        rewrite = SimpleNamespace(rewrite_request=AsyncMock(return_value={"semantic_queries": ["RAG"], "keywords": ["RAG"],
             "filters": QueryFilters(), "search_mode": "hybrid", "need_web_search": True}))
         resolver = SimpleNamespace(resolve=AsyncMock(return_value=ResolvedFilters()))
         retrieval = SimpleNamespace(hybrid_search=AsyncMock(return_value=[article_chunk()]))
@@ -240,7 +237,7 @@ class MainAgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(context["observations"][0]["tasks"], {"main": "succeeded"})
         self.assertEqual(retrieval.hybrid_search.await_count, 1)
         self.assertEqual(db.fetch_all.await_count, 2)
-        self.assertEqual(rewrite.rewrite.call_args.args[1], state["history_messages"])
+        self.assertEqual(rewrite.rewrite_request.call_args.args[2], state["history_messages"])
         self.assertEqual(result["citations"][0]["sourceHash"], hashlib.sha256(source.encode()).hexdigest())
         self.assertEqual(result["citations"][0]["excerpt"], "current public evidence")
         self.assertEqual(result["article_cards"][0]["articleId"], "42")
@@ -258,6 +255,34 @@ class MainAgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(nodes, ["main_agent", "main_retrieve", "main_agent", "final_gate"])
         self.assertEqual(retrieve.await_count, 1)
         model.ainvoke.assert_not_awaited()
+
+    async def test_gap_driven_second_retrieval_reuses_sources_in_three_main_calls(self):
+        def assess(ids, adequacy, gaps=()):
+            return EvidenceAssessment(selected_ids=ids, adequacy=adequacy, reason='按用户目标核对正文', missing_aspects=list(gaps))
+        decisions = [MainDecision(action='retrieve', retrieval=RetrievalRequest(task_id='principle',
+                         instruction='缓存一致性原理', search_query='Cache Aside 原理', filters={})),
+                     MainDecision(action='retrieve', evidence_assessment=assess(['principle:1'], 'partial', ['删除失败补偿']),
+                         retrieval=RetrievalRequest(task_id='recovery', instruction='补充删除失败补偿',
+                             search_query='缓存删除失败 重试补偿', filters={})),
+                     MainDecision(action='answer', reply='原理 [principle:1]；补偿 [recovery:1]',
+                         evidence_assessment=assess(['principle:1', 'recovery:1'], 'sufficient'))]
+        model, control = llm(decisions)
+        def retrieved(tid):
+            return {**evidence(tid), 'retrieval_report': {'assessment_owner': 'main',
+                    'platform': {'status': 'found'}, 'web': {'status': 'not_requested'}}}
+        with patch.object(agent, 'get_llm', return_value=model), \
+             patch.object(actions, 'retrieve_evidence', AsyncMock(side_effect=[retrieved('principle'), retrieved('recovery')])) as retrieve:
+            result, nodes = await run_updates(builder._build_graph().compile(checkpointer=InMemorySaver()),
+                create_initial_state(7, '解释缓存一致性并说明删除失败补偿', []))
+        self.assertEqual(control.ainvoke.await_count, 3)
+        self.assertEqual(retrieve.await_count, 2)
+        self.assertEqual(nodes.count('main_retrieve'), 2)
+        self.assertEqual(set(result['task_results']), {'principle', 'recovery'})
+        self.assertEqual([c['id'] for c in result['citations']], ['principle:1', 'recovery:1'])
+        final_context = json.loads(control.ainvoke.await_args_list[-1].args[0][1].content)
+        self.assertEqual(final_context['previous_evidence_assessment']['missing_aspects'], ['删除失败补偿'])
+        self.assertEqual(result['action_history'][1]['evidence_assessment']['adequacy'], 'partial')
+        self.assertEqual(result['correction_count'], 0)
 
     async def test_empty_source_body_never_reaches_search_generation(self):
         rewrite = {"semantic_queries": ["q"], "keywords": ["q"], "filters": QueryFilters()}

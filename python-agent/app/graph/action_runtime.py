@@ -12,6 +12,7 @@ from app.graph.nodes.search_worker import retrieve_evidence
 from app.graph.nodes.memory_retrieval import retrieve_memory
 from app.graph.staged_plan import load_execution_plan, merge_task_results
 from app.services.agent_events import activity
+from app.services.task_artifacts import task_artifacts, task_fingerprint
 
 RECOVERABLE = (TimeoutError, ConnectionError, httpx.RequestError, APIConnectionError, EsConnectionError)
 
@@ -58,6 +59,8 @@ async def main_retrieve_node(state):
                   "citations": evidence["citations"], "article_cards": evidence["article_cards"]}
         if evidence.get("retrieval_report"):
             update["retrieval_report"] = evidence["retrieval_report"]
+        if evidence.get('citation_contents'):
+            update['citation_contents'] = evidence['citation_contents']
         if memory_lookup:
             update.update({k: evidence[k] for k in ("memory_sources", "memory_found", "memory_match_count")})
         result = runtime.task_result(context, update, raw_retrieval=not memory_lookup)
@@ -69,12 +72,22 @@ async def main_retrieve_node(state):
 
 
 async def run_subagent(context, task):
+    fingerprint = task_fingerprint(context) if context.get('run_id') else None
+    if fingerprint:
+        cached = await task_artifacts.load(context, fingerprint)
+        if cached is not None:
+            await runtime.assert_run(context)
+            await activity(context, 'task', '复用已完成子任务', 'done')
+            return {task.task_id: cached}
     try:
-        return (await runtime.subagent_node(context))["task_results"]
+        result = (await runtime.subagent_node(context))["task_results"]
     except RECOVERABLE:
         # Cancellation, permissions, stale sources and persistence errors propagate.
         await runtime.assert_run(context)
-        return {task.task_id: failed_result(task, "tool_error", "只读任务服务暂时不可用。")}
+        result = {task.task_id: failed_result(task, "tool_error", "只读任务服务暂时不可用。")}
+    if fingerprint:
+        await task_artifacts.save(context, fingerprint, result[task.task_id], runtime.executor_token(context))
+    return result
 
 
 async def main_delegate_node(state):

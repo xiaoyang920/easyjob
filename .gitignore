@@ -1,11 +1,13 @@
 # Documentation and generated reports
+/python-agent/evaluation/results/
 /docs/
-/python-agent/docs/
+/python-agent/docs/*
 *.md
 *.docx
 *.pdf
 !README.md
 !python-agent/evaluation/README.md
+!python-agent/docs/main-evidence-assessment.md
 !python-agent/app/skills/definitions/*.md
 
 # Local IDE and AI assistant state

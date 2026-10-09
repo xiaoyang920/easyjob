@@ -86,6 +86,8 @@ public class JwtUtil {
         String sid = claims.get("sid", String.class);
         if (sid != null && !sessions.valid(sid, ((Number) claims.get("userId")).longValue()))
             throw new io.jsonwebtoken.JwtException("Session revoked");
+        if (sid == null && !sessions.validLegacy(((Number)claims.get("userId")).longValue()))
+            throw new io.jsonwebtoken.JwtException("Legacy session revoked");
         return claims;
     }
 

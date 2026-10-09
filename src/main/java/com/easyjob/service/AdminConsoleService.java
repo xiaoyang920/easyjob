@@ -27,11 +27,12 @@ public class AdminConsoleService {
         if (!access.isAdmin(uid)) throw new BusinessException(403,"只有管理员可以访问管理后台");
     }
     public Map<String,Object> me(Long uid) {
-        requireAdmin(uid);
-        return jdbc.queryForMap("SELECT CAST(user_id AS CHAR) AS userId,nick_name AS nickName FROM user_info WHERE user_id=?",uid);
+        var permissions=access.permissions(uid);if(permissions.isEmpty())throw new BusinessException(403,"没有后台访问权限");
+        var result=new LinkedHashMap<>(jdbc.queryForMap("SELECT CAST(user_id AS CHAR) AS userId,nick_name AS nickName,role FROM user_info WHERE user_id=?",uid));result.put("permissions",permissions.stream().sorted().toList());return result;
     }
+    public void requirePermission(Long uid,String permission){if(!access.isAdmin(uid) && !access.hasPermission(uid,permission))throw new BusinessException(403,"没有执行此操作的权限");}
     public Map<String,Object> overview(Long uid) {
-        requireAdmin(uid);
+        requirePermission(uid,"overview.read");
         var result=new LinkedHashMap<String,Object>();
         result.put("users",jdbc.queryForObject("SELECT COUNT(*) FROM user_info",Long.class));
         result.put("published",jdbc.queryForObject("SELECT COUNT(*) FROM article_info WHERE status=1 AND deleted=0",Long.class));
@@ -48,7 +49,7 @@ public class AdminConsoleService {
         return "%"+value.replace("!","!!").replace("%","!%").replace("_","!_")+"%";
     }
     public PageVO<Map<String,Object>> articles(Long uid,String keyword,Integer status,int page,int size) {
-        requireAdmin(uid);
+        requirePermission(uid,"articles.read");
         if(status!=null && status!=0 && status!=1 && status!=2) throw new BusinessException(400,"文章状态无效");
         String pattern=searchPattern(keyword);
         var args=new ArrayList<Object>(List.of(pattern,pattern));
@@ -62,7 +63,7 @@ public class AdminConsoleService {
         return new PageVO<>(records,total,(long)size,(long)page,(total+size-1)/size);
     }
     public PageVO<Map<String,Object>> users(Long uid,String keyword,int page,int size) {
-        requireAdmin(uid);
+        requirePermission(uid,"users.read");
         String pattern=searchPattern(keyword);
         String from="FROM user_info u LEFT JOIN user_reading_progress p ON p.user_id=u.user_id WHERE u.nick_name LIKE ? ESCAPE '!' OR CAST(u.user_id AS CHAR) LIKE ? ESCAPE '!'";
         if(page<1 || page>10000 || size<1 || size>100) throw new BusinessException(400,"分页参数无效");
@@ -72,10 +73,10 @@ public class AdminConsoleService {
         return new PageVO<>(records,total,(long)size,(long)page,(total+size-1)/size);
     }
     public PageVO<Map<String,Object>> logs(Long uid,int page,int size) {
-        requireAdmin(uid);
+        requirePermission(uid,"logs.read");
         if(page<1 || page>10000 || size<1 || size>100) throw new BusinessException(400,"分页参数无效");
         long total=jdbc.queryForObject("SELECT COUNT(*) FROM admin_operation_log",Long.class);
-        var rows=jdbc.queryForList("SELECT CAST(l.id AS CHAR) AS id,CAST(l.admin_user_id AS CHAR) AS adminUserId,u.nick_name AS adminName,l.action,CAST(l.target_id AS CHAR) AS targetId,l.before_value AS beforeValue,l.after_value AS afterValue,l.created_at AS createdAt FROM admin_operation_log l LEFT JOIN user_info u ON u.user_id=l.admin_user_id ORDER BY l.id DESC LIMIT ? OFFSET ?",size,(page-1)*size);
+        var rows=jdbc.queryForList("SELECT CAST(l.id AS CHAR) AS id,CAST(l.admin_user_id AS CHAR) AS adminUserId,u.nick_name AS adminName,l.action,CAST(l.target_id AS CHAR) AS targetId,l.before_value AS beforeValue,l.after_value AS afterValue,l.reason,l.details_json AS detailsJson,l.created_at AS createdAt FROM admin_operation_log l LEFT JOIN user_info u ON u.user_id=l.admin_user_id ORDER BY l.id DESC LIMIT ? OFFSET ?",size,(page-1)*size);
         return new PageVO<>(rows,total,(long)size,(long)page,(total+size-1)/size);
     }
     private Map<String,Object> lockArticle(Long aid) {
@@ -88,7 +89,7 @@ public class AdminConsoleService {
         jdbc.update("INSERT INTO admin_operation_log(admin_user_id,action,target_type,target_id,before_value,after_value) VALUES (?,?,'article',?,?,?)",uid,action,aid,String.valueOf(before),String.valueOf(after));
     }
     @Transactional public void level(Long uid,Long aid,Integer expected,Integer level) {
-        requireAdmin(uid);var article=lockArticle(aid);
+        requirePermission(uid,"articles.manage");var article=lockArticle(aid);
         int old=((Number)article.get("required_level")).intValue();
         if(expected==null || old!=expected) throw new BusinessException(409,"文章等级已变化，请刷新后重试");
         if(level==null) throw new BusinessException(400,"阅读等级无效");
@@ -96,7 +97,7 @@ public class AdminConsoleService {
         if(old!=level) audit(uid,aid,"reading_level",old,level);
     }
     @Transactional public void visibility(Long uid,Long aid,Integer expected,Integer status) {
-        requireAdmin(uid);
+        requirePermission(uid,"articles.manage");
         if(status==null || (status!=1 && status!=2)) throw new BusinessException(400,"只支持下架或恢复已发布文章");
         var article=lockArticle(aid);int old=((Number)article.get("status")).intValue();
         if(old!=1 && old!=2) throw new BusinessException(409,"草稿由作者发布，不能通过管理后台直接发布");
