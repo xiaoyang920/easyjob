@@ -45,5 +45,8 @@ jobs:
           cache: pip
           cache-dependency-path: python-agent/requirements.txt
       - run: pip install -r requirements.txt
-      - run: python -m pip check
+      - name: Validate dependency metadata and MCP imports
+        run: |
+          python -m pip check
+          python -c "from langchain_mcp_adapters.client import MultiServerMCPClient; from mcp.server.fastmcp import FastMCP"
       - run: python -m unittest discover -s tests

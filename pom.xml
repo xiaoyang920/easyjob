@@ -160,11 +160,6 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-amqp</artifactId>
         </dependency>
-        <!-- Spring AI 智谱 - 视觉模型 + Embedding -->
-        <dependency>
-            <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-starter-model-zhipuai</artifactId>
-        </dependency>
         <!-- Jsoup - HTML解析，用于清理富文本中的HTML标签 -->
         <dependency>
             <groupId>com.knuddels</groupId>

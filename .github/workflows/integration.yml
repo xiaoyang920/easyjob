@@ -51,6 +51,8 @@ jobs:
         working-directory: python-agent
         run: |
           pip install -r requirements.txt
+          python -m pip check
+          python -c "from langchain_mcp_adapters.client import MultiServerMCPClient; from mcp.server.fastmcp import FastMCP"
           python -m evaluation.ci_bootstrap
           python -m app.migrate
       - name: Real MySQL interaction concurrency and rollback checks
