@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.easyjob.component.EsComponent;
 import com.easyjob.component.RedisComponent;
+import com.easyjob.component.CacheRebuildMutex;
 import com.easyjob.constants.RabbitMqConstants;
 import com.easyjob.dto.ArticleCreateDTO;
 import com.easyjob.agent.component.ArticleIndexPublisher;
@@ -57,6 +58,8 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper,Article> imple
     @Autowired
     private RedisComponent redisComponent;
     @Autowired
+    private CacheRebuildMutex cacheRebuildMutex;
+    @Autowired
     private ArticleCommentMapper articleCommentMapper;
     @Autowired
     private ArticleTagService articleTagService;
@@ -64,15 +67,6 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper,Article> imple
     private ArticleTagMapper articleTagMapper;
     @Autowired
     private ArticleIndexPublisher articleIndexPublisher;
-
-    private Article ownedArticle(Long articleId, boolean lock) {
-        var query = new LambdaQueryWrapper<Article>().eq(Article::getArticleId, articleId)
-                .eq(Article::getUserId, UserContext.getUserId()).eq(Article::getDeleted, 0);
-        if (lock) query.last("FOR UPDATE");
-        Article current = articleMapper.selectOne(query);
-        if (current == null) throw new BusinessException(404, "文章不存在或无权编辑");
-        return current;
-    }
 
     private void validateStatus(Integer status) {
         if (status == null || (status != 0 && status != 1)) throw new BusinessException("文章状态无效");
@@ -161,14 +155,9 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper,Article> imple
     public Long saveArticle(ArticleCreateDTO article) {
         validateStatus(article.getStatus());
         if(!article.isTitleValid() || article.getContent()==null) throw new BusinessException(400,"标题或正文无效");
-        Article data=BeanUtil.copyProperties(article,Article.class);
-        data.setContent(HtmlContentSanitizer.clean(data.getContent(),true));
-        data.setUserId(UserContext.getUserId());data.setStatus(0);data.setDeleted(0);
-        data.setCreateTime(LocalDateTime.now());data.setUpdateTime(LocalDateTime.now());data.setPublishTime(null);
-        if(articleMapper.insert(data)!=1) throw new BusinessException("文章保存失败");
-        article.setExpectedRevisionId("0");
-        revisions.save(UserContext.getUserId(),data.getArticleId(),article);
-        return data.getArticleId();
+        long articleId=com.baomidou.mybatisplus.core.toolkit.IdWorker.getId();
+        revisions.create(UserContext.getUserId(),articleId,article);
+        return articleId;
     }
 
     /**
@@ -179,20 +168,17 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper,Article> imple
      */
     @Override
     public ArticleDetailVO getArticleById(Long articleId) {
-        // 1. 先从缓存拿静态详情（标题、内容、作者等）
-        ArticleDetailVO articleDetailVO = redisComponent.getArticleDetail(articleId);
-            
-        if (articleDetailVO == null) {
-            // 2. 缓存缺失，查数据库
-            articleDetailVO = articleMapper.selectArticleAndUser(articleId);
-            if (articleDetailVO == null) {
-                return null;
-            }
-            articleDetailVO.setArticleId(String.valueOf(articleId));
-                
-            // 3. 回填缓存
-            redisComponent.saveArticleDetail(articleId, articleDetailVO);
-        }
+        // Cache hits do not acquire a lock. Only one owner rebuilds a missing article key.
+        ArticleDetailVO articleDetailVO = cacheRebuildMutex.getOrLoad(
+                RedisConstants.REDIS_KEY_ARTICLE_DETAIL + articleId,
+                () -> redisComponent.getArticleDetail(articleId),
+                () -> {
+                    ArticleDetailVO detail = articleMapper.selectArticleAndUser(articleId);
+                    if (detail == null) throw new BusinessException(404, "文章不存在或不可访问");
+                    detail.setArticleId(String.valueOf(articleId));
+                    return detail;
+                },
+                detail -> redisComponent.saveArticleDetail(articleId, detail));
             
         // Authorization is response-local, never stored in the shared article cache.
         articleDetailVO = BeanUtil.copyProperties(articleDetailVO, ArticleDetailVO.class);
@@ -246,14 +232,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper,Article> imple
     @Transactional
     @Override
     public void deleteArticle(Long articleId) {
-        Article current = ownedArticle(articleId, true);
-        // 先删除标签关联
-        articleTagService.removeArticleTags(articleId);
-        if (articleMapper.delete(new LambdaQueryWrapper<Article>().eq(Article::getArticleId, articleId).eq(Article::getUserId, UserContext.getUserId())) != 1)
-            throw new BusinessException(409, "文章已变化，请刷新后重试");
-        if (Integer.valueOf(1).equals(current.getStatus())) userMapper.changeArticleCount(current.getUserId(), -1);
-        articleIndexPublisher.publish(articleId, "DELETE", RabbitMqConstants.ROUTING_KEY_DELETE);
-        invalidateArticleViews(articleId, current.getUserId());
+        revisions.delete(UserContext.getUserId(),articleId);
     }
     
     /**

@@ -99,6 +99,7 @@
               v-for="(article, articleIndex) in articles"
               :key="article.articleId || article.id"
               class="article-card"
+              :class="{ 'is-menu-open': feedbackMenuId === String(article.articleId || article.id) }"
               tabindex="0"
               role="link"
               @keydown.enter="viewArticle(article.articleId || article.id)"
@@ -115,44 +116,29 @@
                   class="article-cover"
                   @error="handleCoverError($event, article.coverImage || article.cover)"
                 >
-                <div 
-                  v-else 
-                  class="no-cover-placeholder"
-                  :style="{ background: '#e8e8e8' }"
-                >
-                  <span class="placeholder-title">{{ stripHtmlTags(article.title) }}</span>
-                </div>
-                
-                <!-- 封面上的悬浮信息 -->
-                <div class="cover-overlay">
-                  <div class="overlay-stats">
-                    <span class="stat-item">
-                      <svg viewBox="0 0 1024 1024" fill="white">
-                        <path d="M675.328 117.717333A425.429333 425.429333 0 0 0 512 85.333333C276.352 85.333333 85.333333 276.352 85.333333 512s191.018667 426.666667 426.666667 426.666667 426.666667-191.018667 426.666667-426.666667c0-56.746667-11.093333-112-32.384-163.328a21.333333 21.333333 0 0 0-39.402667 16.341333A382.762667 382.762667 0 0 1 896 512c0 212.074667-171.925333 384-384 384S128 724.074667 128 512 299.925333 128 512 128c51.114667 0 100.8 9.984 146.986667 29.12a21.333333 21.333333 0 0 0 16.341333-39.402667zM456.704 305.92C432.704 289.152 405.333333 303.082667 405.333333 331.797333v360.533334c0 28.586667 27.541333 42.538667 51.370667 25.856l252.352-176.768c21.76-15.253333 21.632-43.541333 0-58.709334l-252.373333-176.768z m-8.597333 366.72V351.466667l229.269333 160.597333-229.269333 160.597333z"/>
-                      </svg>
-                      {{ formatNumber(article.viewCount || 0) }}
-                    </span>
-                    <span class="stat-item">
-                      <svg width="14" height="14" viewBox="0 0 1024 1024" fill="white">
-                        <path d="M939.358251 423.424662c-23.01825-37.252439-62.924121-60.779272-107.019409-63.209624-2.755764-0.38681-5.510504-0.579191-8.347109-0.579191l-152.202471-0.121773c6.649444-28.975938 10.015098-58.653865 10.015098-88.657202 0-28.223808-3.213181-57.139372-9.556657-85.952604-0.447185-2.043542-1.098008-4.006244-1.932002-5.866614-15.820314-57.302077-67.37755-96.841605-127.282918-96.841605-72.827679 0-132.081201 59.254545-132.081201 132.081201 0 3.334955 0.132006 6.66991 0.406253 10.015098-2.196015 57.211003-32.108279 109.947088-80.269162 141.363611-14.447037 9.42465-18.524912 28.773324-9.099239 43.220361 9.414417 14.437827 28.752858 18.535145 43.220361 9.099239 65.811892-42.925648 106.429984-115.325585 108.656699-193.684234 0.030699-1.332345-0.010233-2.663666-0.14224-3.996011-0.203638-2.012843-0.304945-4.016477-0.304945-6.019087 0-38.381146 31.233352-69.614497 69.614497-69.614497 32.57593 0 60.474326 22.204721 67.824735 53.997821 0.356111 1.534959 0.823761 3.019777 1.402953 4.453429 4.696975 22.814612 7.076162 45.579081 7.076162 67.743894 0 37.485753-6.222725 74.352405-18.494213 109.592001-3.324722 9.546424-1.819438 20.111037 4.02671 28.345582 5.856381 8.245801 15.332197 13.146415 25.448602 13.156648l193.226816 0.101307c1.423419 0.264013 2.857071 0.426719 4.300956 0.477884 24.116257 0.9967 45.935192 13.614066 58.603723 34.090423 7.838525 12.31242 11.438517 26.800389 10.431583 41.939181-0.080841 0.945535-0.121773 1.911536-0.11154 2.877537 0 0.854461 0.040932 1.697665 0.11154 2.53166 0.010233 0.335644-0.030699 0.661056-0.11154 0.976234-0.101307 0.376577-0.193405 0.772596-0.284479 1.159406l-74.972529 330.391802c-0.914836 1.281179-1.738597 2.6432-2.449795 4.046153-5.937223 11.762905-14.660908 21.48329-25.346271 28.172643-10.746762 6.812149-23.059182 10.614755-35.757388 11.06194-0.854461-0.061398-513.766226-0.224104-513.766226-0.224104-0.467651-0.020466-0.935302-0.030699-1.402953-0.030699 0 0-111.01542 0.172939-112.718201 0.457418-1.932002 0-3.446495-1.50426-3.446495-3.415796l0.299829-416.334173c0-1.901303 1.545192-3.446495 3.01466-3.456728l1.245364 0.121773c1.174756 0.132006 2.653433 0.284479 3.52836 0.193405l83.82822-0.222057 0 339.367221c0 17.253966 13.979386 31.233352 31.233352 31.233352s31.233352-13.979386 31.233352-31.233352L281.009092 435.350273c0-1.778506 0-8.631588 0-10.411117 0-17.253966-13.979386-30.928407-31.233352-30.928407-1.50426 0-117.547183 0.304945-119.402437 0.304945-36.34272 0-65.913199 29.566386-65.913199 65.893756l-0.299829 416.334173c0 36.337603 29.571503 65.902966 65.913199 65.902966 2.541893 0 111.406323-0.457418 111.406323-0.457418 0.457418 0.020466 0.925069 0.030699 1.382487 0.030699 0 0 511.458671 0.274246 512.505513 0.274246 25.469068 0 50.296523-7.197936 71.647807-20.73116 19.612687-12.281721 35.777855-29.881564 46.839795-50.967812 3.660366-5.622044 6.435573-11.875468 8.256034-18.615986 0.11154-0.416486 0.213871-0.823761 0.304945-1.240247l74.881454-330.340637c1.596358-6.212492 2.257413-12.586666 2.00261-18.992563C960.892707 473.366098 953.948551 446.331371 939.358251 423.424662z"/>
-                        <path d="M450.027553 518.650467c-17.253966 0-31.233352 13.979386-31.233352 31.233352l0 30.470989c0 17.253966 13.979386 31.233352 31.233352 31.233352 17.253966 0 31.233352-13.979386 31.233352-31.233352l0-30.470989C481.260905 532.629853 467.281519 518.650467 450.027553 518.650467z"/>
-                        <path d="M693.805696 518.650467c-17.253966 0-31.233352 13.979386-31.233352 31.233352l0 30.470989c0 17.253966 13.979386 31.233352 31.233352 31.233352 17.253966 0 31.233352-13.979386 31.233352-31.233352l0-30.470989C725.039048 532.629853 711.058638 518.650467 693.805696 518.650467z"/>
-                        <path d="M648.940882 660.09492c-14.304797-9.393951-33.592073-5.398964-43.159986 8.763594-0.132006 0.193405-13.614066 19.754926-34.171264 19.754926-19.98824 0-32.423457-18.09717-33.266661-19.368116-9.17087-14.427594-28.254507-18.809391-42.834574-9.770528-14.650675 9.109472-19.155269 28.366048-10.055007 43.016723 11.214413 18.047028 41.96988 48.588625 86.156242 48.588625 43.962258 0 75.104535-30.318516 86.572728-48.222281C667.404396 688.461991 663.216004 669.500127 648.940882 660.09492z"/>
-                      </svg>
-                      {{ formatNumber(article.likeCount || 0) }}
-                    </span>
-                  </div>
-                </div>
+                <CoverPlaceholder v-else class="no-cover-placeholder" :title="stripHtmlTags(article.title)" :label="categoryLabel(article)" />
               </div>
-              
-                <div class="article-info">
-                  <span v-if="article.requiredLevel > 0" class="reading-level-badge">{{ article.readableNow === false ? `需 L${article.requiredLevel} 解锁` : `L${article.requiredLevel} · 可读` }}</span>
-                <div class="studio-card-index"><span>{{ String(articleIndex + 1).padStart(2, '0') }} / 文章</span><span aria-hidden="true">↗</span></div>
+
+              <div class="article-info">
+                <div class="studio-card-index">
+                  <span class="card-kicker"><span class="card-dot" aria-hidden="true"></span><span class="card-number">{{ String(articleIndex + 1).padStart(2, '0') }}</span><span class="card-kicker-text">{{ cardKicker(article) }}</span></span>
+                  <span class="card-actions">
+                    <span v-if="isLogin && currentSort === 'recommend'" class="card-menu" @click.stop @keydown.stop>
+                      <el-dropdown trigger="click" @command="(kind: string) => recommendationFeedback(article.articleId || article.id, kind)" @visible-change="(open: boolean) => { feedbackMenuId = open ? String(article.articleId || article.id) : '' }">
+                        <button type="button" class="card-more" :disabled="!!feedbackBusy" :aria-label="`调整《${article.title}》的推荐`">⋯</button>
+                        <template #dropdown><el-dropdown-menu><el-dropdown-item command="not_interested">不感兴趣</el-dropdown-item><el-dropdown-item command="hide_author">不再推荐该作者</el-dropdown-item></el-dropdown-menu></template>
+                      </el-dropdown>
+                    </span>
+                    <span class="card-arrow" aria-hidden="true">↗</span>
+                  </span>
+                </div>
+                <span v-if="article.requiredLevel > 0" class="reading-level-badge">{{ article.readableNow === false ? `需 L${article.requiredLevel} 解锁` : `L${article.requiredLevel} · 可读` }}</span>
                 <div class="article-title">{{ article.title }}</div>
                 <p v-if="article.summary" class="article-deck">{{ stripHtmlTags(article.summary) }}</p>
-                <div v-if="currentSort === 'recommend' && article.recommendationReason" class="recommendation-reason">{{ article.recommendationReason }}</div>
-                <div v-if="isLogin && currentSort==='recommend'" class="recommend-feedback" @click.stop @keydown.stop><el-dropdown trigger="click" @command="(kind:string)=>recommendationFeedback(article.articleId || article.id,kind)"><button :disabled="!!feedbackBusy" :aria-label="`调整《${article.title}》的推荐`">调整推荐 ···</button><template #dropdown><el-dropdown-menu><el-dropdown-item command="not_interested">不感兴趣</el-dropdown-item><el-dropdown-item command="hide_author">不再推荐该作者</el-dropdown-item></el-dropdown-menu></template></el-dropdown></div>
-                <div class="article-byline"><span>{{ article.authorName || article.nickName || '社区创作者' }}</span><span>{{ formatNumber(article.viewCount || 0) }} 次阅读</span></div>
+                <div class="article-byline">
+                  <span class="byline-author"><img :src="avatarUrl(article.authorAvatar, cardAuthor(article))" alt="" class="byline-avatar" @error="onAvatarError($event, cardAuthor(article))">{{ cardAuthor(article) }}</span>
+                  <span>{{ formatNumber(article.viewCount || 0) }} 次阅读</span>
+                </div>
               </div>
             </div>
           </div>
@@ -227,14 +213,16 @@ import RecommendationPreferences from '@/components/RecommendationPreferences.vu
 import { clearAccountStorage } from '@/utils/searchHistory'
 import AppNavigation from '@/components/AppNavigation.vue'
 import SearchBox from '@/components/SearchBox.vue'
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import LoginForm from '@/components/LoginForm.vue'
 import RegisterForm from '@/components/RegisterForm.vue'
 import HomeStudio from '@/components/HomeStudio.vue'
+import CoverPlaceholder from '@/components/CoverPlaceholder.vue'
 import request from '@/utils/request'
 import { getThumbUrl, onThumbError } from '@/utils/image'
+import { avatarUrl, onAvatarError } from '@/utils/avatar'
 import { eventBus, EVENT_AUTH_EXPIRED, EVENT_AUTH_CHANGED } from '@/utils/eventBus'
 import {
   notifyUnreadCount,
@@ -286,6 +274,8 @@ const loading = ref(false)
 const articles = ref<any[]>([])
 const currentSort = ref('recommend')
 const showRecommendationPreferences=ref(false),feedbackBusy=ref('')
+// 正在展开“调整推荐”菜单的卡片，菜单打开期间保持更多按钮可见
+const feedbackMenuId = ref('')
 async function recommendationFeedback(id:string,kind:string){if(feedbackBusy.value)return;feedbackBusy.value=id;try{await request.put(`/recommendation/feedback/${id}`,{kind});ElMessage.success('推荐偏好已更新');await loadArticles()}catch(e){ElMessage.error(e instanceof Error?e.message:'反馈失败，请重试')}finally{feedbackBusy.value=''}}
 const readableOnly = ref(false)
 const currentPage = ref(1)
@@ -309,6 +299,30 @@ let isLoadingUnread = false  // 防抖标记
 const categories = ref<any[]>([])
 const selectedCategoryId = ref<number | null>(null)
 const selectedTagIds = ref<number[]>([])
+
+// 分类 id → 名称（含二级分类），用于卡片眉题和无封面占位
+const categoryNames = computed(() => {
+  const names = new Map<string, string>()
+  for (const category of categories.value) {
+    names.set(String(category.categoryId), category.categoryName)
+    for (const child of category.children || []) names.set(String(child.categoryId), child.categoryName)
+  }
+  return names
+})
+
+function categoryLabel(article: any): string {
+  return article.categoryId ? categoryNames.value.get(String(article.categoryId)) || '' : ''
+}
+
+// 卡片眉题：推荐流显示推荐理由，其他排序显示分类
+function cardKicker(article: any): string {
+  if (currentSort.value === 'recommend' && article.recommendationReason) return article.recommendationReason
+  return categoryLabel(article) || '文章'
+}
+
+function cardAuthor(article: any): string {
+  return article.authorName || article.nickName || '社区创作者'
+}
 
 // 搜索处理
 function handleSearch() {
@@ -350,29 +364,6 @@ function getImageUrl(url: string | undefined): string {
   }
   
   console.log('封面URL其他情况:', url)
-  return url
-}
-
-// 获取用户头像URL
-function getAvatarUrl(url: string | undefined): string {
-  if (!url) {
-    return 'https://cube.elemecdn.com/3/7c/3ea6beec64369c2642b92c6726f1epng.png'
-  }
-  
-  // 如果是完整URL
-  if (url.startsWith('http://') || url.startsWith('https://')) {
-    // 如果是localhost的URL，去掉域名部分
-    if (url.includes('localhost:8080')) {
-      return url.replace(/https?:\/\/localhost:8080/, '')
-    }
-    return url
-  }
-  
-  // 如果是相对路径，直接返回
-  if (url.startsWith('/uploads')) {
-    return url
-  }
-  
   return url
 }
 
@@ -446,6 +437,7 @@ onMounted(() => {
   // 检查是否需要显示注册弹窗
   if (route.query.register === 'true') {
     showRegisterDialog.value = true
+    redirectPath.value = (route.query.redirect as string) || ''
     router.replace({ path: '/', query: {} })
   }
   
@@ -691,7 +683,7 @@ function logout() {
 }
 
 // 登录成功处理
-function handleLoginSuccess() {
+function handleLoginSuccess(message = '登录成功') {
   showLoginDialog.value = false
   init()
   loadArticles()
@@ -710,7 +702,7 @@ function handleLoginSuccess() {
     fetchNotifyUnreadCount()
     connectNotifyStream()
   }
-  ElMessage.success('登录成功')
+  ElMessage.success(message)
   
   // 如果有重定向路径，跳转到目标页面
   if (redirectPath.value) {
@@ -723,8 +715,7 @@ function handleLoginSuccess() {
 // 注册成功处理
 function handleRegisterSuccess() {
   showRegisterDialog.value = false
-  showLoginDialog.value = true
-  ElMessage.success('注册成功，请登录')
+  handleLoginSuccess('注册成功，已自动登录')
 }
 
 // 切换到注册
@@ -737,12 +728,6 @@ function switchToRegister() {
 function switchToLogin() {
   showRegisterDialog.value = false
   showLoginDialog.value = true
-}
-
-function handleAvatarError(e: Event) {
-  const target = e.target as HTMLImageElement
-  console.log('头像加载失败，使用默认头像')
-  target.src = 'https://cube.elemecdn.com/3/7c/3ea6beec64369c2642b92c6726f1epng.png'
 }
 
 function handleCoverError(e: Event, originalCover?: string) {
@@ -768,11 +753,11 @@ function stripHtmlTags(str: string): string {
 </script>
 
 <style scoped>
-.recommend-preferences,.recommend-feedback button{font:inherit;font-size:12px;border:0;background:transparent;color:var(--ej-ink);cursor:pointer}.recommend-preferences:hover,.recommend-feedback button:hover{text-decoration:underline}.recommend-feedback{margin:8px 0}.recommend-feedback button:disabled{opacity:.5;cursor:wait}
+.recommend-preferences{font:inherit;font-size:12px;border:0;background:transparent;color:var(--ej-ink);cursor:pointer}.recommend-preferences:hover{text-decoration:underline}
 
-.reading-filter { display:flex; align-items:center; flex-wrap:wrap; gap:10px 18px; margin:0 0 24px; font-size:12px; color:#73756b; }
-.reading-filter label { display:flex; align-items:center; gap:8px; color:#171714; cursor:pointer; white-space:nowrap; }
-.reading-filter input { accent-color:#9dc82f; width:16px; height:16px; }
+/* 复选框样式见 styles/theme.css 的表单控件部分 */
+.reading-filter { display:flex; align-items:center; flex-wrap:wrap; gap:10px 18px; margin:0 0 24px; font-size:12px; color:var(--ej-muted); }
+.reading-filter label { display:flex; align-items:center; gap:8px; color:var(--ej-ink); cursor:pointer; white-space:nowrap; }
 .reading-filter a { color:#4e5d35; text-decoration:none; margin-left:auto; }
 .home-page {
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -1379,68 +1364,12 @@ function stripHtmlTags(str: string): string {
   opacity: 0.5;
 }
 
-.no-cover-placeholder {
-  width: 100%;
-  height: 180px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 10px;
-  text-align: center;
-  background: #e8e8e8;
-}
-
-.placeholder-title {
-  color: #666;
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 1.3;
-  max-width: 100%;
-  word-break: break-word;
-  text-align: center;
-  padding: 0 4px;
-}
-
+/* 无封面占位见 components/CoverPlaceholder.vue，卡片配色见 styles/home-studio.css */
 .cover-wrapper {
   width: 100%;
   height: 180px;
   overflow: hidden;
   position: relative;
-  background: #f0f0f0;
-  border-radius: 12px 12px 0 0;
-}
-
-/* 封面悬浮信息 */
-.cover-overlay {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  padding: 8px 10px;
-  background: linear-gradient(to top, rgba(0, 0, 0, 0.7), transparent);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.overlay-stats {
-  display: flex;
-  gap: 15px;
-  color: white;
-  font-size: 14px;
-  font-weight: 500;
-}
-
-.overlay-stats .stat-item {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.overlay-stats svg {
-  width: 18px;
-  height: 18px;
-  flex-shrink: 0;
 }
 
 .article-info {
@@ -1931,20 +1860,6 @@ function stripHtmlTags(str: string): string {
     height: 140px;
   }
   
-  .placeholder-title {
-    font-size: 12px;
-  }
-  
-  .overlay-stats {
-    font-size: 11px;
-    gap: 8px;
-  }
-  
-  .overlay-stats svg {
-    width: 12px;
-    height: 12px;
-  }
-  
   .article-info {
     padding: 8px;
   }
@@ -2062,8 +1977,4 @@ function stripHtmlTags(str: string): string {
     width: 90% !important;
   }
 }
-</style>
-
-<style scoped>
-.recommendation-reason { font-size: 12px; color: #34342b; opacity: .72; margin-top: 12px; }
 </style>

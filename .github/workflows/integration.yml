@@ -53,6 +53,10 @@ jobs:
           pip install -r requirements.txt
           python -m evaluation.ci_bootstrap
           python -m app.migrate
+      - name: Real MySQL interaction concurrency and rollback checks
+        env:
+          EASYJOB_INTERACTION_DB_TEST: '1'
+        run: mvn -B -Dtest=ArticleInteractionMysqlTests test
       - name: Build and start Java with dummy credentials and model dispatch disabled
         run: |
           mkdir -p temp logs

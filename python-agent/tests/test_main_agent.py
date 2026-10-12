@@ -9,6 +9,7 @@ os.environ["AGENT_SERVICE_KEY"] = "offline-service-key-32-bytes-long!!"
 import hashlib
 import json
 import unittest
+from grounding_fakes import setUpModule, tearDownModule
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -131,6 +132,79 @@ class MainArtifactTests(unittest.TestCase):
 
 
 class MainAgentTests(unittest.IsolatedAsyncioTestCase):
+    async def test_missing_writing_evidence_dependency_is_repaired_before_draft_generation(self):
+        bad = MainDecision(action="write_draft", draft_request=DraftRequest(
+            task_id="draft", instruction="写一篇 Agent 开发文章", requires_evidence=True))
+        good = MainDecision(action="write_draft", draft_request=DraftRequest(
+            task_id="draft", instruction="写一篇通用知识原创文章", requires_evidence=False))
+        for decisions, calls in [([good], 1), ([bad, good], 2)]:
+            with self.subTest(calls=calls):
+                model, control = llm(decisions)
+                state = create_initial_state(7, "帮我写一篇，agent开发的文章", [])
+                with patch.object(agent, "get_llm", return_value=model), \
+                     patch.object(writing_worker, "generate_draft", AsyncMock(return_value=DraftOutput(
+                         title="Agent 开发入门", summary="原创概念介绍", content="从决策、工具与状态开始。"))) as generate, \
+                     patch.object(writing_worker, "save_approved_draft", AsyncMock()) as save:
+                    graph = builder._build_graph().compile(checkpointer=InMemorySaver())
+                    config = {"configurable": {"thread_id": f"draft-contract-{calls}"}, "recursion_limit": 80}
+                    await graph.ainvoke(state, config)
+                    snap = await graph.aget_state(config)
+                self.assertTrue(snap.tasks[0].interrupts)
+                self.assertEqual(snap.tasks[0].interrupts[0].value["title"], "Agent 开发入门")
+                self.assertEqual(snap.values["main_round"], 1)
+                self.assertEqual(len(snap.values["action_history"]), 1)
+                self.assertEqual(control.ainvoke.await_count, calls)
+                generate.assert_awaited_once()
+                save.assert_not_awaited()
+                if calls == 2:
+                    self.assertIn("有据分析或写作必须声明证据依赖", control.ainvoke.call_args.args[0][-1].content)
+
+    async def test_invalid_task_contracts_stop_after_one_repair_without_side_effects(self):
+        cases = [
+            MainDecision(action="write_draft", draft_request=DraftRequest(
+                task_id="draft", instruction="write", requires_evidence=True)),
+            MainDecision(action="write_draft", draft_request=DraftRequest(
+                task_id="draft", instruction="write", depends_on=["missing"])),
+            MainDecision(action="write_draft", draft_request=DraftRequest(
+                task_id="draft", instruction="write", required_skills=["unregistered-test-skill"])),
+            MainDecision(action="delegate", delegation_reason="independent work", plan=DependencyPlan(tasks=[
+                DelegatedTask(task_id="a", subagent="analysis", instruction="a", depends_on=["b"]),
+                DelegatedTask(task_id="b", subagent="analysis", instruction="b", depends_on=["a"])])),
+            MainDecision(action="delegate", delegation_reason="independent work", plan=DependencyPlan(tasks=[
+                DelegatedTask(task_id="a", subagent="search", instruction="a"),
+                DelegatedTask(task_id="a", subagent="search", instruction="b")]))]
+        for bad in cases:
+            with self.subTest(decision=bad.model_dump()):
+                model, control = llm([bad, bad])
+                state = create_initial_state(7, "write", [])
+                with patch.object(agent, "get_llm", return_value=model), \
+                     patch.object(actions, "run_subagent", AsyncMock()) as worker, \
+                     patch.object(writing_worker, "generate_draft", AsyncMock()) as generate, \
+                     patch.object(agent.memory_policy_service, "enqueue_changes", AsyncMock()) as memory:
+                    result, nodes = await run_updates(builder._build_graph().compile(checkpointer=InMemorySaver()), state)
+                self.assertIn("本轮动作格式未通过校验", result["final_reply"])
+                self.assertEqual(control.ainvoke.await_count, 2)
+                self.assertEqual(nodes, ["main_agent", "final_gate"])
+                self.assertFalse(result["action_history"])
+                worker.assert_not_awaited()
+                generate.assert_not_awaited()
+                memory.assert_not_awaited()
+
+    async def test_evidence_writing_can_repair_to_retrieve_without_dropping_evidence_requirement(self):
+        model, control = llm([
+            MainDecision(action="write_draft", draft_request=DraftRequest(
+                task_id="draft", instruction="基于站内文章写作", requires_evidence=True)),
+            MainDecision(action="retrieve", retrieval=RetrievalRequest(
+                task_id="sources", instruction="查找 Agent 开发资料"))])
+        state = create_initial_state(7, "基于站内文章写一篇 Agent 开发文章", [])
+        with patch.object(agent, "get_llm", return_value=model):
+            result = await agent.decide_main_action(state)
+        self.assertEqual(result["main_action"], "retrieve")
+        self.assertTrue(result["plan"]["tasks"][0]["requires_evidence"])
+        self.assertEqual(result["main_round"], 1)
+        self.assertEqual(len(result["action_history"]), 1)
+        self.assertEqual(control.ainvoke.await_count, 2)
+
     async def test_failed_local_citation_repair_preserves_independent_work_and_blocks_dependents(self):
         state = create_initial_state(7, 'compare', [])
         state.update(main_round=1, main_action='delegate', plan={'tasks': [
@@ -165,19 +239,18 @@ class MainAgentTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn(expected, result['final_reply'])
             self.assertEqual(control.ainvoke.await_count, 2)
 
-    async def test_retrieved_source_without_reference_gets_one_local_repair(self):
-        for patch_reply, fallback in [('supported [web:1]', False), ('still no reference', True)]:
-            model, control = llm([MainDecision(action='answer', reply='source https://example.org'),
-                                  CitationRepair(reply=patch_reply)])
+    async def test_retrieved_source_without_reference_defers_classification_to_final_gate(self):
+        for reply in ('source https://example.org', '缓存用于减少重复访问'):
+            model, control = llm([MainDecision(action='answer', reply=reply)])
             state = create_initial_state(7, 'search the web', [])
             state['task_results'] = {'web': {**evidence('web'), 'retrieval_target': 'knowledge',
                 'retrieval_report': {'quality': {'adequacy': 'partial'}}}}
             with patch.object(agent, 'get_llm', return_value=model):
                 result = await agent.decide_main_action(state)
-            self.assertIn('[web:1]', result['final_reply'])
-            self.assertEqual(control.ainvoke.await_count, 2)
-            self.assertEqual(result['citations'], evidence('web')['citations'])
-            self.assertEqual('当前未完成全部要求' in result['final_reply'], fallback)
+            self.assertEqual(result['final_reply'], reply)
+            self.assertEqual(control.ainvoke.await_count, 1)
+            self.assertIsNone(result['citations'])
+            self.assertEqual(result['delivery_evidence']['citations'], evidence('web')['citations'])
 
     async def test_irrelevant_retrieval_does_not_force_citation_on_no_results_answer(self):
         model, control = llm([MainDecision(action='answer', reply='没有找到相关资料')])
@@ -236,7 +309,8 @@ class MainAgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("current public evidence", context["successful_tasks"]["main"]["result"])
         self.assertEqual(context["observations"][0]["tasks"], {"main": "succeeded"})
         self.assertEqual(retrieval.hybrid_search.await_count, 1)
-        self.assertEqual(db.fetch_all.await_count, 2)
+        # Retrieval + final gate before and after the potentially awaited audit.
+        self.assertEqual(db.fetch_all.await_count, 3)
         self.assertEqual(rewrite.rewrite_request.call_args.args[2], state["history_messages"])
         self.assertEqual(result["citations"][0]["sourceHash"], hashlib.sha256(source.encode()).hexdigest())
         self.assertEqual(result["citations"][0]["excerpt"], "current public evidence")
@@ -332,7 +406,7 @@ class MainAgentTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(control.ainvoke.await_count, 2)
             self.assertEqual(nodes, ["main_agent", "final_gate"])
             retrieve.assert_not_awaited()
-            self.assertEqual(result["final_reply"], "本轮动作格式未通过校验，已停止执行。请重新描述目标后再试。" if fails else "fixed")
+            self.assertEqual(result["final_reply"], "本轮动作格式未通过校验，已停止执行。请重新描述目标后再试。\n\n当前未完成全部要求。" if fails else "fixed")
             self.assertIn("执行动作不能包含最终回复", control.ainvoke.await_args_list[1].args[0][-1].content)
 
     async def test_text_repair_preserves_request_constraints_and_artifact_dependencies(self):

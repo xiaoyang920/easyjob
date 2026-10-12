@@ -215,11 +215,17 @@ class IntegratedAssessmentTests(unittest.IsolatedAsyncioTestCase):
         result = agent.bounded_evidence_reply(state, 'limit')
         self.assertEqual([c['id'] for c in result['citations']], ['source:web2'])
         self.assertNotIn('Excel', result['final_reply'])
+        self.assertTrue(result['final_reply'].startswith('limit'))
+        self.assertIsNone(result['article_cards'])
+        self.assertEqual(result['delivery_evidence']['citations'], result['citations'])
         state['main_decision'] = {'evidence_assessment': self.assessment(selected_ids=[], adequacy='none').model_dump()}
-        self.assertEqual(agent.bounded_evidence_reply(state, 'limit')['final_reply'], 'limit')
+        self.assertIsNone(agent.bounded_evidence_reply(state, 'limit')['citations'])
+        self.assertTrue(agent.bounded_evidence_reply(state, 'limit')['final_reply'].startswith('limit'))
 
     def test_unassessed_candidates_are_not_promoted_by_bounded_stop(self):
-        self.assertEqual(agent.bounded_evidence_reply(self.state(), 'limit')['final_reply'], 'limit')
+        result = agent.bounded_evidence_reply(self.state(), 'limit')
+        self.assertTrue(result['final_reply'].startswith('limit'))
+        self.assertIsNone(result['citations'])
 
     def test_draft_dependencies_and_main_artifacts_only_receive_selected_sources(self):
         state = self.state()

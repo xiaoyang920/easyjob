@@ -1,6 +1,21 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { SseDecoder, readSse, createAgentState, applyAgentEvent, applyAnswerChunk, setRunStatus } from '../src/utils/agentStream.ts'
+import { SseDecoder, readSse, createAgentState, applyAgentEvent, applyAnswerChunk, setRunStatus, restoreAgentState } from '../src/utils/agentStream.ts'
+
+test('failed history restores completed work and failure without restarting the duration clock', () => {
+  const message = { runStatus: 'failed', runStartedAt: '2026-10-11T01:00:00Z', runFinishedAt: '2026-10-11T01:00:20Z', agentEvents: [
+    { version: 1, kind: 'activity', id: 'a', label: '检索', status: 'active', timestamp: '2026-10-11T01:00:02Z' },
+    { version: 1, kind: 'activity', id: 'a', label: '检索', status: 'done', timestamp: '2026-10-11T01:00:05Z' },
+    { version: 1, kind: 'activity', id: 'b', label: '分析', status: 'active', timestamp: '2026-10-11T01:00:06Z' },
+  ] }
+  const restored = restoreAgentState(message)
+  assert.equal(restored.status, 'error')
+  assert.deepEqual(restored.activities.map(item => item.status), ['done', 'error'])
+  assert.equal(restored.finishedAt - restored.startedAt, 20000)
+  assert.equal(restored.activities[0].finishedAt - restored.activities[0].startedAt, 3000)
+  assert.deepEqual(restoreAgentState(message), restored)
+  assert.equal(restoreAgentState({ content: '普通历史' }), undefined)
+})
 
 test('approval conflict shows the server message rather than a generic HTTP error', async () => {
   const response = new Response(JSON.stringify({ code: 409, message: '草稿版本已更新，请重新加载' }),

@@ -1,14 +1,28 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.easyjob.mapper.ArticleMapper">
+    <select id="findReindexPage" resultType="com.easyjob.entity.Article">
+        SELECT * FROM article_info
+        WHERE status=1 AND deleted=0 AND article_id &gt; #{afterId}
+        ORDER BY article_id
+        LIMIT 100
+    </select>
+    <select id="lockForInteraction" resultType="com.easyjob.entity.Article" useCache="false" flushCache="true">
+        SELECT article_id,user_id,title,status,deleted,like_count,collect_count
+        FROM article_info WHERE article_id=#{articleId} FOR UPDATE
+    </select>
+    <select id="selectInteractionCounts" resultType="com.easyjob.entity.Article">
+        SELECT article_id,status,deleted,like_count,collect_count
+        FROM article_info WHERE article_id=#{articleId}
+    </select>
     <update id="changeLikeCount">
         update article_info
-        set like_count = like_count + #{count}
+        set like_count = GREATEST(0, COALESCE(like_count,0) + #{count})
         where article_id = #{articleId}
     </update>
     <update id="changeCollectCount">
         update article_info
-        set collect_count = collect_count + #{count}
+        set collect_count = GREATEST(0, COALESCE(collect_count,0) + #{count})
         where article_id = #{articleId}
     </update>
     <update id="changeViewCount">

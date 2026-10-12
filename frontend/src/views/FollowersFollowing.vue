@@ -3,10 +3,18 @@
     <!-- 导航栏 -->
     <nav class="navbar">
       <div class="logo" @click="$router.push('/')">EasyJob</div>
+      <span class="page-title">粉丝与关注</span>
       <AppNavigation />
     </nav>
 
     <div class="container">
+      <header class="page-header">
+        <div>
+          <h1>{{ isOwnList ? '我的粉丝与关注' : '粉丝与关注' }}</h1>
+          <p class="page-description">{{ isOwnList ? '关注你的人，以及你正在关注的作者。' : '这位作者的粉丝与关注列表。' }}</p>
+        </div>
+      </header>
+
       <!-- 标签切换 -->
       <div class="tabs">
         <div 
@@ -37,11 +45,11 @@
           class="user-card"
         >
           <img 
-            :src="getAvatarUrl(user.avatar)" 
-            alt="头像"
+            :src="avatarUrl(user.avatar, user.nickName)"
+            :alt="`${user.nickName || '用户'}的头像`"
             class="user-avatar"
             @click="goToUserSpace(user.userId)"
-            @error="handleAvatarError"
+            @error="onAvatarError($event, user.nickName)"
           >
           <div class="user-info" @click="goToUserSpace(user.userId)">
             <div class="user-name">{{ user.nickName }}</div>
@@ -89,13 +97,14 @@
 
 <script setup lang="ts">
 import AppNavigation from '@/components/AppNavigation.vue'
-import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { goBackOr } from '../utils/navigation'
 import LoginForm from '../components/LoginForm.vue'
 import RegisterForm from '../components/RegisterForm.vue'
 import request from '../utils/request'
 import { eventBus, EVENT_AUTH_EXPIRED } from '../utils/eventBus'
+import { avatarUrl, onAvatarError } from '../utils/avatar'
 
 const route = useRoute()
 const router = useRouter()
@@ -221,18 +230,8 @@ function isOwner(id: string): boolean {
   return localStorage.getItem('userId') === String(id)
 }
 
-// 获取头像URL
-function getAvatarUrl(url: string | undefined): string {
-  if (!url) return 'https://cube.elemecdn.com/3/7c/3ea6beec64369c2642b92c6726f1epng.png'
-  if (url.startsWith('http://') || url.startsWith('https://')) return url
-  if (url.startsWith('/uploads')) return url
-  return url
-}
-
-function handleAvatarError(e: Event) {
-  const target = e.target as HTMLImageElement
-  target.src = 'https://cube.elemecdn.com/3/7c/3ea6beec64369c2642b92c6726f1epng.png'
-}
+// 正在查看自己的列表时，标题和说明用第一人称
+const isOwnList = computed(() => isOwner(userId.value))
 
 // 监听路由变化
 watch(() => route.query, () => {
@@ -344,57 +343,58 @@ onUnmounted(() => {
 }
 
 .container {
-  max-width: 700px;
-  margin: 100px auto 50px;
+  max-width: 760px;
+  margin: 104px auto 50px;
   padding: 0 20px;
 }
 
+.page-header {
+  margin-bottom: 20px;
+}
+
+.page-header h1 {
+  font-size: 28px;
+}
+
+.page-description {
+  margin-top: 8px;
+  color: var(--ej-muted);
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+/* 标签与其他列表页一致：左对齐的胶囊，选中为青柠色（配色见 styles/theme.css） */
 .tabs {
   display: flex;
-  background: rgba(255, 255, 255, 0.95);
-  border-radius: 12px;
-  padding: 5px;
-  margin-bottom: 25px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  gap: 8px;
+  margin-bottom: 22px;
 }
 
 .tab-item {
-  flex: 1;
-  text-align: center;
-  padding: 14px 20px;
-  border-radius: 10px;
+  padding: 9px 18px;
   cursor: pointer;
-  font-size: 15px;
-  color: #666;
-  transition: all 0.3s;
-}
-
-.tab-item:hover {
-  color: #333;
-  background: rgba(0, 0, 0, 0.04);
-}
-
-.tab-item.active {
-  background: #333;
-  color: white;
-  font-weight: 500;
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .tab-item .count {
-  margin-left: 6px;
-  font-size: 13px;
-  opacity: 0.8;
+  margin-left: 4px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ej-muted);
+}
+
+.tab-item.active .count {
+  color: var(--ej-ink);
 }
 
 .loading-state,
 .empty-state {
   text-align: center;
   padding: 60px 20px;
-  color: #999;
-  font-size: 16px;
-  background: white;
-  border-radius: 15px;
-  border: 1px solid #eee;
+  font-size: 15px;
+  border-radius: 18px;
+  border: 1px dashed var(--ej-line);
 }
 
 .user-list {
@@ -403,20 +403,12 @@ onUnmounted(() => {
   gap: 12px;
 }
 
+/* 卡片纸面与悬停效果见 styles/theme.css */
 .user-card {
   display: flex;
   align-items: center;
   gap: 16px;
-  background: rgba(255, 255, 255, 0.95);
-  border-radius: 16px;
   padding: 18px 20px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
-  transition: all 0.3s;
-}
-
-.user-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1);
 }
 
 .user-avatar {
@@ -425,12 +417,11 @@ onUnmounted(() => {
   border-radius: 50%;
   object-fit: cover;
   cursor: pointer;
-  border: 2px solid #f0f0f0;
-  transition: all 0.3s;
+  transition: transform 0.3s;
 }
 
 .user-avatar:hover {
-  border-color: #333;
+  transform: scale(1.05);
 }
 
 .user-info {
@@ -441,47 +432,27 @@ onUnmounted(() => {
 
 .user-name {
   font-size: 16px;
-  font-weight: 600;
-  color: #333;
+  font-weight: 700;
+  color: var(--ej-ink);
   margin-bottom: 6px;
 }
 
 .user-intro {
   font-size: 13px;
-  color: #999;
+  color: var(--ej-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
+/* 配色与已关注状态见 styles/theme.css */
 .follow-btn {
-  padding: 8px 24px;
-  border: 1.5px solid #333;
-  background: white;
-  color: #333;
-  border-radius: 20px;
+  min-width: 88px;
+  padding: 8px 20px;
   cursor: pointer;
   font-size: 13px;
-  font-weight: 500;
-  transition: all 0.3s;
+  font-weight: 600;
   flex-shrink: 0;
-}
-
-.follow-btn:hover {
-  background: #333;
-  color: white;
-}
-
-.follow-btn.following {
-  background: #f5f5f5;
-  border-color: #e0e0e0;
-  color: #999;
-}
-
-.follow-btn.following:hover {
-  background: #ff4d4f;
-  border-color: #ff4d4f;
-  color: white;
 }
 
 /* 分页 */
@@ -536,14 +507,13 @@ onUnmounted(() => {
     font-size: 12px;
   }
   
-  .main-container {
-    margin-top: 75px;
-    padding: 20px 15px;
+  .container {
+    margin-top: 82px;
+    padding: 0 16px;
   }
-  
-  .content-card {
-    padding: 20px;
-    border-radius: 15px;
+
+  .page-header h1 {
+    font-size: 24px;
   }
   
   .card-header h2 {

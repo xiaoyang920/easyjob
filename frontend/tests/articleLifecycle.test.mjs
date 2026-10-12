@@ -13,3 +13,11 @@ test('unknown, missing and moderated states cannot default to draft', () => {
     assert.throws(() => savedArticlePath('42', status))
   }
 })
+
+test('published articles with a new working revision open that draft, while approved versions stay public', () => {
+  for (const revisionState of [0, 1, 3, 4]) {
+    assert.equal(savedArticlePath('42',1,{revisionState,revisionId:'5'}),'/edit-article?id=42')
+  }
+  assert.equal(savedArticlePath('42',1,{revisionState:2,revisionId:'5'}),'/article/42')
+  assert.equal(savedArticlePath('42',1,{revisionState:0,revisionId:'0'}),'/article/42')
+})

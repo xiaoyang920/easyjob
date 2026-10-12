@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.easyjob.mapper.AdminCategoryMapper">
+    <insert id="insertCreateAudit">
+        INSERT INTO admin_operation_log(admin_user_id,action,target_type,target_id,before_value,after_value,details_json) VALUES (#{actorId},'category_create','category',#{categoryId},'',#{name},#{details})
+    </insert>
+    <insert id="insertCategory">
+        INSERT INTO category(category_id,category_name,parent_id,sort_order,description,article_count,status,create_time,update_time) VALUES (#{categoryId},#{name},#{parentId},#{sortOrder},#{description},0,1,NOW(),NOW())
+    </insert>
+    <select id="lockParent" resultType="map">
+        SELECT parent_id,status FROM category WHERE category_id=#{categoryId} FOR UPDATE
+    </select>
+    <select id="findCategories" resultType="map">
+        SELECT CAST(c.category_id AS CHAR) AS categoryId,c.category_name AS categoryName,CAST(c.parent_id AS CHAR) AS parentId,c.sort_order AS sortOrder,c.description,c.status,CAST(c.version AS CHAR) AS version,CAST(c.migrated_to AS CHAR) AS migratedTo,(SELECT COUNT(*) FROM article_info a WHERE a.category_id=c.category_id AND a.deleted=0) AS articleCount FROM category c ORDER BY c.parent_id,c.sort_order,c.category_id
+    </select>
+</mapper>

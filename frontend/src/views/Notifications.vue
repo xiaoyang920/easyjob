@@ -16,6 +16,14 @@
     </nav>
 
     <div class="main">
+      <header class="page-header">
+        <div>
+          <h1>消息通知</h1>
+          <p class="page-description">评论、点赞、关注和审核结果都会汇总在这里。</p>
+        </div>
+        <span v-if="notifyUnreadCount > 0" class="page-count">{{ notifyUnreadCount > 99 ? '99+' : notifyUnreadCount }} 条未读</span>
+      </header>
+
       <!-- 顶部分类 Tab + 操作 -->
       <div class="toolbar">
         <div class="tabs">
@@ -59,11 +67,11 @@
           role="button" tabindex="0" @keydown.enter="openNotify(n)" @keydown.space.prevent="openNotify(n)"
         >
           <img
-            :src="getAvatarUrl(n.senderAvatar)"
+            :src="avatarUrl(n.senderAvatar, n.senderNickname)"
             :alt="n.senderNickname || '用户'"
             class="avatar"
             @click.stop="goToUserSpace(n.senderId)"
-            @error="handleAvatarError"
+            @error="onAvatarError($event, n.senderNickname)"
           >
           <div class="body">
             <div class="line-1">
@@ -101,6 +109,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { notificationPath,isReviewNotification } from '@/utils/notificationTarget'
 import { latestRequest } from '@/utils/latestRequest'
+import { avatarUrl, onAvatarError } from '@/utils/avatar'
 import { ElMessage } from 'element-plus'
 import request from '@/utils/request'
 import {
@@ -203,22 +212,6 @@ async function markAllRead() {
 function goToUserSpace(userId: number | string) {
   if (!userId) return
   router.push(`/user-space/${userId}`)
-}
-
-function getAvatarUrl(url?: string | null) {
-  if (!url) return 'https://cube.elemecdn.com/3/7c/3ea6beec64369c2642b92c6726f1epng.png'
-  if (url.startsWith('http://') || url.startsWith('https://')) {
-    if (url.includes('localhost:8080')) {
-      return url.replace(/https?:\/\/localhost:8080/, '')
-    }
-    return url
-  }
-  return url
-}
-
-function handleAvatarError(e: Event) {
-  const t = e.target as HTMLImageElement
-  t.src = 'https://cube.elemecdn.com/3/7c/3ea6beec64369c2642b92c6726f1epng.png'
 }
 
 function formatTime(t?: string) {
@@ -342,7 +335,33 @@ onUnmounted(() => {
 .main {
   max-width: 800px;
   margin: 0 auto;
-  padding: 100px 20px 60px;
+  padding: 104px 20px 60px;
+}
+
+.page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.page-header h1 {
+  font-size: 28px;
+}
+
+.page-description {
+  margin-top: 8px;
+  color: var(--ej-muted);
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+.page-count {
+  flex-shrink: 0;
+  color: var(--ej-muted);
+  font-size: 13px;
+  white-space: nowrap;
 }
 
 .toolbar {
@@ -433,30 +452,18 @@ onUnmounted(() => {
   box-shadow: none;
 }
 
+/* 卡片底色、边框与悬停效果见 styles/theme.css */
 .notify-card {
   position: relative;
   display: flex;
   gap: 14px;
   padding: 16px 20px;
   cursor: pointer;
-  border-bottom: 1px solid #f0f0f0;
-  transition: background 0.2s;
 }
 
-.notify-card:last-child {
-  border-bottom: none;
-}
-
-.notify-card:hover {
-  background: #f8f9fa;
-}
-
+/* 未读卡片右侧留出红点的位置，红点垂直居中，不再压住时间 */
 .notify-card.unread {
-  background: var(--ej-accent-soft);
-}
-
-.notify-card.unread:hover {
-  background: #e6f1ff;
+  padding-right: 44px;
 }
 
 .avatar {
@@ -464,14 +471,12 @@ onUnmounted(() => {
   height: 44px;
   border-radius: 50%;
   object-fit: cover;
-  border: 2px solid #eee;
   flex-shrink: 0;
   transition: transform 0.2s;
 }
 
 .avatar:hover {
   transform: scale(1.05);
-  border-color: var(--ej-accent);
 }
 
 .body {
@@ -485,12 +490,12 @@ onUnmounted(() => {
   flex-wrap: wrap;
   gap: 6px;
   font-size: 14px;
-  color: #333;
+  color: var(--ej-ink);
 }
 
 .sender {
-  font-weight: 600;
-  color: #222;
+  font-weight: 700;
+  color: var(--ej-ink);
   cursor: pointer;
 }
 
@@ -499,19 +504,20 @@ onUnmounted(() => {
 }
 
 .verb {
-  color: #555;
+  color: #47453f;
 }
 
 .time {
   margin-left: auto;
   font-size: 12px;
-  color: #999;
+  color: var(--ej-muted);
+  white-space: nowrap;
 }
 
 .line-2 {
   margin-top: 6px;
   font-size: 13px;
-  color: #666;
+  color: #47453f;
   line-height: 1.5;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -525,17 +531,17 @@ onUnmounted(() => {
 }
 
 .target-preview {
-  color: #888;
+  color: var(--ej-muted);
 }
 
 .unread-dot {
   position: absolute;
-  top: 20px;
+  top: 50%;
   right: 18px;
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
-  background: #ff4d4f;
+  transform: translateY(-50%);
 }
 
 /* 空/Loading */
@@ -593,10 +599,12 @@ onUnmounted(() => {
 @media (max-width: 768px) {
   .navbar { padding: 0 15px; }
   .page-title { font-size: 16px; }
-  .main { padding: 85px 12px 40px; }
+  .main { padding: 82px 14px 40px; }
+  .page-header h1 { font-size: 24px; }
   .toolbar { padding: 10px 12px; }
   .notify-card { padding: 12px 14px; }
+  .notify-card.unread { padding-right: 36px; }
   .avatar { width: 40px; height: 40px; }
-  .unread-dot { top: 16px; right: 14px; }
+  .unread-dot { right: 14px; }
 }
 </style>

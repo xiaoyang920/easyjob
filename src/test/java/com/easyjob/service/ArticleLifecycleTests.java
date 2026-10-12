@@ -49,6 +49,8 @@ class ArticleLifecycleTests {
         ReflectionTestUtils.setField(service, "userMapper", users);
         ReflectionTestUtils.setField(service, "esComponent", es);
         ReflectionTestUtils.setField(service, "redisComponent", redis);
+        ReflectionTestUtils.setField(service, "cacheRebuildMutex", new com.easyjob.component.CacheRebuildMutex(
+                mock(org.springframework.data.redis.core.StringRedisTemplate.class), 30000, 2000));
         ReflectionTestUtils.setField(service, "articleIndexPublisher", index);
         ReflectionTestUtils.setField(service, "articleTagService", tags);
         ReflectionTestUtils.setField(service, "articleTagMapper", tagMapper);
@@ -80,13 +82,39 @@ class ArticleLifecycleTests {
         dto.setCategoryId("1"); dto.setTitle("Lifecycle regression"); dto.setContent("<p>content</p>");
         return dto;
     }
+    @Test void cachedArticleStillReadsFreshCountsAndChecksAccess() {
+        UserContext.clear();
+        ArticleDetailVO cached = new ArticleDetailVO();
+        cached.setArticleId("42"); cached.setTitle("cached title"); cached.setViewCount(1);
+        when(redis.getArticleDetail(42L)).thenReturn(cached);
+        Article current = new Article();
+        current.setStatus(1); current.setDeleted(0); current.setUserId(7L); current.setViewCount(99);
+        when(mapper.selectOne(any())).thenReturn(current);
+        ArticleDetailVO result = service.getArticleById(42L);
+        assertEquals("cached title", result.getTitle()); assertEquals(99, result.getViewCount());
+        assertEquals(1, cached.getViewCount());
+        verify(mapper, never()).selectArticleAndUser(anyLong());
+        verify(redis, never()).saveArticleDetail(anyLong(), any());
+        verify((ArticleAccessService) ReflectionTestUtils.getField(service, "articleAccess"))
+                .apply(eq(result), isNull(), eq(7L), eq(0));
+    }
+    @Test void cacheHitCannotExposeAnUnpublishedArticle() {
+        when(redis.getArticleDetail(42L)).thenReturn(new ArticleDetailVO());
+        Article current = new Article(); current.setStatus(0); current.setDeleted(0);
+        when(mapper.selectOne(any())).thenReturn(current);
+        assertEquals(404, assertThrows(BusinessException.class, () -> service.getArticleById(42L)).getCode());
+        verify(mapper, never()).selectArticleAndUser(anyLong());
+    }
     @Test void savingDraftReturnsIdWithoutCountingOrPublishing() {
-        assertEquals(42L, service.saveArticle(request(0)));
+        assertTrue(service.saveArticle(request(0))>0);
+        verify(revisions).create(eq(7L),anyLong(),any(ArticleCreateDTO.class));
+        verify(mapper,never()).insert(any(Article.class));
         verifyNoInteractions(users, es, index);
     }
     @Test void creatingSubmissionDoesNotPublishOrCount() {
         service.saveArticle(request(1));
-        verify(mapper).insert(argThat((Article a)->a.getStatus()==0 && a.getPublishTime()==null));
+        verify(revisions).create(eq(7L),anyLong(),any(ArticleCreateDTO.class));
+        verify(mapper,never()).insert(any(Article.class));
         verifyNoInteractions(users,index);
     }
     @Test void unsupportedVisibilityCannotBeSubmitted() {
@@ -107,12 +135,13 @@ class ArticleLifecycleTests {
     }
     @Test void deletingDraftDoesNotDecreasePublishedCount() {
         existing(0); service.deleteArticle(42L); verifyNoInteractions(users);
-        verify(redis).deleteUserSpaceVO(7L);
+        verify(revisions).delete(7L,42L);
     }
     @Test void deletingPublishedArticleDecreasesPublishedCount() {
-        existing(1); service.deleteArticle(42L); verify(users).changeArticleCount(7L, -1);
+        existing(1); service.deleteArticle(42L); verify(revisions).delete(7L,42L);verifyNoInteractions(users,index);
     }
     @Test void missingOrForeignArticleCannotMutateTagsOrCounters() {
+        doThrow(new BusinessException(404,"不存在")).when(revisions).delete(7L,42L);
         assertThrows(BusinessException.class,()->service.deleteArticle(42L));
         verifyNoInteractions(users,tags,index);
     }
@@ -128,6 +157,6 @@ class ArticleLifecycleTests {
         existing(1);TransactionSynchronizationManager.initSynchronization();TransactionSynchronizationManager.setActualTransactionActive(true);
         service.deleteArticle(42L);verifyNoInteractions(redis);
         TransactionSynchronizationManager.getSynchronizations().forEach(s->s.afterCommit());
-        verify(redis).deleteArticleDetail(42L);verify(redis).deleteUserSpaceVO(7L);
+        verifyNoInteractions(redis);verify(revisions).delete(7L,42L);
     }
 }

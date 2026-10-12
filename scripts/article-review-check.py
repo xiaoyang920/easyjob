@@ -21,6 +21,10 @@ async def main():
     def check(name,value):report['checks'].append({'name':name,'passed':bool(value)});print(name+': '+str(bool(value)),flush=True);assert value,name
     def client(uid=None):return httpx.AsyncClient(base_url='http://127.0.0.1:8080/api',trust_env=False,timeout=30,headers={'Authorization':'Bearer '+local_token(uid)} if uid else {})
     async def call(client,method,path,code=200,**kwargs):
+        body=kwargs.get('json')
+        if method in ('PUT','POST') and isinstance(body,dict) and 'expectedRevisionId' in body and 'expectedLockVersion' not in body and path!='/article/create' and code!=404:
+            baseline=(await client.get(f"/article/{path.split('/')[2]}/edit")).json()
+            body['expectedLockVersion']=(baseline.get('data') or {}).get('lockVersion',0)
         response=await client.request(method,path,**kwargs);body=response.json();actual=body.get('code') if response.status_code==200 else response.status_code
         if actual!=code:raise AssertionError(f'{path}: expected {code}, got {actual}, {body.get("message")}')
         return body.get('data')
@@ -35,7 +39,8 @@ async def main():
         async with client(admin) as manager,client(author) as owner,client(foreign) as outsider,client() as guest:
             created=await call(owner,'POST','/article/create',json=payload('初次提交','公开旧版内容'))
             aid=created['articleId'];article_ids.append(aid)
-            await db.execute('UPDATE article_info SET required_level=1 WHERE article_id=:id',{'id':aid})
+            await db.execute('UPDATE article_revision SET required_level=1 WHERE article_id=:id',{'id':aid})
+            check('new_submission_has_no_info_row',await scalar('SELECT COUNT(*) FROM article_info WHERE article_id=:id',id=aid)==0)
             edit=await call(owner,'GET',f'/article/{aid}/edit');head=edit['revisionId']
             check('first_submission_stays_private',edit['status']==0 and edit['revisionState']==1 and await scalar('SELECT article_count FROM user_info WHERE user_id=:id',id=author)==0)
             await call(guest,'GET',f'/article/detail/{aid}',404);check('pending_body_is_not_public',True)
@@ -120,20 +125,34 @@ async def main():
             original=await scalar('SELECT payload FROM article_revision WHERE revision_id=:id',id=crid)
             await db.execute("UPDATE article_revision SET payload=JSON_SET(payload,'$.content','<p>被篡改的正文</p>') WHERE revision_id=:id",{'id':crid})
             await call(manager,'POST',f'/admin/reviews/{crid}',409,json={'decision':'approve'})
-            check('corrupted_snapshot_cannot_be_approved',await scalar('SELECT status FROM article_info WHERE article_id=:id',id=corrupt)==0)
+            check('corrupted_snapshot_cannot_be_approved',await scalar('SELECT COUNT(*) FROM article_info WHERE article_id=:id',id=corrupt)==0)
             check('failed_approval_creates_no_result_notice',await scalar('SELECT COUNT(*) FROM notification WHERE user_id=:uid AND target_id=:rid',uid=author,rid=crid)==0)
             await db.execute('UPDATE article_revision SET payload=:p WHERE revision_id=:id',{'id':crid,'p':original})
-            await db.execute('UPDATE article_info SET deleted=1 WHERE article_id=:id',{'id':corrupt})
+            await call(owner,'DELETE',f'/article/{corrupt}')
             await call(manager,'POST',f'/admin/reviews/{crid}',404,json={'decision':'approve'})
             check('deleted_article_cannot_be_reviewed',not any(r['articleId']==corrupt for r in (await call(manager,'GET','/admin/reviews'))['records']))
             # Concurrent author writes share one expected immutable head.
             created=await call(owner,'POST','/article/create',json=payload('并发编辑','版本草稿',0));race=created['articleId'];article_ids.append(race)
             redit=await call(owner,'GET',f'/article/{race}/edit');rhead=redit['revisionId']
-            results=await asyncio.gather(*(owner.put(f'/article/{race}',json=payload('并发编辑','仅一个写入成功',0,rhead)) for _ in range(10)))
+            draft_count=await scalar('SELECT COUNT(*) FROM article_revision WHERE article_id=:id',id=race)
+            for n in range(20):
+                current=await call(owner,'GET',f'/article/{race}/edit')
+                updated=await call(owner,'PUT',f'/article/{race}',json={**payload('连续保存','正文'+str(n),0,current['revisionId']),'expectedLockVersion':current['lockVersion']})
+                assert updated['revisionId']==rhead
+            check('twenty_saves_reuse_one_working_draft',await scalar('SELECT COUNT(*) FROM article_revision WHERE article_id=:id',id=race)==draft_count)
+            check('working_draft_never_creates_info',await scalar('SELECT COUNT(*) FROM article_info WHERE article_id=:id',id=race)==0)
+            current=await call(owner,'GET',f'/article/{race}/edit')
+            unchanged=await call(owner,'PUT',f'/article/{race}',json={**payload('连续保存','正文19',0,rhead),'expectedLockVersion':current['lockVersion']})
+            check('identical_save_does_not_increment_lock',unchanged['lockVersion']==current['lockVersion'])
+            await call(owner,'PUT',f'/article/{race}',409,json={**payload('旧AI结果','旧正文',0,rhead),'expectedLockVersion':redit['lockVersion']})
+            check('same_revision_stale_lock_cannot_overwrite',True)
+            redit=await call(owner,'GET',f'/article/{race}/edit')
+            results=await asyncio.gather(*(owner.put(f'/article/{race}' ,json={**payload('并发编辑','仅一个写入成功',0,rhead),'expectedLockVersion':redit['lockVersion']}) for _ in range(10)))
             codes=[r.json()['code'] for r in results];check('concurrent_author_writes_preserve_one_head',codes.count(200)==1 and codes.count(409)==9)
             await call(owner,'POST',f'/article/{race}/publish',json={'expectedRevisionId':(await call(owner,'GET',f'/article/{race}/edit'))['revisionId']})
+            check('submit_freezes_without_copying_body',await scalar('SELECT COUNT(*) FROM article_revision WHERE article_id=:id',id=race)==draft_count)
             rhead=(await call(owner,'GET',f'/article/{race}/edit'))['revisionId']
-            await db.execute('UPDATE article_info SET required_level=1 WHERE article_id=:id',{'id':race})
+            await db.execute('UPDATE article_revision SET required_level=1 WHERE article_id=:id',{'id':race})
             results=await asyncio.gather(manager.post(f'/admin/reviews/{rhead}',json={'decision':'approve'}),owner.post(f'/article/{race}/revisions/{rhead}/withdraw'))
             codes=[r.json()['code'] for r in results];report['approval_withdrawal_codes']=codes;print('Approval/withdrawal results: '+str(codes),flush=True);check('approval_and_withdrawal_have_one_winner',sorted(codes)==[200,409])
             race_codes=[]
@@ -181,7 +200,8 @@ async def main():
                 await asyncio.to_thread(input,'Press Enter after browser QA to clean up fixtures. ')
     finally:
         for aid in article_ids:
-            if await scalar('SELECT COUNT(*) FROM article_info WHERE article_id=:id AND user_id=:uid AND category_id=:cat',id=aid,uid=author,cat=cat)!=1:continue
+            if not await scalar('SELECT COUNT(*) FROM article_revision WHERE article_id=:id AND author_id=:uid',id=aid,uid=author) and not await scalar('SELECT COUNT(*) FROM article_info WHERE article_id=:id AND user_id=:uid AND category_id=:cat',id=aid,uid=author,cat=cat):continue
+            await db.execute('DELETE FROM article_tag_relation WHERE article_id=:id',{'id':aid})
             for table in ['article_review_log','article_revision','article_index_outbox','article_read_receipt']:
                 await db.execute(f'DELETE FROM {table} WHERE article_id=:id',{'id':aid})
             await db.execute('DELETE FROM admin_operation_log WHERE target_id=:id AND admin_user_id=:uid',{'id':aid,'uid':admin})

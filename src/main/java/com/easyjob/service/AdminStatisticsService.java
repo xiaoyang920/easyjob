@@ -3,7 +3,7 @@ package com.easyjob.service;
 import com.alibaba.excel.EasyExcel;
 import com.easyjob.exception.BusinessException;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.jdbc.core.JdbcTemplate;
+import com.easyjob.mapper.AdminStatisticsMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,11 +16,11 @@ import java.util.*;
 /** Aggregates only: no user contacts, article body, or invented historical view counts. */
 @Service
 public class AdminStatisticsService {
-    private final JdbcTemplate jdbc;
+    private final AdminStatisticsMapper store;
     private final AdminConsoleService admin;
     private final Clock clock;
-    @Autowired public AdminStatisticsService(JdbcTemplate jdbc,AdminConsoleService admin){this(jdbc,admin,Clock.system(ZoneId.of("Asia/Shanghai")));}
-    AdminStatisticsService(JdbcTemplate jdbc,AdminConsoleService admin,Clock clock){this.jdbc=jdbc;this.admin=admin;this.clock=clock;}
+    @Autowired public AdminStatisticsService(AdminStatisticsMapper store,AdminConsoleService admin){this(store,admin,Clock.system(ZoneId.of("Asia/Shanghai")));}
+    AdminStatisticsService(AdminStatisticsMapper store,AdminConsoleService admin,Clock clock){this.store=store;this.admin=admin;this.clock=clock;}
     public record Daily(String date,long newUsers,long newArticles,long readingMillis,long readingUsers) {
         public double readingSeconds(){return readingMillis/1000.0;}
     }
@@ -37,30 +37,30 @@ public class AdminStatisticsService {
     public Report statistics(Long actor,int days,String source) {
         admin.requirePermission(actor,"statistics.read");
         if(source==null || !List.of("business","evaluation","all").contains(source))throw new BusinessException(400,"数据来源无效");
-        String filter=source.equals("all")?"":" AND data_source='"+source+"'";
-        String userFilter=source.equals("all")?"":" AND u.data_source='"+source+"'";
         if(days!=7 && days!=30 && days!=90)throw new BusinessException(400,"统计范围仅支持7、30或90天");
         LocalDate to=LocalDate.now(clock),from=to.minusDays(days-1);
         Timestamp start=Timestamp.valueOf(from.atStartOfDay()),end=Timestamp.valueOf(to.plusDays(1).atStartOfDay());
-        var users=index(jdbc.queryForList("SELECT CAST(DATE(join_time) AS CHAR) AS day,COUNT(*) AS amount FROM user_info WHERE join_time>=? AND join_time<?"+filter+" GROUP BY day",start,end));
-        var publications=index(jdbc.queryForList("SELECT CAST(DATE(publish_time) AS CHAR) AS day,COUNT(*) AS amount FROM article_info WHERE deleted=0 AND status IN (1,2) AND publish_time>=? AND publish_time<?"+filter+" GROUP BY day",start,end));
-        var reading=index(jdbc.queryForList("SELECT CAST(d.read_day AS CHAR) AS day,SUM(d.total_millis) AS millis,COUNT(*) AS readers FROM user_reading_daily d JOIN user_info u ON u.user_id=d.user_id WHERE d.read_day>=? AND d.read_day<? AND d.total_millis>0"+userFilter+" GROUP BY d.read_day",java.sql.Date.valueOf(from),java.sql.Date.valueOf(to.plusDays(1))));
+        var users=index(store.dailyUsers(start,end,source));
+        var publications=index(store.dailyPublications(start,end,source));
+        var reading=index(store.dailyReading(java.sql.Date.valueOf(from),java.sql.Date.valueOf(to.plusDays(1)),source));
         var daily=new ArrayList<Daily>(days);
         long newUsers=0,newArticles=0,millis=0;
         for(LocalDate date=from;!date.isAfter(to);date=date.plusDays(1)) {
             String day=date.toString();long u=value(users.get(day),"amount"),a=value(publications.get(day),"amount"),m=value(reading.get(day),"millis");
             daily.add(new Daily(day,u,a,m,value(reading.get(day),"readers")));newUsers+=u;newArticles+=a;millis+=m;
         }
-        Long distinct=jdbc.queryForObject("SELECT COUNT(DISTINCT d.user_id) FROM user_reading_daily d JOIN user_info u ON u.user_id=d.user_id WHERE d.read_day>=? AND d.read_day<? AND d.total_millis>0"+userFilter,Long.class,java.sql.Date.valueOf(from),java.sql.Date.valueOf(to.plusDays(1)));
-        var articleCounts=jdbc.queryForList("SELECT status,COUNT(*) AS amount FROM article_info WHERE deleted=0"+filter+" GROUP BY status");
+        Long distinct=store.distinctReaders(java.sql.Date.valueOf(from),java.sql.Date.valueOf(to.plusDays(1)),source);
+        var articleCounts=store.articleDistribution(source);
+        Long unpublished=store.countUnpublished(source);
         var articles=new ArrayList<Distribution>();
         for(int state=0;state<=2;state++) {
             final int current=state;
             long count=articleCounts.stream().filter(r->value(r,"status")==current).mapToLong(r->value(r,"amount")).sum();
+            if(state==0)count=unpublished==null?0:unpublished;
             articles.add(new Distribution(switch(state){case 0->"未公开";case 1->"已发布";default->"已下架";},count));
         }
-        var levelRows=jdbc.queryForList("SELECT GREATEST(COALESCE(p.earned_level,0),COALESCE((SELECT MAX(level) FROM reading_level_rule WHERE min_seconds<=COALESCE(p.total_millis,0) DIV 1000),0)) AS level,COUNT(*) AS amount FROM user_info u LEFT JOIN user_reading_progress p ON p.user_id=u.user_id WHERE 1=1"+userFilter+" GROUP BY level");
-        var configured=jdbc.queryForList("SELECT level FROM reading_level_rule ORDER BY level");
+        var levelRows=store.levelDistribution(source);
+        var configured=store.configuredLevels();
         var levelCounts=new TreeMap<Long,Long>();for(var row:configured)levelCounts.put(value(row,"level"),0L);
         for(var row:levelRows)levelCounts.put(value(row,"level"),value(row,"amount"));
         var levels=levelCounts.entrySet().stream().map(e->new Distribution("L"+e.getKey(),e.getValue())).toList();

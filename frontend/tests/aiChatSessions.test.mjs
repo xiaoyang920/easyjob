@@ -10,7 +10,7 @@ import { JSDOM } from 'jsdom'
 
 test('real chat component switches, receives parallel replies, resumes and cancels only its own run', async () => {
   const dom = new JSDOM('<div id="root"></div>', { url:'http://localhost:3000/ai-chat' })
-  for (const key of ['window','document','Element','HTMLElement','SVGElement','Node','localStorage']) globalThis[key] = dom.window[key]
+  for (const key of ['window','document','Element','HTMLElement','SVGElement','Node','localStorage','DOMParser']) globalThis[key] = dom.window[key]
   globalThis.getComputedStyle = dom.window.getComputedStyle.bind(dom.window)
   localStorage.setItem('token', 'isolated-unit-test')
   localStorage.setItem('userId', 'qa')
@@ -18,6 +18,17 @@ test('real chat component switches, receives parallel replies, resumes and cance
   const source = fileURLToPath(new URL('../src/views/AiChat.vue', import.meta.url))
   const { descriptor } = parse(await readFile(source, 'utf8'))
   let script = compileScript(descriptor, { id:'chat-session-qa', inlineTemplate:true }).content
+  const editorPath = fileURLToPath(new URL(`.draft-editor-qa-${process.pid}.mjs`,import.meta.url))
+  const editorSource = parse(await readFile(new URL('../src/components/AiDraftEditor.vue',import.meta.url),'utf8')).descriptor
+  let editorScript = compileScript(editorSource,{id:'draft-editor-qa',inlineTemplate:true}).content
+  editorScript = editorScript.replace(/^import .* from ['"]element-plus['"]\s*$/gm, `
+    const {h:hQa}=await import('vue')
+    const ElMessage={warning:()=>{}}
+    const ElDialog={props:['modelValue'],setup:(props,{slots})=>()=>props.modelValue?hQa('section',{},[slots.default?.(),slots.footer?.()]):null}
+  `).replace(/^import .* from ['"][^'"]+\.vue['"]\s*$/gm, `
+    const ArticleRichEditor={props:['modelValue'],emits:['update:modelValue'],setup:(props,{emit})=>()=>hQa('textarea',{class:'rich-editor-stub',value:props.modelValue,onInput:e=>emit('update:modelValue',e.target.value)})}
+  `).replace(/from ['"](@\/[^'"]+)['"]/g,(_,name)=>`from '${pathToFileURL(path.resolve(path.dirname(source),'../',name.slice(2))+'.ts').href}'`)
+  await writeFile(editorPath,ts.transpileModule(editorScript,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText)
   const streams = [], calls = [], notices = [], histories = new Map()
   let recovering = false
   const encoder = new TextEncoder()
@@ -47,7 +58,10 @@ test('real chat component switches, receives parallel replies, resumes and cance
       async delete(url) { calls.push(['delete',url]); return {code:200} }
     }
   }
-  script = script.replace(/^import .* from ['"]([^'"]+\.vue)['"]\s*$/gm, line => `const ${line.match(/^import (\w+)/)[1]} = {render:()=>null}`)
+  script = script.replace(/^import .* from ['"]([^'"]+\.vue)['"]\s*$/gm, line => {
+    const name=line.match(/^import (\w+)/)[1]
+    return name==='AiDraftEditor'?`const AiDraftEditor=(await import('${pathToFileURL(editorPath).href}')).default`:`const ${name} = {render:()=>null}`
+  })
   script = script.replace(/^import .* from ['"]vue-router['"]\s*$/gm, 'const useRouter=()=>globalThis.__chatQa.router, useRoute=()=>globalThis.__chatQa.route')
   script = script.replace(/^import .* from ['"]element-plus['"]\s*$/gm, 'const ElMessage=globalThis.__chatQa.message')
   script = script.replace(/^import .* from ['"]@\/utils\/request['"]\s*$/gm, 'const request=globalThis.__chatQa.request')
@@ -89,12 +103,22 @@ test('real chat component switches, receives parallel replies, resumes and cance
     streams[0].emit('__RUN_ID__:run-a')
     streams[0].emit('__PREVIEW__:{"type":"replace","content":"A 的部分回答"}')
     await tick()
-    assert.ok(document.querySelector('.message-list').textContent.includes('A 的部分回答'),'model preview appears before completion')
+    assert.ok(!document.querySelector('.message-list').textContent.includes('A 的部分回答'),'unverified preview stays private')
     streams[0].emit('__PREVIEW__:{"type":"delta","content":"继续生成"}')
     await tick()
-    assert.ok(document.querySelector('.message-list').textContent.includes('A 的部分回答继续生成'))
+    assert.ok(!document.querySelector('.message-list').textContent.includes('A 的部分回答继续生成'))
+    streams[0].emit('__ANSWER__:{"type":"start","mode":"direct"}')
+    streams[0].emit('__ANSWER__:{"type":"delta","seq":0,"content":"A 的实时回答"}')
+    await settle(()=>document.querySelector('.message-list').textContent.includes('A 的实时回答'))
+    assert.ok(document.querySelector('[aria-label="停止生成"]'),'live text is visible before the run completes')
+    streams[0].emit('__ANSWER__:{"type":"delta","seq":0,"content":"A 的实时回答"}')
+    await tick()
+    assert.equal(document.querySelector('.message-list').textContent.split('A 的实时回答').length - 1,1,'replay does not duplicate live chunks')
     await select('会话 B')
     assert.equal(input().disabled,false,'other chat remains usable')
+    streams[0].emit('__ANSWER__:{"type":"delta","seq":1,"content":"，后台继续"}')
+    await tick()
+    assert.ok(!document.querySelector('.message-list')?.textContent.includes('后台继续'),'background live text cannot leak into B')
     await send('B 的问题')
     await settle(()=>streams.length===2)
     assert.equal(streams[0].signal.aborted,false,'switch does not cancel A')
@@ -130,10 +154,20 @@ test('real chat component switches, receives parallel replies, resumes and cance
     streams[3].finish()
     histories.set('101',[{role:'user',content:'生成待确认草稿'},{role:'assistant',content:'草稿正文',interrupted:true,isDraft:true,interruptPayload:draftPayload}])
     await settle(()=>button('保存草稿'))
+    await click(button('直接编辑'))
+    const title=document.querySelector('.editor-fields input')
+    title.value='我修改的标题';title.dispatchEvent(new window.Event('input',{bubbles:true}));await tick()
+    const body=document.querySelector('.rich-editor-stub')
+    body.value='<h1>手动正文</h1><p>代码与图片链接</p>';body.dispatchEvent(new window.Event('input',{bubbles:true}));await tick()
+    await click(button('应用修改'))
+    assert.ok(document.querySelector('.draft-review-body h1').textContent.includes('手动正文'))
     await click(button('保存草稿'))
     await settle(()=>streams.length===5)
     assert.equal(streams[4].body.conversationId,'101')
     assert.equal(streams[4].body.runId,'draft-run')
+    assert.equal(streams[4].body.editedDraft.title,'我修改的标题')
+    assert.equal(streams[4].body.editedDraft.content,'<h1>手动正文</h1><p>代码与图片链接</p>')
+    assert.equal(streams[4].body.editedDraft.content_format,'html')
     await select('会话 B')
     streams[4].emit('__DRAFT_SAVED__:{"draftArticleId":"900","title":"隔离草稿"}')
     reply(streams[4],'草稿已保存')
@@ -159,6 +193,7 @@ test('real chat component switches, receives parallel replies, resumes and cance
   } finally {
     app?.unmount()
     await unlink(modulePath)
+    await unlink(editorPath)
     dom.window.close()
     delete globalThis.__chatQa
   }

@@ -2,7 +2,7 @@ package com.easyjob.service;
 
 import com.easyjob.exception.BusinessException;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.jdbc.core.JdbcTemplate;
+import com.easyjob.mapper.ReadingGrowthMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.sql.Timestamp;
@@ -12,13 +12,13 @@ import java.util.*;
 /** Server elapsed time, a single active session per user, and permanent earned levels. */
 @Service
 public class ReadingGrowthService {
-    private final JdbcTemplate jdbc;
+    private final ReadingGrowthMapper store;
     private final Clock clock;
-    @Autowired public ReadingGrowthService(JdbcTemplate jdbc) { this(jdbc, Clock.systemUTC()); }
-    ReadingGrowthService(JdbcTemplate jdbc, Clock clock) { this.jdbc = jdbc; this.clock = clock; }
+    @Autowired public ReadingGrowthService(ReadingGrowthMapper store) { this(store, Clock.systemUTC()); }
+    ReadingGrowthService(ReadingGrowthMapper store, Clock clock) { this.store = store; this.clock = clock; }
 
     public List<Map<String,Object>> rules() {
-        return jdbc.queryForList("SELECT level,min_seconds AS minSeconds FROM reading_level_rule ORDER BY level");
+        return store.findRules();
     }
     public static int levelFor(long seconds, int earned, List<Map<String,Object>> rules) {
         int level = earned;
@@ -27,14 +27,13 @@ public class ReadingGrowthService {
         return level;
     }
     public Map<String,Object> summary(Long uid) {
-        var rows = uid == null ? List.<Map<String,Object>>of() : jdbc.queryForList(
-                "SELECT total_millis,earned_level FROM user_reading_progress WHERE user_id=?", uid);
+        var rows = uid == null ? List.<Map<String,Object>>of() : store.findProgress(uid);
         long millis=rows.isEmpty()?0:((Number)rows.getFirst().get("total_millis")).longValue();
         int earned=rows.isEmpty()?0:((Number)rows.getFirst().get("earned_level")).intValue();
         var result=summary(millis,earned);
         int computed=((Number)result.get("level")).intValue();
         if(!rows.isEmpty() && computed>earned)
-            jdbc.update("UPDATE user_reading_progress SET earned_level=GREATEST(earned_level,?) WHERE user_id=? AND total_millis=? AND earned_level=?",computed,uid,millis,earned);
+            store.promoteEarnedLevel(computed,uid,millis,earned);
         return result;
     }
     private Map<String,Object> summary(long millis, int earned) {
@@ -51,11 +50,11 @@ public class ReadingGrowthService {
         if (uid == null) throw new BusinessException(401,"请登录后累计阅读等级");
         // Acquire the primary-key write lock directly. INSERT IGNORE on an existing
         // row takes shared locks that concurrent heartbeats could then deadlock upgrading.
-        jdbc.update("INSERT INTO user_reading_progress(user_id) VALUES (?) ON DUPLICATE KEY UPDATE user_id=user_id",uid);
-        return jdbc.queryForMap("SELECT * FROM user_reading_progress WHERE user_id=? FOR UPDATE",uid);
+        store.ensureProgress(uid);
+        return store.lockProgress(uid);
     }
     private void assertReadable(Long aid, Long uid, int level) {
-        var rows=jdbc.queryForList("SELECT user_id,status,deleted,required_level FROM article_info WHERE article_id=?",aid);
+        var rows=store.findReadableArticle(aid);
         if(rows.isEmpty() || ((Number)rows.getFirst().get("status")).intValue()!=1 || ((Number)rows.getFirst().get("deleted")).intValue()!=0)
             throw new BusinessException(404,"文章不存在或不可访问");
         var article=rows.getFirst();
@@ -73,8 +72,8 @@ public class ReadingGrowthService {
         assertReadable(aid,uid,level);
         String sid=UUID.randomUUID().toString();
         var now=Timestamp.from(clock.instant());
-        jdbc.update("INSERT INTO reading_session(session_id,user_id,article_id,last_heartbeat,active) VALUES (?,?,?,?,?)",sid,uid,aid,now,active);
-        jdbc.update("UPDATE user_reading_progress SET active_session=?,earned_level=?,updated_at=? WHERE user_id=?",sid,level,now,uid);
+        store.insertSession(sid,uid,aid,now,active);
+        store.activateSession(sid,level,now,uid);
         var result=summary(millis,level); result.put("sessionId",sid); result.put("sequence",0L); return result;
     }
     public static long creditMillis(Instant previous,Instant now,boolean wasActive) {
@@ -86,11 +85,7 @@ public class ReadingGrowthService {
         if(sid==null || !sid.matches("[a-f0-9-]{36}") || sequence<1) throw new BusinessException(400,"阅读心跳无效");
         var p=lockProgress(uid);
         if(!sid.equals(p.get("active_session"))) throw new BusinessException(409,"阅读计时已转移到其他页面");
-        var rows=jdbc.query("SELECT article_id,last_sequence,last_heartbeat,active FROM reading_session WHERE session_id=? AND user_id=?",(rs,n)->{
-            var row=new HashMap<String,Object>(); row.put("article_id",rs.getLong("article_id"));
-            row.put("last_sequence",rs.getLong("last_sequence")); row.put("last_heartbeat",rs.getTimestamp("last_heartbeat"));
-            row.put("active",rs.getBoolean("active")); return row;
-        },sid,uid);
+        var rows=store.findSession(sid,uid);
         if(rows.isEmpty()) throw new BusinessException(404,"阅读会话不存在");
         var session=rows.getFirst(); long millis=((Number)p.get("total_millis")).longValue();
         int earned=((Number)p.get("earned_level")).intValue();
@@ -106,9 +101,9 @@ public class ReadingGrowthService {
         // Attribute an interval to its ending Shanghai day; totals remain exact across midnight.
         var day=now.atZone(ZoneId.of("Asia/Shanghai")).toLocalDate();
         millis+=credit; earned=levelFor(millis/1000,earned,rules());
-        jdbc.update("UPDATE reading_session SET last_sequence=?,last_heartbeat=?,active=?,credited_millis=credited_millis+? WHERE session_id=?",sequence,Timestamp.from(now),active,credit,sid);
-        jdbc.update("UPDATE user_reading_progress SET total_millis=?,earned_level=?,updated_at=? WHERE user_id=?",millis,earned,Timestamp.from(now),uid);
-        if(credit>0) jdbc.update("INSERT INTO user_reading_daily(user_id,read_day,total_millis) VALUES (?,?,?) ON DUPLICATE KEY UPDATE total_millis=total_millis+?",uid,day,credit,credit);
+        store.heartbeatSession(sequence,Timestamp.from(now),active,credit,sid);
+        store.updateProgress(millis,earned,Timestamp.from(now),uid);
+        if(credit>0) store.creditDay(uid,day,credit,credit);
         var result=summary(millis,earned); result.put("creditedSeconds",credit/1000); return result;
     }
 }

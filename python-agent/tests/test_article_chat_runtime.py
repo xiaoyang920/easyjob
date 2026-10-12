@@ -7,6 +7,7 @@ os.environ["LANGFUSE_TRACING_ENABLED"] = "false"
 import hashlib
 import json
 import unittest
+from grounding_fakes import setUpModule, tearDownModule
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -69,6 +70,11 @@ async def execute(state):
 
 
 class ArticleRunTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        history = patch('app.services.run_service.run_history.previous', AsyncMock(return_value=({}, {})))
+        history.start()
+        self.addCleanup(history.stop)
+
     async def test_first_question_creates_bound_conversation_and_supplies_source_without_model_call(self):
         conv, repo, articles = conversations(), repository(), source()
         service = RunService(conv, memory(), repo, articles=articles)

@@ -75,13 +75,7 @@
                   alt="封面"
                   @error="handleCoverError($event, item.coverImage)"
                 >
-                <div 
-                  v-else 
-                  class="no-cover-placeholder"
-                  :style="{ background: '#e8e8e8' }"
-                >
-                  <span class="placeholder-title">{{ stripHtmlTags(item.title) }}</span>
-                </div>
+                <CoverPlaceholder v-else :title="stripHtmlTags(item.title)" />
               </div>
             </div>
             <div class="article-content">
@@ -97,7 +91,7 @@
               <div class="article-meta">
                 <span v-if="item.requiredLevel > 0" class="reading-level-badge">L{{ item.requiredLevel }} 阅读</span>
                 <div class="author-info" @click.stop="viewUser(item.userId)">
-                  <img :src="getAvatarUrl(item.authorAvatar)" class="author-avatar" @error="handleAvatarError">
+                  <img :src="avatarUrl(item.authorAvatar, item.authorName)" alt="" class="author-avatar" @error="onAvatarError($event, item.authorName)">
                   <span class="author-name">{{ item.authorName || '匿名' }}</span>
                 </div>
                 <div class="stats">
@@ -118,7 +112,7 @@
             class="result-card user-card"
             @click="viewUser(item.userId)"
           >
-            <img :src="getAvatarUrl(item.avatar)" class="user-avatar" @error="handleAvatarError">
+            <img :src="avatarUrl(item.avatar, item.nickName)" :alt="`${item.nickName || '用户'}的头像`" class="user-avatar" @error="onAvatarError($event, item.nickName)">
             <div class="user-info">
               <h3 class="user-name"><SearchHighlight :text="item.nickName" :keyword="submittedKeyword" /></h3>
               <p class="user-intro">{{ item.personIntroduction || '这个人很懒，什么都没有留下~' }}</p>
@@ -127,7 +121,7 @@
                 <span>{{ item.articleCount || 0 }} 文章</span>
               </div>
             </div>
-            <button v-if="String(item.userId) !== currentUserId" class="follow-btn" :disabled="followingIds.has(String(item.userId))" @click.stop="toggleFollow(item)">
+            <button v-if="String(item.userId) !== currentUserId" class="follow-btn" :class="{ following: item.isFollowing }" :disabled="followingIds.has(String(item.userId))" @click.stop="toggleFollow(item)">
               {{ followingIds.has(String(item.userId)) ? '处理中…' : item.isFollowing ? '已关注' : '关注' }}
             </button>
           </div>
@@ -164,10 +158,12 @@ import { ref, computed, watch, onUnmounted } from 'vue'
 import { latestRequest } from '@/utils/latestRequest'
 import { notify, errorMessage } from '@/utils/feedback'
 import SearchHighlight from '@/components/SearchHighlight.vue'
+import CoverPlaceholder from '@/components/CoverPlaceholder.vue'
 import { eventBus, EVENT_AUTH_CHANGED, EVENT_AUTH_EXPIRED } from '@/utils/eventBus'
 import { useRoute, useRouter } from 'vue-router'
 import request from '../utils/request'
 import { getThumbUrl } from '../utils/image'
+import { avatarUrl, onAvatarError } from '../utils/avatar'
 
 const route = useRoute()
 const router = useRouter()
@@ -311,13 +307,6 @@ function getImageUrl(url: string | undefined): string {
   return url
 }
 
-function getAvatarUrl(url: string | undefined): string {
-  if (!url) return 'https://cube.elemecdn.com/3/7c/3ea6beec64369c2642b92c6726f1epng.png'
-  if (url.startsWith('http://') || url.startsWith('https://')) return url
-  if (url.startsWith('/uploads')) return url
-  return url
-}
-
 function handleCoverError(e: Event, originalCover?: string) {
   const target = e.target as HTMLImageElement
   const currentSrc = target.src
@@ -330,13 +319,6 @@ function handleCoverError(e: Event, originalCover?: string) {
   
   // 原图也加载失败，隐藏图片
   target.style.display = 'none'
-}
-
-function handleAvatarError(e: Event) {
-  const target = e.target as HTMLImageElement
-  if (target.dataset.errorHandled) return
-  target.dataset.errorHandled = 'true'
-  target.src = 'https://cube.elemecdn.com/3/7c/3ea6beec64369c2642b92c6726f1epng.png'
 }
 
 // 格式化日期
@@ -612,40 +594,40 @@ onUnmounted(() => {
   gap: 15px;
 }
 
+/* 卡片底色、边框、悬停与高亮配色见 styles/theme.css */
 .result-card {
-  background: rgba(255, 255, 255, 0.95);
-  border-radius: 16px;
   overflow: hidden;
   cursor: pointer;
-  transition: all 0.3s;
 }
 
-.result-card:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
-}
-
-/* 文章卡片 */
+/* 文章卡片：左侧封面是嵌在卡片内的小画框，没有封面时显示与首页一致的描边大字占位 */
 .article-card {
+  --card-paper: #f3a093;
   display: flex;
 }
 
+.article-card:nth-child(3n+2) {
+  --card-paper: #b4a7ff;
+}
+
+.article-card:nth-child(3n+3) {
+  --card-paper: #d3f795;
+}
+
 .article-cover {
-  width: 200px;
-  height: 140px;
+  --cover-glyph-size: 84px;
+  width: 184px;
   flex-shrink: 0;
-  background: #e8e8e8;
-  position: relative;
-  overflow: hidden;
-  border-radius: 16px 0 0 16px;
+  padding: 14px 0 14px 14px;
 }
 
 .cover-wrapper {
   width: 100%;
   height: 100%;
+  min-height: 128px;
   position: relative;
   overflow: hidden;
-  background: #f0f0f0;
+  background: var(--card-paper);
 }
 
 .article-cover img {
@@ -653,6 +635,7 @@ onUnmounted(() => {
   height: 100%;
   object-fit: cover;
   display: block;
+  filter: saturate(.85);
   transition: opacity 0.3s ease-in-out;
 }
 
@@ -669,84 +652,32 @@ onUnmounted(() => {
   opacity: 0.5;
 }
 
-.no-cover-placeholder {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 10px;
-  text-align: center;
-  background: #e8e8e8;
-}
-
-.placeholder-title {
-  color: #666;
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 1.3;
-  max-width: 100%;
-  word-break: break-word;
-  text-align: center;
-  padding: 0 4px;
-}
-
-.no-cover {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #999;
-  font-size: 14px;
-}
-
 .article-content {
   flex: 1;
-  padding: 20px;
+  min-width: 0;
+  padding: 18px 22px;
   display: flex;
   flex-direction: column;
 }
 
 .article-title {
   font-size: 18px;
-  font-weight: 600;
-  color: #333;
-  margin-bottom: 10px;
-}
-
-.article-title :deep(mark) {
-  background: rgba(79, 172, 254, 0.3);
-  color: #4facfe;
-  padding: 0 2px;
-  border-radius: 2px;
+  font-weight: 800;
+  line-height: 1.5;
+  letter-spacing: -.02em;
+  color: var(--ej-ink);
+  margin-bottom: 8px;
 }
 
 .article-summary {
-  font-size: 14px;
-  color: #666;
-  line-height: 1.6;
+  font-size: 13px;
+  color: #47453f;
+  line-height: 1.75;
   flex: 1;
   overflow: hidden;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
-}
-
-.article-summary :deep(mark) {
-  background: rgba(79, 172, 254, 0.3);
-  color: #4facfe;
-}
-
-/* ES高亮样式 */
-.article-title :deep(.highlight),
-.article-summary :deep(.highlight),
-.article-tags :deep(.highlight) {
-  background: linear-gradient(135deg, rgba(79, 172, 254, 0.3), rgba(0, 242, 254, 0.3));
-  color: #00d4ff;
-  padding: 1px 4px;
-  border-radius: 3px;
-  font-weight: 600;
 }
 
 /* 文章标签 */
@@ -759,61 +690,60 @@ onUnmounted(() => {
 
 .article-tags .tag {
   display: inline-block;
-  padding: 4px 12px;
-  background: rgba(17, 17, 15, 0.1);
-  color: var(--ej-accent);
-  border-radius: 12px;
+  padding: 3px 11px;
   font-size: 12px;
-  transition: all 0.3s;
-}
-
-.article-tags .tag:hover {
-  background: rgba(17, 17, 15, 0.2);
 }
 
 .article-meta {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-top: 15px;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ej-hairline);
 }
 
 .author-info {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
   cursor: pointer;
-  padding: 4px 8px;
-  margin: -4px -8px;
-  border-radius: 6px;
+  padding: 4px 10px 4px 4px;
+  margin: -4px -10px -4px -4px;
+  border-radius: 999px;
   transition: background 0.2s;
 }
 
 .author-info:hover {
-  background: rgba(79, 172, 254, 0.1);
-}
-
-.author-info:hover .author-name {
-  color: #4facfe;
+  background: var(--studio-lime-soft);
 }
 
 .author-avatar {
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
   border-radius: 50%;
   object-fit: cover;
+  border: 1px solid var(--ej-ink);
 }
 
 .author-name {
   font-size: 13px;
-  color: #666;
+  font-weight: 600;
+  color: var(--ej-ink);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .stats {
   display: flex;
-  gap: 15px;
-  font-size: 13px;
-  color: #999;
+  gap: 14px;
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--ej-muted);
 }
 
 /* 用户卡片 */
@@ -861,20 +791,14 @@ onUnmounted(() => {
   color: #999;
 }
 
+/* 配色与已关注状态见 styles/theme.css */
 .follow-btn {
-  padding: 8px 24px;
-  border: 1px solid #4facfe;
-  background: white;
-  color: #4facfe;
-  border-radius: 20px;
+  min-width: 88px;
+  padding: 8px 20px;
   cursor: pointer;
-  font-size: 14px;
-  transition: all 0.3s;
-}
-
-.follow-btn:hover {
-  background: #4facfe;
-  color: white;
+  font-size: 13px;
+  font-weight: 600;
+  flex-shrink: 0;
 }
 
 /* 分页 */
@@ -953,13 +877,17 @@ onUnmounted(() => {
   
   .article-card {
     flex-direction: column;
-    padding: 15px;
   }
   
   .article-cover {
+    --cover-glyph-size: 104px;
     width: 100%;
-    height: 150px;
-    border-radius: 8px;
+    height: 172px;
+    padding: 12px 12px 0;
+  }
+
+  .article-content {
+    padding: 14px 16px 16px;
   }
   
   .article-info h3 {
@@ -1011,10 +939,6 @@ onUnmounted(() => {
     font-size: 12px;
   }
   
-  .article-card {
-    padding: 12px;
-  }
-  
   .article-info h3 {
     font-size: 15px;
   }
@@ -1024,7 +948,11 @@ onUnmounted(() => {
   }
   
   .article-cover {
-    height: 140px;
+    height: 156px;
+  }
+
+  .stats span:last-child {
+    display: none;
   }
   
   .article-meta {

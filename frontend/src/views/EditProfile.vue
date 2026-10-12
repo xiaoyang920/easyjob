@@ -3,124 +3,140 @@
     <!-- 导航栏 -->
     <nav class="navbar">
       <div class="logo" @click="$router.push('/')">EasyJob</div>
+      <span class="page-title">编辑资料</span>
       <AppNavigation />
     </nav>
 
-    <div class="container">
-      <div class="form-card">
-        <h1>编辑资料</h1>
-        
-        <form @submit.prevent="saveProfile">
-          <!-- 头像 -->
-          <div class="form-item avatar-section">
-            <label>头像</label>
-            <div class="avatar-upload">
-              <img 
-                v-if="!avatarUploading"
-                :src="getAvatarUrl(profile.avatar)" 
-                alt="头像" 
-                class="avatar-preview"
-                @error="handleAvatarError"
-              >
-              <div v-if="avatarUploading" class="avatar-progress">
-                <div class="progress-bar" :style="{ width: avatarProgress + '%' }"></div>
-                <span class="progress-text">{{ avatarProgress }}%</span>
-              </div>
-              <div v-if="!avatarUploading" class="avatar-overlay">
-                <span>更换头像</span>
-              </div>
-              <input 
-                type="file" 
-                accept="image/*" 
-                @change="uploadAvatar"
-                class="file-input"
+    <main class="container">
+      <header class="page-header">
+        <div>
+          <h1>编辑资料</h1>
+          <p class="page-description">头像、昵称和简介会出现在你的个人空间、文章署名和评论里。</p>
+        </div>
+      </header>
+
+      <form class="profile-layout" @submit.prevent="saveProfile">
+        <!-- 左侧：名片预览，点击头像即可更换 -->
+        <aside class="form-card profile-card">
+          <label class="avatar-upload" :class="{ uploading: avatarUploading }">
+            <img
+              v-if="!avatarUploading"
+              :src="avatarUrl(profile.avatar, profile.nickName)"
+              alt="头像预览"
+              class="avatar-preview"
+              @error="onAvatarError($event, profile.nickName)"
+            >
+            <div v-else class="avatar-progress" role="progressbar" :aria-valuenow="avatarProgress" aria-valuemin="0" aria-valuemax="100" aria-label="头像上传进度">
+              <div class="progress-bar" :style="{ height: avatarProgress + '%' }"></div>
+              <span class="progress-text">{{ avatarProgress }}%</span>
+            </div>
+            <span v-if="!avatarUploading" class="avatar-overlay" aria-hidden="true">更换头像</span>
+            <input
+              type="file"
+              accept="image/*"
+              class="file-input"
+              aria-label="上传新头像"
+              :disabled="avatarUploading"
+              @change="uploadAvatar"
+            >
+          </label>
+          <div class="profile-card-text">
+            <p class="profile-name">{{ profile.nickName.trim() || '你的昵称' }}</p>
+            <p class="profile-intro">{{ profile.personIntroduction.trim() || '还没有个人简介' }}</p>
+            <p class="profile-hint">点击头像更换，图片不超过 15MB</p>
+          </div>
+        </aside>
+
+        <div class="profile-sections">
+          <section class="form-card profile-section" aria-labelledby="profile-basic-title">
+            <div class="section-heading"><span class="section-index">01</span><h2 id="profile-basic-title">基本信息</h2></div>
+
+            <div class="form-item">
+              <label for="profile-nickname">昵称 <span class="required">*</span></label>
+              <input
+                id="profile-nickname"
+                v-model="profile.nickName"
+                type="text"
+                placeholder="2–20 个字符"
+                maxlength="20"
               >
             </div>
-          </div>
-          
-          <!-- 昵称 -->
-          <div class="form-item">
-            <label>昵称 <span class="required">*</span></label>
-            <input 
-              v-model="profile.nickName"
-              type="text" 
-              placeholder="请输入昵称"
-              maxlength="20"
-            >
-          </div>
-          
-          <!-- 性别和生日 -->
-          <div class="form-row">
+
+            <div class="form-row">
+              <div class="form-item">
+                <label for="profile-sex">性别</label>
+                <select id="profile-sex" v-model="profile.sex">
+                  <option :value="2">未知</option>
+                  <option :value="1">男</option>
+                  <option :value="0">女</option>
+                </select>
+              </div>
+              <div class="form-item">
+                <label for="profile-birthday">生日</label>
+                <input
+                  id="profile-birthday"
+                  v-model="profile.birthday"
+                  type="date"
+                >
+              </div>
+            </div>
+
             <div class="form-item">
-              <label>性别</label>
-              <select v-model="profile.sex">
-                <option :value="2">未知</option>
-                <option :value="1">男</option>
-                <option :value="0">女</option>
+              <label for="profile-school">学校</label>
+              <input
+                id="profile-school"
+                v-model="profile.school"
+                type="text"
+                placeholder="请输入学校名称"
+                maxlength="100"
+              >
+            </div>
+          </section>
+
+          <section class="form-card profile-section" aria-labelledby="profile-display-title">
+            <div class="section-heading"><span class="section-index">02</span><h2 id="profile-display-title">个人展示</h2></div>
+
+            <div class="form-item">
+              <label for="profile-intro">个人简介 <span class="field-count">{{ profile.personIntroduction.length }}/500</span></label>
+              <textarea
+                id="profile-intro"
+                v-model="profile.personIntroduction"
+                placeholder="介绍一下自己吧，比如关注的方向、正在做的项目"
+                rows="3"
+                maxlength="500"
+              ></textarea>
+            </div>
+
+            <div class="form-item">
+              <label for="profile-notice">空间公告 <span class="field-count">{{ profile.noticeInfo.length }}/500</span></label>
+              <textarea
+                id="profile-notice"
+                v-model="profile.noticeInfo"
+                placeholder="显示在个人空间侧栏的公告"
+                rows="3"
+                maxlength="500"
+              ></textarea>
+            </div>
+
+            <div class="form-item">
+              <label for="profile-theme">主题</label>
+              <select id="profile-theme" v-model="profile.theme">
+                <option :value="1">默认主题</option>
+                <option :value="2">暗黑主题</option>
+                <option :value="3">梦幻主题</option>
               </select>
             </div>
-            <div class="form-item">
-              <label>生日</label>
-              <input 
-                v-model="profile.birthday"
-                type="date"
-              >
-            </div>
-          </div>
-          
-          <!-- 学校 -->
-          <div class="form-item">
-            <label>学校</label>
-            <input 
-              v-model="profile.school"
-              type="text" 
-              placeholder="请输入学校名称"
-              maxlength="100"
-            >
-          </div>
-          
-          <!-- 个人简介 -->
-          <div class="form-item">
-            <label>个人简介</label>
-            <textarea 
-              v-model="profile.personIntroduction"
-              placeholder="介绍一下自己吧~"
-              rows="3"
-              maxlength="500"
-            ></textarea>
-          </div>
-          
-          <!-- 空间公告 -->
-          <div class="form-item">
-            <label>空间公告</label>
-            <textarea 
-              v-model="profile.noticeInfo"
-              placeholder="设置你的空间公告"
-              rows="3"
-              maxlength="500"
-            ></textarea>
-          </div>
-          
-          <!-- 主题 -->
-          <div class="form-item">
-            <label>主题</label>
-            <select v-model="profile.theme">
-              <option :value="1">默认主题</option>
-              <option :value="2">暗黑主题</option>
-              <option :value="3">梦幻主题</option>
-            </select>
-          </div>
-          
-          <!-- 提交按钮 -->
+          </section>
+
           <div class="form-actions">
             <button type="button" class="cancel-btn" @click="goBackOr(router, '/user-space')">取消</button>
-            <button type="submit" class="submit-btn" :disabled="saving">
+            <button type="submit" class="submit-btn" :disabled="saving || avatarUploading">
               {{ saving ? '保存中...' : '保存修改' }}
             </button>
           </div>
-        </form>
-      </div>
-    </div>
+        </div>
+      </form>
+    </main>
 
     <!-- 登录弹窗 -->
     <el-dialog v-model="showLoginDialog" title="" :width="dialogWidth" :close-on-click-modal="true" class="modern-dialog">
@@ -141,6 +157,7 @@ import LoginForm from '../components/LoginForm.vue'
 import RegisterForm from '../components/RegisterForm.vue'
 import request from '../utils/request'
 import { uploadFile } from '../utils/upload'
+import { avatarUrl, onAvatarError } from '../utils/avatar'
 import { eventBus, EVENT_AUTH_EXPIRED } from '../utils/eventBus'
 
 const router = useRouter()
@@ -273,21 +290,6 @@ async function uploadAvatar(event: Event) {
   }
 }
 
-// 获取头像URL
-function getAvatarUrl(url: string | undefined): string {
-  if (!url) return 'https://cube.elemecdn.com/3/7c/3ea6beec64369c2642b92c6726f1epng.png'
-  if (url.startsWith('http://') || url.startsWith('https://')) return url
-  if (url.startsWith('/uploads')) return url
-  return url
-}
-
-function handleAvatarError(e: Event) {
-  const target = e.target as HTMLImageElement
-  if (target.dataset.errorHandled) return
-  target.dataset.errorHandled = 'true'
-  target.src = 'https://cube.elemecdn.com/3/7c/3ea6beec64369c2642b92c6726f1epng.png'
-}
-
 // 登录弹窗状态
 const showLoginDialog = ref(false)
 const showRegisterDialog = ref(false)
@@ -329,21 +331,9 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* 纸面卡片、输入框、按钮与标题的配色见 styles/theme.css，这里只负责布局 */
 .edit-profile-page {
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   min-height: 100vh;
-  position: relative;
-}
-
-.edit-profile-page::before {
-  content: '';
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: var(--ej-canvas);
-  z-index: -2;
 }
 
 .navbar {
@@ -351,379 +341,323 @@ onUnmounted(() => {
   top: 0;
   left: 0;
   right: 0;
-  height: 70px;
-  background: rgba(255, 255, 255, 0.1);
-  backdrop-filter: blur(10px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0 50px;
   z-index: 1000;
-}
-
-.logo {
-  font-size: 28px;
-  font-weight: bold;
-  color: var(--ej-accent);
-  cursor: pointer;
-}
-
-.nav-right {
   display: flex;
-  gap: 15px;
-}
-
-.nav-btn {
-  background: transparent;
-  color: #666;
-  border: none;
-  padding: 10px 20px;
-  border-radius: 20px;
-  cursor: pointer;
-  font-size: 14px;
-  transition: all 0.3s;
-}
-
-.nav-btn:hover {
-  background: #eee;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .container {
-  max-width: 600px;
-  margin: 100px auto 50px;
-  padding: 0 20px;
+  max-width: 1040px;
+  margin: 104px auto 56px;
+  padding: 0 24px;
 }
 
-.form-card {
-  background: rgba(255, 255, 255, 0.95);
-  border-radius: 20px;
-  padding: 40px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+.page-header {
+  margin-bottom: 24px;
 }
 
-.form-card h1 {
-  font-size: 24px;
-  font-weight: 600;
-  color: #333;
-  margin-bottom: 35px;
+.page-header h1 {
+  font-size: 28px;
+}
+
+.page-description {
+  margin-top: 8px;
+  color: var(--ej-muted);
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+.profile-layout {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+/* 左侧名片 */
+.profile-card {
+  position: sticky;
+  top: 96px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 32px 24px 24px;
   text-align: center;
 }
 
+.avatar-upload {
+  position: relative;
+  display: block;
+  width: 132px;
+  height: 132px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.avatar-upload:focus-within {
+  outline: 2px solid var(--ej-accent);
+  outline-offset: 4px;
+}
+
+.avatar-preview {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1.5px solid var(--ej-ink);
+  box-shadow: var(--ej-shadow);
+}
+
+.avatar-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #11110fa6;
+  color: var(--ej-surface);
+  font-size: 13px;
+  font-weight: 700;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+
+.avatar-upload:hover .avatar-overlay,
+.avatar-upload:focus-within .avatar-overlay {
+  opacity: 1;
+}
+
+.file-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.file-input:disabled {
+  cursor: progress;
+}
+
+/* 上传进度从底部往上填充 */
+.avatar-progress {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 50%;
+  border: 1.5px solid var(--ej-ink);
+  background: var(--ej-canvas);
+}
+
+.avatar-progress .progress-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--studio-lime);
+  transition: height 0.3s ease;
+}
+
+.avatar-progress .progress-text {
+  position: relative;
+  color: var(--ej-ink);
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.profile-card-text {
+  width: 100%;
+  min-width: 0;
+}
+
+.profile-name {
+  margin-top: 18px;
+  color: var(--ej-ink);
+  font-size: 20px;
+  font-weight: 850;
+  letter-spacing: -0.03em;
+  overflow-wrap: anywhere;
+}
+
+.profile-intro {
+  margin-top: 6px;
+  color: #47453f;
+  font-size: 13px;
+  line-height: 1.7;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+.profile-hint {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--ej-hairline);
+  color: var(--ej-muted);
+  font-size: 11px;
+}
+
+/* 右侧分组表单 */
+.profile-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+
+.profile-section {
+  padding: 26px 28px 6px;
+}
+
+.section-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 20px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--ej-hairline);
+}
+
+.section-index {
+  color: var(--ej-muted);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.section-heading h2 {
+  color: var(--ej-ink);
+  font-size: 16px;
+  font-weight: 800;
+}
+
 .form-item {
-  margin-bottom: 25px;
+  margin-bottom: 20px;
 }
 
 .form-item > label {
-  display: block;
-  font-size: 14px;
-  font-weight: 500;
-  color: #333;
-  margin-bottom: 10px;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  margin-bottom: 8px;
+  color: var(--ej-ink);
+  font-size: 13px;
+  font-weight: 600;
 }
 
-.form-item > label .required {
-  color: #ff6b9d;
+.required {
+  color: var(--studio-coral);
+}
+
+/* 字数统计靠右 */
+.field-count {
+  margin-left: auto;
+  color: var(--ej-muted);
+  font-size: 11px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
 }
 
 .form-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 20px;
-}
-
-@media (max-width: 600px) {
-  .form-row {
-    grid-template-columns: 1fr;
-  }
+  gap: 16px;
 }
 
 .form-item input,
 .form-item textarea,
 .form-item select {
   width: 100%;
-  padding: 14px 18px;
-  border: 1.5px solid #e0e0e0;
-  border-radius: 12px;
-  font-size: 15px;
-  color: #333;
-  transition: all 0.3s;
-  background: white;
-}
-
-.form-item input:focus,
-.form-item textarea:focus,
-.form-item select:focus {
-  outline: none;
-  border-color: var(--ej-accent);
-  box-shadow: 0 0 0 3px rgba(17, 17, 15, 0.1);
-}
-
-.form-item input:disabled {
-  background: #f5f5f5;
-  color: #999;
-  cursor: not-allowed;
-}
-
-.form-item select {
-  cursor: pointer;
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%23666' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10l-5 5z'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 15px center;
+  padding: 12px 16px;
+  font-size: 14px;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 
 .form-item textarea {
+  min-height: 96px;
+  line-height: 1.7;
   resize: vertical;
-  min-height: 100px;
 }
 
-.hint {
-  display: block;
-  font-size: 12px;
-  color: #999;
-  margin-top: 6px;
-}
-
-/* 头像上传 */
-.avatar-section {
-  text-align: center;
-}
-
-.avatar-upload {
-  position: relative;
-  width: 120px;
-  height: 120px;
-  margin: 0 auto;
-  cursor: pointer;
-}
-
-.avatar-preview {
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  object-fit: cover;
-  border: 3px solid #f0f0f0;
-  transition: all 0.3s;
-}
-
-.avatar-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0;
-  transition: all 0.3s;
-}
-
-.avatar-overlay span {
-  color: white;
-  font-size: 13px;
-}
-
-.avatar-upload:hover .avatar-overlay {
-  opacity: 1;
-}
-
-.avatar-upload:hover .avatar-preview {
-  border-color: var(--ej-accent);
-}
-
-.file-input {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0;
-  cursor: pointer;
-}
-
-/* 头像上传进度条 */
-.avatar-progress {
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.95);
-  border: 3px solid #f0f0f0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  overflow: hidden;
-}
-
-.avatar-progress .progress-bar {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  height: 100%;
-  background: rgba(17, 17, 15, 0.2);
-  transition: width 0.3s ease;
-}
-
-.avatar-progress .progress-text {
-  position: relative;
-  z-index: 1;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--ej-accent);
-}
-
-/* 按钮 */
 .form-actions {
   display: flex;
-  gap: 15px;
-  margin-top: 35px;
+  justify-content: flex-end;
+  gap: 12px;
 }
 
-.cancel-btn {
-  flex: 1;
-  padding: 14px;
-  background: white;
-  border: 1.5px solid #e0e0e0;
-  border-radius: 12px;
-  color: #666;
-  font-size: 15px;
-  cursor: pointer;
-  transition: all 0.3s;
-}
-
-.cancel-btn:hover {
-  border-color: #999;
-  color: #333;
-}
-
+.cancel-btn,
 .submit-btn {
-  flex: 1;
-  padding: 14px;
-  background: var(--ej-accent);
-  border: none;
-  border-radius: 12px;
-  color: white;
-  font-size: 15px;
-  font-weight: 600;
+  min-width: 132px;
+  padding: 12px 24px;
+  font-size: 14px;
+  font-weight: 700;
   cursor: pointer;
-  transition: all 0.3s;
 }
 
-.submit-btn:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(17, 17, 15, 0.3);
-}
+/* 窄屏：名片横排在表单上方 */
+@media (max-width: 860px) {
+  .profile-layout {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
 
-.submit-btn:disabled {
-  opacity: 0.7;
-  cursor: not-allowed;
-}
+  .profile-card {
+    position: static;
+    flex-direction: row;
+    gap: 18px;
+    padding: 20px;
+    text-align: left;
+  }
 
-/* 移动端适配 */
-@media (max-width: 768px) {
-  .navbar {
-    padding: 0 15px;
-    height: 55px;
-  }
-  
-  .logo {
-    font-size: 20px;
-  }
-  
-  .nav-btn {
-    padding: 6px 12px;
-    font-size: 12px;
-  }
-  
-  .edit-container {
-    margin-top: 75px;
-    padding: 20px 15px;
-  }
-  
-  .edit-card {
-    padding: 25px 20px;
-    border-radius: 15px;
-  }
-  
-  .card-header h2 {
-    font-size: 20px;
-  }
-  
   .avatar-upload {
-    width: 100px;
-    height: 100px;
+    width: 88px;
+    height: 88px;
   }
-  
-  .form-item label {
-    font-size: 13px;
-  }
-  
-  .form-item input,
-  .form-item textarea,
-  .form-item select {
-    padding: 12px 15px;
-    font-size: 14px;
-  }
-}
 
-@media (max-width: 480px) {
-  .navbar {
-    padding: 0 12px;
-    height: 50px;
-  }
-  
-  .logo {
+  .profile-name {
+    margin-top: 0;
     font-size: 18px;
   }
-  
-  .nav-btn {
-    padding: 5px 10px;
-    font-size: 11px;
+
+  .profile-hint {
+    margin-top: 8px;
+    padding-top: 0;
+    border-top: 0;
   }
-  
-  .edit-container {
-    margin-top: 65px;
-    padding: 15px 10px;
+}
+
+@media (max-width: 600px) {
+  .container {
+    margin-top: 82px;
+    padding: 0 16px;
   }
-  
-  .edit-card {
-    padding: 20px 15px;
-    border-radius: 12px;
+
+  .page-header h1 {
+    font-size: 24px;
   }
-  
-  .card-header h2 {
-    font-size: 18px;
+
+  .profile-section {
+    padding: 22px 18px 4px;
   }
-  
-  .avatar-upload {
-    width: 80px;
-    height: 80px;
+
+  .form-row {
+    grid-template-columns: 1fr;
+    gap: 0;
   }
-  
-  .form-item {
-    margin-bottom: 18px;
-  }
-  
-  .form-item label {
-    font-size: 12px;
-  }
-  
-  .form-item input,
-  .form-item textarea,
-  .form-item select {
-    padding: 10px 12px;
-    font-size: 14px;
-    border-radius: 10px;
-  }
-  
-  .submit-btn {
-    padding: 12px;
-    font-size: 14px;
+
+  .form-actions > button {
+    flex: 1;
+    min-width: 0;
   }
 }
 </style>

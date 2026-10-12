@@ -16,18 +16,15 @@ public class UserActionController {
      * 点赞文章
      */
     @PostMapping("/article/{articleId}/like")
-    public ResponseVO<?> like(@PathVariable Long articleId) {
-        userActionService.like(articleId);
-        // 前端只关心成功与否，统计数可以前端自行加减，或后续扩展返回
-        return ResponseVO.success("操作成功");
+    public ResponseVO<?> like(@PathVariable Long articleId, @RequestParam(required=false) Boolean active) {
+        return ResponseVO.success(userActionService.like(articleId, active));
     }
     /**
      * 收藏文章
      */
     @PostMapping("/article/{articleId}/collect")
-    public ResponseVO<?> collect(@PathVariable Long articleId) {
-        userActionService.collect(articleId);
-        return ResponseVO.success("操作成功");
+    public ResponseVO<?> collect(@PathVariable Long articleId, @RequestParam(required=false) Boolean active) {
+        return ResponseVO.success(userActionService.collect(articleId, active));
     }
     /**
      * 获取用户收藏列表

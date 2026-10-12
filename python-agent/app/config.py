@@ -52,6 +52,8 @@ class Settings:
     SUBAGENT_CONCURRENCY: int = max(1, min(8, int(os.getenv("AGENT_SUBAGENT_CONCURRENCY", "3"))))
     RETRIEVAL_CONCURRENCY: int = max(1, min(8, int(os.getenv("AGENT_RETRIEVAL_CONCURRENCY", "4"))))
     RETRIEVAL_TIMEOUT_SECONDS: int = max(1, int(os.getenv("AGENT_RETRIEVAL_TIMEOUT_SECONDS", "30")))
+    GROUNDING_TIMEOUT_SECONDS: int = max(1, min(60, int(os.getenv('AGENT_GROUNDING_TIMEOUT_SECONDS', '25'))))
+    GROUNDING_OUTPUT_MAX_TOKENS: int = max(1024, min(16384, int(os.getenv('AGENT_GROUNDING_OUTPUT_MAX_TOKENS', '4096'))))
     MEMORY_INPUT_MAX_TOKENS: int = max(1024, int(os.getenv("AGENT_MEMORY_INPUT_MAX_TOKENS", "16384")))
     MEMORY_OUTPUT_MAX_TOKENS: int = max(256, int(os.getenv("AGENT_MEMORY_OUTPUT_MAX_TOKENS", "2048")))
     BACKGROUND_JOB_MAX_ATTEMPTS: int = max(1, min(20, int(os.getenv("AGENT_BACKGROUND_JOB_MAX_ATTEMPTS", "8"))))

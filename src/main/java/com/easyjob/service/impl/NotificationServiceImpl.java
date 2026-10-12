@@ -85,12 +85,7 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
      * 获取未读消息（最多 50 条）
      */
     public List<Notification> getUnread(Long userId) {
-        return notificationMapper.selectList(new LambdaQueryWrapper<Notification>()
-                .eq(Notification::getUserId, userId)
-                .eq(Notification::getIsRead, 0)
-                .orderByDesc(Notification::getCreateTime)
-                .last("limit 50")
-        );
+        return notificationMapper.findUnread(userId);
     }
 
     /**

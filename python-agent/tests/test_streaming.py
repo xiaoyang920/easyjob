@@ -1,4 +1,4 @@
-"""Public SSE uses real graph events and emits answers only after settlement."""
+"""Public SSE lifecycle; real model token streaming is in test_answer_stream."""
 import os
 os.environ["DEEPSEEK_API_KEY"] = "offline-test"
 os.environ["LANGFUSE_TRACING_ENABLED"] = "false"
@@ -8,6 +8,7 @@ os.environ["AGENT_SERVICE_KEY"] = "offline-service-key-32-bytes-long!!"
 
 import json
 import unittest
+from grounding_fakes import setUpModule, tearDownModule
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 

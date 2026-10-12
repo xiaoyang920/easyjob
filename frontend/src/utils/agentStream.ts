@@ -68,7 +68,8 @@ export function applyAgentEvent(state: AgentStreamState, event: Record<string, a
     state.plan = [...state.plan.filter(task => !ids.has(task.id)), ...next]
   } else if (event.kind === 'activity' && typeof event.id === 'string' && typeof event.label === 'string') {
     if (!['active', 'done', 'paused', 'error'].includes(event.status)) return
-    const now = Date.now()
+    const timestamp = typeof event.timestamp === 'string' ? Date.parse(event.timestamp) : NaN
+    const now = Number.isFinite(timestamp) ? timestamp : Date.now()
     let item = state.activities.find(item => item.id === event.id)
     if (!item) {
       item = { id: event.id, label: event.label, status: event.status, startedAt: now }
@@ -91,6 +92,20 @@ export function applyAgentEvent(state: AgentStreamState, event: Record<string, a
   } else if (event.kind === 'status' && ['working', 'complete', 'awaiting', 'cancelled', 'error'].includes(event.status)) {
     setRunStatus(state, event.status)
   }
+}
+
+export function restoreAgentState(message: Record<string, any>): AgentStreamState | undefined {
+  if (!message.runStatus) return undefined
+  const state = createAgentState()
+  for (const event of message.agentEvents || []) applyAgentEvent(state, event)
+  const status: RunStatus = ({ failed: 'error', expired: 'error', cancelled: 'cancelled',
+    succeeded: 'complete', awaiting_approval: 'awaiting' } as Record<string, RunStatus>)[message.runStatus] || 'working'
+  setRunStatus(state, status)
+  const started = Date.parse(message.runStartedAt || '')
+  const finished = Date.parse(message.runFinishedAt || '')
+  if (Number.isFinite(started)) state.startedAt = started
+  if (Number.isFinite(finished)) state.finishedAt = finished
+  return state
 }
 
 export function applyAnswerChunk(state: AgentStreamState, content: string, event: Record<string, any>): string {

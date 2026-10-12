@@ -13,7 +13,7 @@ import {safeHtml} from '@/utils/safeHtml'
 import {latestRequest} from '@/utils/latestRequest'
 import {notify,confirmAction,errorMessage} from '@/utils/feedback'
 import ContentState from '@/components/ContentState.vue'
-const props=defineProps<{articleId:string;revisionId:string;initialRevisionId?:string;pending:boolean;modelValue:boolean}>()
+const props=defineProps<{articleId:string;revisionId:string;lockVersion:number;initialRevisionId?:string;pending:boolean;modelValue:boolean}>()
 const emit=defineEmits(['update:modelValue','restored'])
 const visible=ref(props.modelValue),rows=ref<any[]>([]),selected=ref<any>(),loading=ref(false),error=ref(''),busy=ref(false)
 const listGate=latestRequest(),detailGate=latestRequest()
@@ -21,7 +21,7 @@ const label=(value:number)=>({0:'草稿',1:'待审核',2:'已通过',3:'已驳�
 watch(()=>props.modelValue,value=>{visible.value=value;if(value)void load()},{immediate:true});watch(visible,value=>emit('update:modelValue',value))
 async function load(){const run=listGate.begin();loading.value=true;error.value='';selected.value=undefined;try{const result:any=await request.get(`/article/${props.articleId}/revisions`,{signal:run.signal});if(run.isCurrent()){rows.value=result.data;if(props.initialRevisionId || rows.value.length)await select(props.initialRevisionId || rows.value[0].revisionId);if(run.isCurrent() && selected.value && !rows.value.some(r=>r.revisionId===selected.value.revisionId))rows.value.unshift(selected.value)}}catch(e){if(run.isCurrent())error.value=errorMessage(e,'加载失败')}finally{if(run.isCurrent())loading.value=false}}
 async function select(id:string){const run=detailGate.begin();try{const result:any=await request.get(`/article/${props.articleId}/revisions/${id}`,{signal:run.signal});if(run.isCurrent())selected.value=result.data}catch(e){if(run.isCurrent())notify.error(errorMessage(e,'版本加载失败'))}}
-async function restore(){if(!selected.value || busy.value || props.pending)return;if(!await confirmAction('根据这个版本创建新草稿？当前公开内容保持不变。','恢复历史版本'))return;busy.value=true;try{await request.post(`/article/${props.articleId}/revisions/${selected.value.revisionId}/restore`,{expectedRevisionId:props.revisionId});notify.success('已创建修改草稿');visible.value=false;emit('restored')}catch(e){notify.error(errorMessage(e,'恢复失败，请刷新'))}finally{busy.value=false}}
+async function restore(){if(!selected.value || busy.value || props.pending)return;if(!await confirmAction('根据这个版本创建新草稿？当前公开内容保持不变。','恢复历史版本'))return;busy.value=true;try{await request.post(`/article/${props.articleId}/revisions/${selected.value.revisionId}/restore`,{expectedRevisionId:props.revisionId,expectedLockVersion:props.lockVersion});notify.success('已创建修改草稿');visible.value=false;emit('restored')}catch(e){notify.error(errorMessage(e,'恢复失败，请刷新'))}finally{busy.value=false}}
 onUnmounted(()=>{listGate.cancel();detailGate.cancel()})
 </script>
 <style scoped>

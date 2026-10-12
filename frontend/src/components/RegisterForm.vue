@@ -114,9 +114,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import request from '@/utils/request'
+import { acceptAuthSession } from '@/utils/authSession'
 
 const emit = defineEmits(['success', 'switchToLogin'])
 
@@ -136,6 +137,7 @@ const formRef = ref()
 const loading = ref(false)
 const countdown = ref(0) // 新增：倒计时
 let timer: number | null = null // 新增：定时器
+onUnmounted(() => { if (timer) clearInterval(timer) })
 
 // 验证规则
 const validatePass = (rule: any, value: any, callback: any) => {
@@ -202,10 +204,10 @@ async function sendCode() {
 
 // 注册处理
 async function handleRegister() {
-  if (!formRef.value) return
+  if (!formRef.value || loading.value) return
 
   await formRef.value.validate(async (valid: boolean) => {
-    if (!valid) return
+    if (!valid || loading.value) return
 
     loading.value = true
 
@@ -214,6 +216,7 @@ async function handleRegister() {
       const response = await request.post('/auth/register', registerData)
 
       if (response.status === 'success' || response.code === 200) {
+        acceptAuthSession(response.data)
         emit('success')
       } else {
         ElMessage.error(response.message || '注册失败')
@@ -238,7 +241,7 @@ async function handleRegister() {
   text-align: center;
   font-size: 26px;
   font-weight: 700;
-  color: #1a1a1a;
+  color: var(--ej-ink);
   margin-bottom: 35px;
   letter-spacing: 2px;
 }
@@ -270,7 +273,7 @@ async function handleRegister() {
 
 /* 彻底清除输入框内部蓝色 */
 .register-form :deep(.el-input__inner) {
-  color: #1f2937;
+  color: var(--ej-ink);
   font-size: 15px;
   height: 100%;
   background: transparent !important;
@@ -288,12 +291,12 @@ async function handleRegister() {
 }
 
 .register-form :deep(.el-input__inner::placeholder) {
-  color: #9ca3af;
+  color: var(--ej-muted);
   font-size: 14px;
 }
 
 .register-form :deep(.el-input__prefix) {
-  color: #9ca3af;
+  color: var(--ej-muted);
   font-size: 18px;
 }
 
@@ -312,16 +315,45 @@ async function handleRegister() {
   border-color: var(--ej-ink);
 }
 
+/* 按下时收起偏移阴影，形成“压下去”的反馈 */
 .register-form :deep(.el-button--primary:active) {
-  background: #0093c4;
+  background: var(--studio-lime);
+  color: var(--ej-ink);
+  box-shadow: 1px 1px 0 var(--ej-ink);
+  transform: translateY(0);
+}
+
+.register-form :deep(.el-button--primary.is-disabled) {
+  background: var(--ej-soft);
+  border-color: var(--ej-line);
+  color: var(--ej-muted);
+}
+
+/* 获取验证码按钮 */
+.register-form :deep(.el-button--default) {
+  background: var(--ej-surface);
+  border: 1px solid var(--ej-ink);
+  color: var(--ej-ink);
+}
+
+.register-form :deep(.el-button--default:hover:not(.is-disabled)) {
+  background: var(--studio-lime);
+  border-color: var(--ej-ink);
+  color: var(--ej-ink);
+}
+
+.register-form :deep(.el-button--default.is-disabled) {
+  background: var(--ej-canvas);
+  border-color: var(--ej-line);
+  color: var(--ej-muted);
 }
 
 .form-footer {
   text-align: center;
   margin-top: 28px;
   padding-top: 24px;
-  border-top: 1px solid #f1f5f9;
-  color: #6b7280;
+  border-top: 1px solid var(--ej-hairline);
+  color: var(--ej-muted);
   font-size: 14px;
   position: relative;
   z-index: 1;

@@ -39,7 +39,7 @@
               </div>
               <template v-else>
                 <div v-for="comment in comments" :key="comment.commentId" class="comment-item" :data-comment-id="comment.commentId">
-                  <img :src="getAvatarUrl(comment.userAvatar)" class="avatar clickable" @click="goToUserSpace(comment.userId)" @error="handleAvatarError" />
+                  <img :src="avatarUrl(comment.userAvatar, comment.userNickName)" alt="" class="avatar clickable" @click="goToUserSpace(comment.userId)" @error="onAvatarError($event, comment.userNickName)" />
                   <div class="comment-body">
                     <div class="user-info">
                       <span class="username clickable" @click="goToUserSpace(comment.userId)">{{ comment.userNickName }}</span>
@@ -75,7 +75,7 @@
                     </div>
                     <!-- 楼中楼回复输入框 -->
                     <div v-if="activeReplyId === comment.commentId && !activeReplyTarget" class="inline-reply-box">
-                      <img :src="getAvatarUrl(myAvatar)" class="reply-input-avatar" @error="handleAvatarError" />
+                      <img :src="avatarUrl(myAvatar, myNickName)" alt="" class="reply-input-avatar" @error="onAvatarError($event, myNickName)" />
                       <div class="reply-input-area">
                         <textarea v-model="replyContent" :placeholder="`回复 @${comment.userNickName}：`" class="reply-textarea" rows="1" @input="autoResize($event)"></textarea>
                         <div class="reply-toolbar">
@@ -93,7 +93,7 @@
                       <div v-if="!comment.showReplies" class="view-replies" @click="loadReplies(comment)">共{{ comment.replyCount }}条回复，点击查看<svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></svg></div>
                       <template v-else>
                         <div v-for="reply in comment.replies" :key="reply.commentId" class="reply-item" :data-comment-id="reply.commentId">
-                          <img :src="getAvatarUrl(reply.userAvatar)" class="reply-avatar clickable" @click="goToUserSpace(reply.userId)" @error="handleAvatarError" />
+                          <img :src="avatarUrl(reply.userAvatar, reply.userNickName)" alt="" class="reply-avatar clickable" @click="goToUserSpace(reply.userId)" @error="onAvatarError($event, reply.userNickName)" />
                           <div class="reply-body">
                             <div class="reply-user-info">
                               <span class="username clickable" @click="goToUserSpace(reply.userId)">{{ reply.userNickName }}</span>
@@ -125,7 +125,7 @@
                               </span>
                             </div>
                             <div v-if="activeReplyId === reply.commentId" class="inline-reply-box">
-                              <img :src="getAvatarUrl(myAvatar)" class="reply-input-avatar" @error="handleAvatarError" />
+                              <img :src="avatarUrl(myAvatar, myNickName)" alt="" class="reply-input-avatar" @error="onAvatarError($event, myNickName)" />
                               <div class="reply-input-area">
                                 <textarea v-model="replyContent" :placeholder="`回复 @${reply.userNickName}：`" class="reply-textarea" rows="1" @input="autoResize($event)"></textarea>
                                 <div class="reply-toolbar">
@@ -153,7 +153,7 @@
 
           <!-- 底部输入框 -->
           <div class="panel-input">
-            <img :src="getAvatarUrl(myAvatar)" class="input-avatar" @error="handleAvatarError" />
+            <img :src="avatarUrl(myAvatar, myNickName)" alt="" class="input-avatar" @error="onAvatarError($event, myNickName)" />
             <div class="input-area">
               <textarea v-model="topCommentContent" placeholder="发一条友善的评论" class="comment-textarea" rows="1" @input="autoResize($event)"></textarea>
             </div>
@@ -169,7 +169,7 @@
     <div v-if="!isMobile" class="comment-section">
     <!-- 顶部评论输入框 -->
     <div class="comment-input-box top-input">
-      <img :src="getAvatarUrl(myAvatar)" class="input-avatar" @error="handleAvatarError" />
+      <img :src="avatarUrl(myAvatar, myNickName)" alt="" class="input-avatar" @error="onAvatarError($event, myNickName)" />
       <div class="input-area">
         <textarea
           v-model="topCommentContent"
@@ -240,10 +240,10 @@
       <template v-else>
         <div v-for="comment in comments" :key="comment.commentId" class="comment-item" :data-comment-id="comment.commentId">
           <img 
-            :src="getAvatarUrl(comment.userAvatar)" 
+            :src="avatarUrl(comment.userAvatar, comment.userNickName)" alt=""
             class="avatar clickable"
             @click="goToUserSpace(comment.userId)"
-            @error="handleAvatarError"
+            @error="onAvatarError($event, comment.userNickName)"
           />
           <div class="comment-body">
             <div class="user-info">
@@ -288,7 +288,7 @@
 
             <!-- 楼中楼回复输入框 -->
             <div v-if="activeReplyId === comment.commentId && !activeReplyTarget" class="inline-reply-box">
-              <img :src="getAvatarUrl(myAvatar)" class="reply-input-avatar" @error="handleAvatarError" />
+              <img :src="avatarUrl(myAvatar, myNickName)" alt="" class="reply-input-avatar" @error="onAvatarError($event, myNickName)" />
               <div class="reply-input-area">
                 <textarea
                   v-model="replyContent"
@@ -334,10 +334,10 @@
               <template v-else>
                 <div v-for="reply in comment.replies" :key="reply.commentId" class="reply-item" :data-comment-id="reply.commentId">
                   <img 
-                    :src="getAvatarUrl(reply.userAvatar)" 
+                    :src="avatarUrl(reply.userAvatar, reply.userNickName)" alt=""
                     class="reply-avatar clickable"
                     @click="goToUserSpace(reply.userId)"
-                    @error="handleAvatarError"
+                    @error="onAvatarError($event, reply.userNickName)"
                   />
                   <div class="reply-body">
                     <div class="reply-user-info">
@@ -386,7 +386,7 @@
 
                     <!-- 二级评论的回复输入框 -->
                     <div v-if="activeReplyId === reply.commentId" class="inline-reply-box">
-                      <img :src="getAvatarUrl(myAvatar)" class="reply-input-avatar" @error="handleAvatarError" />
+                      <img :src="avatarUrl(myAvatar, myNickName)" alt="" class="reply-input-avatar" @error="onAvatarError($event, myNickName)" />
                       <div class="reply-input-area">
                         <textarea
                           v-model="replyContent"
@@ -458,6 +458,7 @@
 import { ref, nextTick, watch, onMounted, onUnmounted } from 'vue'
 import request from '../utils/request'
 import { uploadFile } from '../utils/upload'
+import { avatarUrl, onAvatarError } from '../utils/avatar'
 
 const props = defineProps<{
   articleId: string
@@ -542,6 +543,7 @@ const previewImage = ref('')
 
 // 用户信息
 const myAvatar = ref(localStorage.getItem('avatar') || '')
+const myNickName = ref(localStorage.getItem('nickName') || '')
 const myUserId = ref(localStorage.getItem('userId') || '')
 
 // 判断是否是自己的评论
@@ -983,13 +985,6 @@ function formatTime(dateStr: string): string {
   return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`
 }
 
-function getAvatarUrl(url: string | undefined): string {
-  return url || 'https://cube.elemecdn.com/3/7c/3ea6beec64369c2642b92c6726f1epng.png'
-}
-
-function handleAvatarError(e: Event) {
-  (e.target as HTMLImageElement).src = 'https://cube.elemecdn.com/3/7c/3ea6beec64369c2642b92c6726f1epng.png'
-}
 
 function autoResize(e: Event) {
   const textarea = e.target as HTMLTextAreaElement

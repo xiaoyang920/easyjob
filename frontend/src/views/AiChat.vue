@@ -135,17 +135,19 @@
         </div>
 
         <!-- 消息列表 -->
-        <div v-else class="message-list" ref="messageListRef" @scroll="handleMessageScroll">
-          <button v-if="messages.length > renderedMessageLimit" class="load-earlier-btn" @click="showEarlierMessages">加载更早的消息（{{ messages.length - renderedMessageLimit }}）</button>
+        <div v-else class="message-list" ref="messageListRef" @scroll="handleMessageScroll" @wheel.passive="handleHistoryWheel">
+          <button v-if="activeSession.historyWindow.hasOlder" class="load-earlier-btn" :disabled="activeSession.historyBusy" @click="showEarlierMessages">{{ activeSession.historyBusy ? '加载中…' : '加载更早的消息' }}</button>
+          <button v-if="questionIndexFailed" class="load-earlier-btn" @click="loadQuestionIndex(activeSession)">提问导航加载失败，点击重试</button>
           <div 
             v-for="{ msg, index } in visibleMessages"
-            :key="index"
+            :key="msg.itemId || index"
             :class="['message-item', msg.role]"
             :data-msg-index="index"
+            :data-question-id="msg.role === 'user' ? (msg.messageId || msg.itemId) : undefined"
           >
             <div class="message-avatar">
               <svg v-if="msg.role === 'assistant'" viewBox="0 0 24 24" fill="currentColor"><path d="m14 4 6 6-9 9-7 1 1-7 9-9Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="m12 6 6 6M5 19l4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-              <img v-else :src="getAvatarUrl(userAvatar)" @error="handleAvatarError">
+              <img v-else :src="avatarUrl(userAvatar, userNickName)" alt="" @error="onAvatarError($event, userNickName)">
             </div>
             <div class="message-content">
               <!-- 用户发送的图片（点击可放大） -->
@@ -166,20 +168,24 @@
               </div>
               <article v-if="msg.isDraft" class="draft-review-card">
                 <header class="draft-review-header">
-                  <div><span class="draft-review-eyebrow">草稿预览</span><h3>{{ msg.interruptPayload?.title || '待确认草稿' }}</h3></div>
+                  <div><span class="draft-review-eyebrow">{{ msg.interruptPayload?.targetArticleId ? '修改已有草稿' : '草稿预览' }}</span><h3>{{ msg.editedDraft?.title || msg.interruptPayload?.title || '待确认草稿' }}</h3></div>
                   <span class="draft-review-status">{{ msg.interrupted ? '等待确认' : '预览' }}</span>
                 </header>
-                <div class="draft-review-body" v-html="renderMarkdown(msg.content, msg.citations)"></div>
+                <AiDraftEditor v-if="msg.interrupted" v-model="msg.editedDraft" :initial="draftEditFrom(msg.interruptPayload || {},msg.content)" :disabled="resuming">
+                  <template #default="{ content, format }"><div class="draft-review-body" v-html="renderDraftPreview(content,format,msg.citations)"></div></template>
+                </AiDraftEditor>
+                <div v-else class="draft-review-body" v-html="renderDraftPreview(msg.editedDraft?.content || msg.content,msg.editedDraft?.content_format || msg.interruptPayload?.contentFormat,msg.citations)"></div>
                 <p v-if="msg.approvalNotice" class="interrupt-hint" role="status">{{ msg.approvalNotice }}</p>
+                <button v-if="msg.draftBackup || !msg.interrupted && msg.editedDraft" class="interrupt-btn" @click="copyEditedDraft(msg)">复制保留的手动修改</button>
                 <footer v-if="msg.interrupted" class="draft-review-footer">
                   <p>{{ msg.interruptPayload?.message || '确认后保存到草稿箱，你也可以先提出修改意见。' }}</p>
                   <div class="interrupt-buttons">
-                    <button class="interrupt-btn approve" @click="handleResume('approve', msg)" :disabled="resuming">保存草稿</button>
+                    <button class="interrupt-btn approve" @click="handleResume('approve', msg)" :disabled="resuming">{{ msg.interruptPayload?.targetArticleId ? '保存到原草稿' : '保存草稿' }}</button>
                     <button class="interrupt-btn reject" @click="handleResume('reject', msg)" :disabled="resuming">放弃保存</button>
                   </div>
                   <div class="draft-revision">
                     <textarea v-model="msg.draftRevision" placeholder="需要调整？写下修改意见，修改后重新确认。" maxlength="2000" rows="2" :disabled="resuming"></textarea>
-                    <button @click="handleResume(msg.draftRevision!.trim(), msg)" :disabled="resuming || !msg.draftRevision?.trim()">修改草稿</button>
+                    <button @click="handleResume(msg.draftRevision!.trim(), msg)" :disabled="resuming || !msg.draftRevision?.trim()">让 AI 调整</button>
                   </div>
                 </footer>
               </article>
@@ -257,10 +263,16 @@
           
         </div>
 
+        <div v-if="activeSession.historyWindow.hasNewer" class="history-window-actions">
+          <button class="load-earlier-btn" :disabled="activeSession.historyBusy" @click="showNewerMessages">加载后续消息</button>
+          <button class="load-earlier-btn" :disabled="activeSession.historyBusy" @click="returnToLatest">回到最新消息 ↓</button>
+        </div>
         <!-- 提问快速定位：消息区左侧的刻度导航 -->
         <QuestionRail
           v-if="!embedded && messageListRef && messages.length"
-          :messages="messages"
+          :key="activeSession.key"
+          :questions="railQuestions"
+          :resolve-question="resolveQuestion"
           :container="messageListRef"
         />
 
@@ -355,33 +367,31 @@
 
 <script setup lang="ts">
 import AppNavigation from '@/components/AppNavigation.vue'
+import { historyPage, mergeHistory, questionPreviews } from '@/utils/historyPaging'
 import { aiConversationStatus, setViewedAiConversation, trackAiRun, refreshAiRuns } from '@/utils/aiRuns'
 import { createChatSession, bindConversationId, beginChatOperation, finishChatOperation, releaseChatSessions, type ChatSession } from '@/utils/chatSessions'
 import { authenticatedFetch } from '@/utils/authSession'
 import { approvalRecovery } from '@/utils/approvalRecovery'
+import AiDraftEditor from '@/components/AiDraftEditor.vue'
+import { draftEditFrom,draftEditError,type DraftEdit } from '@/utils/draftEdit'
 import { ref, shallowRef, shallowReactive, reactive, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { goBackOr } from '@/utils/navigation'
 import { ElMessage } from 'element-plus'
-import { marked } from 'marked'
+import { renderChatMarkdown } from '@/utils/chatMarkdown'
+import { avatarUrl, onAvatarError } from '@/utils/avatar'
 import { safeHtml } from '@/utils/safeHtml'
 import { linkCitations, type SourceLink } from '../utils/citationLinks'
 import LoginForm from '@/components/LoginForm.vue'
 import RegisterForm from '@/components/RegisterForm.vue'
 import AgentActivity from '@/components/AgentActivity.vue'
 import QuestionRail from '@/components/QuestionRail.vue'
-import { createAgentState, applyAgentEvent, applyAnswerChunk, readSse, setRunStatus } from '@/utils/agentStream'
+import { createAgentState, applyAgentEvent, applyAnswerChunk, readSse, setRunStatus, restoreAgentState } from '@/utils/agentStream'
 import type { AgentStreamState } from '@/utils/agentStream'
 import request from '@/utils/request'
 import { savedArticlePath } from '@/utils/articleLifecycle'
 import { getThumbUrl } from '@/utils/image'
 import { eventBus, EVENT_AUTH_EXPIRED } from '@/utils/eventBus'
-
-// marked 配置
-marked.setOptions({
-  breaks: true,
-  gfm: true
-})
 
 const router = useRouter()
 const route = useRoute()
@@ -396,6 +406,7 @@ const emit = defineEmits<{ close: []; openChatroom: []; loginRequired: [] }>()
 
 // 用户信息
 const userAvatar = ref(localStorage.getItem('avatar') || '')
+const userNickName = localStorage.getItem('nickName') || ''
 
 // 会话状态
 const conversations = ref<any[]>([])
@@ -478,6 +489,9 @@ function openCitation(citation: Citation) {
 }
 
 interface ChatMessage {
+  itemId?: string
+  messageId?: string
+  turnId?: string
   role: 'user' | 'assistant'
   content: string
   provisional?: boolean
@@ -488,6 +502,8 @@ interface ChatMessage {
   runId?: string
   recoverable?: boolean
   draftRevision?: string
+  editedDraft?: DraftEdit
+  draftBackup?: DraftEdit
   approvalNotice?: string
   interrupted?: boolean  // 是否被 interrupt 暂停
   interruptPayload?: Record<string, any>  // interrupt 携带的数据（如草稿内容）
@@ -495,20 +511,129 @@ interface ChatMessage {
   draftArticleId?: string  // HITL 草稿确认后关联的 article_info.article_id，用 string 避免 JS 精度丢失
   draftTitle?: string  // 草稿标题，显示在"编辑草稿"按钮旁边
 }
-const renderedMessageLimit = ref(80)
-const visibleMessages = computed(() => messages.value.map((msg, index) => ({ msg, index })).slice(-renderedMessageLimit.value))
+const visibleMessages = computed(() => messages.value.map((msg, index) => ({ msg, index })))
+const railQuestions = computed(() => questionPreviews(activeSession.value.questionIndex, messages.value))
+const questionIndexFailed = sessionField('questionIndexFailed')
+
+async function loadQuestionIndex(session: Session) {
+  if (!session.conversationId) return
+  const version = ++session.questionVersion
+  let after: string | undefined, snapshot: string | undefined
+  const items: Session['questionIndex'] = []
+  try {
+    do {
+      const response = await request.get(`/agent/conversations/${session.conversationId}/questions`, { params: { limit: 200, after, snapshot } })
+      if (!mounted || version !== session.questionVersion) return
+      if (Array.isArray(response.data)) return // Older server compatibility.
+      if (response.code !== 200 || !Array.isArray(response.data?.items)) throw new Error('提问导航加载失败')
+      items.push(...response.data.items)
+      if (!response.data.hasMore) break
+      const next = response.data.nextCursor
+      if (!next || next === after) throw new Error('提问导航游标无效')
+      after = next; snapshot = response.data.snapshot
+    } while (true)
+    session.questionIndex = items
+    session.questionIndexFailed = false
+  } catch {
+    if (mounted && version === session.questionVersion) session.questionIndexFailed = true
+  }
+}
+
+// Keep the reactive objects used by the stream reader when replacing a window.
+function retainLiveMessages(session: Session, incoming: ChatMessage[], latest: boolean) {
+  if (!session.loading || !session.liveMessages.length) return incoming
+  const user = session.liveMessages.find(m => m.role === 'user')
+  const answer = session.liveMessages.find(m => m.role === 'assistant')
+  const turnId = user?.messageId || answer?.turnId
+  if (!latest && !incoming.some(m => turnId && m.turnId === turnId)) return incoming
+  for (const live of session.liveMessages) {
+    const index = incoming.findIndex(m => m.itemId === live.itemId ||
+      (live.messageId && m.messageId === live.messageId) ||
+      (live.role === 'assistant' && m.role === 'assistant' &&
+        ((live.runId && (m.runId === live.runId || m.interruptPayload?.runId === live.runId)) || (turnId && m.turnId === turnId))))
+    if (index >= 0) incoming[index] = live
+    else incoming.push(live)
+  }
+  return incoming
+}
+
+async function loadHistoryWindow(session: Session, params: Record<string, string> = {}, mode: 'replace' | 'older' | 'newer' = 'replace') {
+  if (!session.conversationId) return false
+  const version = ++session.historyVersion
+  session.historyBusy = true
+  try {
+    const response = await request.get(`/agent/conversations/${session.conversationId}/messages`, { params: { limit: 20, ...params } })
+    if (!mounted || version !== session.historyVersion) return false
+    if (response.code !== 200) throw new Error('加载历史消息失败')
+    const page = historyPage(response.data)
+    const incoming = page.items.map(toChatMessage)
+    if (mode === 'replace') {
+      session.messages = retainLiveMessages(session, incoming, !page.hasNewer)
+      const { items: _, ...window } = page
+      session.historyWindow = window
+    } else {
+      session.messages = mergeHistory(session.messages, incoming, mode === 'older')
+      if (mode === 'older') Object.assign(session.historyWindow, { beforeCursor: page.beforeCursor, hasOlder: page.hasOlder })
+      else Object.assign(session.historyWindow, { afterCursor: page.afterCursor, hasNewer: page.hasNewer })
+    }
+    session.historyLoaded = true
+    return true
+  } finally {
+    if (version === session.historyVersion) session.historyBusy = false
+  }
+}
+
 async function showEarlierMessages() {
-  const el = messageListRef.value
-  const height = el?.scrollHeight || 0
-  const top = el?.scrollTop || 0
-  renderedMessageLimit.value += 60
-  await nextTick()
-  if (el) el.scrollTop = top + el.scrollHeight - height
+  const session = activeSession.value, el = messageListRef.value
+  if (session.historyBusy || !session.historyWindow.beforeCursor) return
+  const height = el?.scrollHeight || 0, top = el?.scrollTop || 0
+  autoScrollToBottom.value = false
+  try {
+    if (!await loadHistoryWindow(session, { before: session.historyWindow.beforeCursor }, 'older')) return
+    await nextTick()
+    if (el && activeSession.value === session) el.scrollTop = top + el.scrollHeight - height
+  } catch { ElMessage.warning('加载更早消息失败，可重新尝试') }
+}
+
+async function showNewerMessages() {
+  const session = activeSession.value
+  if (session.historyBusy || !session.historyWindow.afterCursor) return
+  try { await loadHistoryWindow(session, { after: session.historyWindow.afterCursor }, 'newer') }
+  catch { ElMessage.warning('加载后续消息失败，可重新尝试') }
+}
+
+async function returnToLatest() {
+  const session = activeSession.value
+  try {
+    if (await loadHistoryWindow(session) && activeSession.value === session) {
+      scrollToBottom(true)
+      if (!session.loading) void reconnectActiveRun(session).catch(() => ElMessage.warning('暂时无法同步运行状态，请重新加载'))
+    }
+  } catch { ElMessage.warning('加载最新消息失败，可重新尝试') }
+}
+
+async function resolveQuestion(id: string) {
+  const session = activeSession.value
+  autoScrollToBottom.value = false
+  if (messageListRef.value?.querySelector(`[data-question-id="${CSS.escape(id)}"]`)) {
+    // A newer click on an already loaded question cancels an older remote jump.
+    if (session.historyBusy) { session.historyVersion++; session.historyBusy = false }
+    return true
+  }
+  if (!/^\d+$/.test(id)) return false
+  try {
+    const loaded = await loadHistoryWindow(session, { around: id })
+    await nextTick()
+    return loaded && activeSession.value === session
+  } catch { ElMessage.warning('无法定位该提问，请重新尝试'); return false }
 }
 
 function toChatMessage(msg: any): ChatMessage {
   return {
-    role: msg.role, content: msg.content,
+    role: msg.role, content: msg.content || '',
+    itemId: msg.itemId || (msg.messageId ? `message:${msg.messageId}` : msg.runId ? `run:${msg.runId}` : crypto.randomUUID()),
+    messageId: msg.messageId, turnId: msg.turnId,
+    runId: msg.runId, recoverable: !!msg.recoverable, agent: restoreAgentState(msg),
     image: msg.imagePaths?.length ? `/uploads/${msg.imagePaths[0]}` : null,
     articles: msg.articleCards || [], citations: msg.citations || [],
     interrupted: msg.interrupted || false, interruptPayload: msg.interruptPayload,
@@ -625,7 +750,6 @@ function createNewConversation() {
   currentOriginArticleId.value = props.embedded ? props.originArticleId || null : null
   currentOriginArticleTitle.value = props.embedded ? props.originArticleTitle : ''
   messages.value = []
-  renderedMessageLimit.value = 80
   userInput.value = ''
   selectedImages.value = []
   historyLoadFailed.value = false
@@ -652,7 +776,6 @@ async function switchConversation(conv: any) {
   session.originArticleTitle = conv.originArticleTitle || (props.embedded ? props.originArticleTitle : '')
   if (session.originArticleId && !props.embedded) articleGroupOpen.value = true
   persistSelection(id)
-  renderedMessageLimit.value = 80
   loadingMessages.value = false
   if (window.innerWidth <= 768) showSidebar.value = false
   // Live callbacks remain bound to this session; never replace its partial reply with history.
@@ -660,11 +783,9 @@ async function switchConversation(conv: any) {
   loadingMessages.value = true
   session.historyLoadFailed = false
   try {
-    const res = await request.get(`/agent/conversations/${id}/messages`)
+    if (!await loadHistoryWindow(session)) return
     if (!mounted || version !== historyLoadVersion) return
-    if (res.code !== 200 || !res.data) throw new Error('无法加载会话')
-    session.messages = res.data.map(toChatMessage)
-    session.historyLoaded = true
+    void loadQuestionIndex(session)
     // Loading history must not wait for the entire generation to finish.
     loadingMessages.value = false
     void reconnectActiveRun(session).catch(() => { session.historyLoadFailed = true })
@@ -689,7 +810,8 @@ function finishSession(session: Session, operation: number) {
   if (!finishChatOperation(session, operation)) return
   if (mounted && activeSession.value !== session) session.unread = true
   if (mounted && activeSession.value === session) scrollToBottom()
-  if (mounted) void refreshAiRuns()
+  if (mounted) { void refreshAiRuns(); void loadQuestionIndex(session) }
+  session.liveMessages = []
 }
 
 // 删除会话
@@ -816,12 +938,16 @@ async function sendMessage() {
   const session = activeSession.value
   const content = session.userInput.trim()
   if (!content && session.selectedImages.length === 0) return
-  if (session.loading || session.cancelling || uploadingImage.value || loadingMessages.value || session.historyLoadFailed) return
+  if (session.loading || session.cancelling || uploadingImage.value || loadingMessages.value || session.historyLoadFailed || session.historyBusy) return
   if (!localStorage.getItem('token')) { requestLogin(); return }
   
+  if (session.historyWindow.hasNewer) {
+    try { if (!await loadHistoryWindow(session) || activeSession.value !== session) return }
+    catch { ElMessage.warning('加载最新消息失败，本次输入已保留'); return }
+  }
   // 添加用户消息（含图片预览）
   const userMsg: ChatMessage = {
-    role: 'user',
+    role: 'user', itemId: crypto.randomUUID(),
     content: content,
     image: session.selectedImages.length > 0 ? session.selectedImages[0].preview : null  // 显示第一张预览
   }
@@ -838,23 +964,25 @@ async function sendMessage() {
   
   // 准备AI回复占位
   const aiMessage: ChatMessage = {
-    role: 'assistant',
+    role: 'assistant', itemId: crypto.randomUUID(),
     content: '',
     agent: createAgentState()
   }
   session.messages.push(aiMessage)
-  // 通过数组索引引用，确保Vue响应式更新
-  const aiMsgIndex = session.messages.length - 1
+  // Capture Vue's reactive objects; prepending history must not change the stream target.
+  const msg = session.messages.at(-1)!
+  session.liveMessages = session.messages.slice(-2)
   
   try {
     session.streaming = true
-    await streamChat(content, imagePaths, aiMsgIndex, session)
+    await streamChat(content, imagePaths, msg, session)
   } catch (error: any) {
     // 用户主动取消不算错误
     if (error.name === 'AbortError' || !mounted) return
     if (error.status === 409 && session.conversationId) {
       // Rejected requests were never added to backend history. Keep their input editable.
-      session.messages.splice(aiMsgIndex - 1, 2)
+      session.messages = session.messages.filter(item => !session.liveMessages.includes(item))
+      session.liveMessages = []
       session.userInput = content
       session.selectedImages = submittedImages
       session.abortController = null
@@ -868,8 +996,8 @@ async function sendMessage() {
       return
     }
     console.error('发送消息失败:', error)
-    setRunStatus(ensureAgent(aiMsgIndex, session), 'error')
-    session.messages[aiMsgIndex].content = error.message || '处理失败，请稍后重试。'
+    setRunStatus(ensureAgent(msg), 'error')
+    msg.content = error.message || '处理失败，请稍后重试。'
     ElMessage.error(error.message || '请求失败')
   } finally {
     finishSession(session, operation)
@@ -877,7 +1005,7 @@ async function sendMessage() {
 }
 
 // SSE流式接收，标准SSE解析
-async function streamChat(message: string, imagePaths: string[], aiMsgIndex: number, session: Session) {
+async function streamChat(message: string, imagePaths: string[], msg: ChatMessage, session: Session) {
   const token = localStorage.getItem('token')
   session.abortController = new AbortController()
   
@@ -902,14 +1030,14 @@ async function streamChat(message: string, imagePaths: string[], aiMsgIndex: num
     signal: session.abortController.signal
   })
   
-  await consumeAgentStream(response, aiMsgIndex, session)
+  await consumeAgentStream(response, msg, session)
 }
 
-function ensureAgent(index: number, session: Session = activeSession.value): AgentStreamState {
-  return session.messages[index].agent ||= createAgentState()
+function ensureAgent(msg: ChatMessage): AgentStreamState {
+  return msg.agent ||= createAgentState()
 }
 
-async function consumeAgentStream(response: Response, index: number, session: Session) {
+async function consumeAgentStream(response: Response, msg: ChatMessage, session: Session) {
   const controller = session.abortController!
   let finished = false
   let runId = ''
@@ -924,10 +1052,10 @@ async function consumeAgentStream(response: Response, index: number, session: Se
         }
         if (data === '[DONE]') { finished = true; continue }
         if (data.startsWith('[ERROR]')) {
-          if (session.messages[index].provisional) {
-            session.messages[index].content = ''
-            session.messages[index].provisional = false
-            ensureAgent(index, session).answerReceiving = false
+          if (msg.provisional) {
+            msg.content = ''
+            msg.provisional = false
+            ensureAgent(msg).answerReceiving = false
           }
           const error = new Error(data.substring(7).trim())
           Object.assign(error, { terminal: true })
@@ -944,17 +1072,17 @@ async function consumeAgentStream(response: Response, index: number, session: Se
           if (runId) trackAiRun(runId, id)
           if (activeSession.value === session) persistSelection(id)
           if (isNew && !props.embedded) loadConversations()
-        } else if (handleResultEvent(data, index, session)) {
+        } else if (handleResultEvent(data, msg, session)) {
           // Both live and replay streams use the same state transitions.
         } else if (data.startsWith('__PROGRESS__:')) {
-          handleProgress(index, data.substring('__PROGRESS__:'.length).trim(), session)
+          handleProgress(msg, data.substring('__PROGRESS__:'.length).trim(), session)
         } else if (!data.startsWith('__') && !(data.startsWith('{') && data.includes('conversationId'))) {
-          session.messages[index].content += data.replace(/\\n/g, '\n')
+          msg.content += data.replace(/\\n/g, '\n')
         }
         if (activeSession.value === session) scrollToBottom()
         // Several events can arrive in one TCP read. Yield to rendering instead
         // of processing the entire buffer before Vue can paint any text.
-        if (data.startsWith('__PREVIEW__:') && activeSession.value === session) {
+        if (data.startsWith('__ANSWER__:') && activeSession.value === session) {
           await nextTick()
           if (typeof requestAnimationFrame === 'function' && document.visibilityState === 'visible') {
             await new Promise<void>(resolve => {
@@ -972,7 +1100,7 @@ async function consumeAgentStream(response: Response, index: number, session: Se
         if (error.name !== 'AbortError' && runId) {
           try {
             const status: any = await request.get(`/agent/runs/${runId}`)
-            session.messages[index]!.recoverable = !!status.data?.recoverable
+            msg.recoverable = !!status.data?.recoverable
           } catch { /* Keep the original stream error if status is unavailable. */ }
         }
         throw error
@@ -989,9 +1117,11 @@ async function consumeAgentStream(response: Response, index: number, session: Se
 async function reconnectActiveRun(session: Session = activeSession.value) {
   const cid = session.conversationId
   if (!cid) return
+  const windowVersion = session.historyVersion
   // The server owns the active run. Tab-local storage disappears when a tab closes.
   const response = await request.get(`/agent/conversations/${cid}/run`)
   if (!mounted || session.conversationId !== cid || session.abortController || session.cancelling) return
+  if (windowVersion !== session.historyVersion && session.historyWindow.hasNewer) return
   const run = response.data
   if (!run) return
   const rid = run.runId
@@ -1027,28 +1157,45 @@ async function reconnectActiveRun(session: Session = activeSession.value) {
       if (!preview) session.messages.push(reply)
     }
     if (['failed', 'expired', 'cancelled'].includes(run.status) && session.messages.at(-1)?.role === 'user') {
+      // The run may terminate between the history read and this status read.
+      // Re-read its durable projection instead of losing activities in a generic notice.
+      try {
+        const history = await request.get(`/agent/conversations/${cid}/messages`, { params: { limit: 20 } })
+        if (!mounted || session.conversationId !== cid || session.abortController || session.cancelling) return
+        const page = historyPage(history.data)
+        if (!session.historyWindow.hasNewer && history.code === 200 && page.items.some((msg: any) => msg.runId === rid)) {
+          session.messages = page.items.map(toChatMessage)
+          const { items: _, ...window } = page
+          session.historyWindow = window
+          const restored = session.messages.find(msg => msg.runId === rid)
+          if (restored) restored.recoverable = !!run.recoverable
+          return
+        }
+      } catch { /* Preserve the terminal outcome even if history cannot be reloaded. */ }
+      if (!mounted || session.conversationId !== cid || session.abortController || session.cancelling) return
       session.messages.push({ role: 'assistant', runId: rid, recoverable: !!run.recoverable,
         content: run.status === 'cancelled' ? '上次生成已停止，可以重新发送请求。' : '上次生成已中断或超时，已释放运行，可以重新发送请求。' })
     }
     return
   }
   // Reloaded pages replay from zero because partial message content lived in memory.
-  const index = session.messages.length
-  session.messages.push({ role: 'assistant', content: '', runId: rid, agent: createAgentState() })
+  session.messages.push({ role: 'assistant', itemId: `run:${rid}`, content: '', runId: rid, agent: createAgentState() })
+  const msg = session.messages.at(-1)!
+  session.liveMessages = session.messages.slice(-2)
   const operation = beginChatOperation(session)
   session.abortController = new AbortController()
   try {
     const response = await authenticatedFetch(`/api/agent/runs/${rid}/events?after=0`, {
       headers: { Accept: 'text/event-stream' }, signal: session.abortController.signal,
     })
-    await consumeAgentStream(response, index, session)
+    await consumeAgentStream(response, msg, session)
   } catch (error: any) {
     if (error.name !== 'AbortError' && mounted) {
-      setRunStatus(ensureAgent(index, session), 'error')
-      if (session.messages[index].provisional) {
-        session.messages[index].content = '生成未完成，请重新尝试。'
-        session.messages[index].provisional = false
-        ensureAgent(index, session).answerReceiving = false
+      setRunStatus(ensureAgent(msg), 'error')
+      if (msg.provisional) {
+        msg.content = '生成未完成，请重新尝试。'
+        msg.provisional = false
+        ensureAgent(msg).answerReceiving = false
       }
       ElMessage.error(error.message || '恢复运行失败')
     }
@@ -1061,6 +1208,7 @@ async function recoverReadOnlyRun(msg: ChatMessage) {
   const index = session.messages.indexOf(msg)
   if (index < 0) return
   const operation = beginChatOperation(session)
+  session.liveMessages = [msg]
   session.abortController = new AbortController()
   try {
     const response = await authenticatedFetch(`/api/agent/runs/${msg.runId}/recover`, {
@@ -1074,14 +1222,14 @@ async function recoverReadOnlyRun(msg: ChatMessage) {
     msg.content = ''
     msg.recoverable = false
     msg.agent = createAgentState()
-    await consumeAgentStream(response, index, session)
+    await consumeAgentStream(response, msg, session)
   } catch (error: any) {
     if (error.name !== 'AbortError') ElMessage.warning(error.message || '任务恢复失败')
   } finally { finishSession(session, operation) }
 }
 
-function handleProgress(index: number, progress: string, session: Session) {
-  const state = ensureAgent(index, session)
+function handleProgress(msg: ChatMessage, progress: string, session: Session) {
+  const state = ensureAgent(msg)
   if (progress === 'done') { setRunStatus(state, 'complete'); return }
   if (state.richEvents) return
   const label = progress === 'planner' ? '理解请求' : progress === 'synthesizer' ? '整理回答' : '处理资料'
@@ -1105,7 +1253,7 @@ async function handleCancel() {
     // 1. 通知后端取消
     const response = await request.post(`/agent/chat/${session.conversationId}/cancel`)
     if (response.data?.status === 'draft_saved') {
-      const msg = [...session.messages].reverse().find(item => item.role === 'assistant')
+      const msg = [...(session.liveMessages.length ? session.liveMessages : session.messages)].reverse().find(item => item.role === 'assistant')
       if (msg) {
         msg.draftArticleId = response.data.draftArticleId
         msg.content = '草稿已保存到草稿箱，可继续编辑。'
@@ -1117,7 +1265,7 @@ async function handleCancel() {
     ElMessage.error('停止失败，请重试。任务仍在继续。')
     return
   }
-  const latest = [...session.messages].reverse().find(item => item.role === 'assistant')
+  const latest = [...(session.liveMessages.length ? session.liveMessages : session.messages)].reverse().find(item => item.role === 'assistant')
   if (latest?.agent) {
     setRunStatus(latest.agent, latest.draftArticleId ? 'complete' : 'cancelled')
     if (!latest.content) latest.content = latest.draftArticleId ? '草稿已保存到草稿箱，可继续编辑。' : '已停止处理。'
@@ -1132,13 +1280,23 @@ async function handleCancel() {
 }
 
 // Human-in-the-loop 恢复（确认/拒绝）
+async function copyEditedDraft(msg: ChatMessage) {
+  const draft = (!msg.interrupted && msg.editedDraft) || msg.draftBackup || msg.editedDraft
+  if (!draft) return
+  try {
+    await navigator.clipboard.writeText(`# ${draft.title}\n\n${draft.summary}\n\n${draft.content}`)
+    ElMessage.success('已复制修改内容，可粘贴到文章编辑器')
+  } catch { ElMessage.warning('复制失败，请选中预览正文手动复制') }
+}
 async function handleResume(action: string, msg: ChatMessage) {
   const session = activeSession.value
   if (!session.conversationId || session.resuming || session.loading || session.cancelling) return
+  if(action!=='reject' && msg.editedDraft){const error=draftEditError(msg.editedDraft);if(error){ElMessage.warning(error);return}}
   session.resuming = true
   const preview = { content: msg.content, isDraft: msg.isDraft, interrupted: msg.interrupted }
   const approvalConversation = session.conversationId
   const approvalRun = msg.interruptPayload?.runId
+  const approvalHash = msg.interruptPayload?.draftHash
   msg.approvalNotice = ''
 
   // ─── 就地覆盖模式 ───
@@ -1160,10 +1318,11 @@ async function handleResume(action: string, msg: ChatMessage) {
   }
 
   const operation = beginChatOperation(session)
+  session.liveMessages = [msg]
   if (activeSession.value === session) scrollToBottom(true)
 
   try {
-    await streamResume(action, aiMsgIndex, session)
+    await streamResume(action, msg, session)
   } catch (error: any) {
     if (error.name === 'AbortError' || !mounted) return
     Object.assign(msg, preview)
@@ -1174,9 +1333,14 @@ async function handleResume(action: string, msg: ChatMessage) {
       const recovered = approvalRecovery(response.data)
       msg.interrupted = recovered.interrupted
       msg.approvalNotice = recovered.notice
-      setRunStatus(ensureAgent(aiMsgIndex, session), recovered.status)
+      setRunStatus(ensureAgent(msg), recovered.status)
       if (recovered.articleId) msg.draftArticleId = recovered.articleId
       if (recovered.payload) {
+        if (recovered.payload.draftHash !== approvalHash && msg.editedDraft) {
+          msg.draftBackup = msg.editedDraft
+          msg.editedDraft = undefined
+          msg.approvalNotice += ' 预览版本已变化，旧的手动修改已单独保留，可复制后合并到新版。'
+        }
         msg.interruptPayload = recovered.payload
         if (recovered.payload.draft) msg.content = recovered.payload.draft
       }
@@ -1185,7 +1349,7 @@ async function handleResume(action: string, msg: ChatMessage) {
         const events = await authenticatedFetch(`/api/agent/runs/${approvalRun}/events?after=0`, {
           headers: { Accept: 'text/event-stream' }, signal: session.abortController.signal,
         })
-        await consumeAgentStream(events, aiMsgIndex, session)
+        await consumeAgentStream(events, msg, session)
       }
       if (error.name !== 'AbortError' && recovered.status !== 'working') {
         if (recovered.status === 'complete') ElMessage.success(recovered.notice)
@@ -1194,7 +1358,7 @@ async function handleResume(action: string, msg: ChatMessage) {
     } catch {
       msg.interrupted = false
       msg.approvalNotice = '暂时无法核对审批状态，预览已保留。请重新加载会话后再操作。'
-      if (session.conversationId === approvalConversation) setRunStatus(ensureAgent(aiMsgIndex, session), 'error')
+      if (session.conversationId === approvalConversation) setRunStatus(ensureAgent(msg), 'error')
       if (error.name !== 'AbortError') ElMessage.error(msg.approvalNotice)
     }
   } finally {
@@ -1206,14 +1370,14 @@ async function handleResume(action: string, msg: ChatMessage) {
 async function editDraft(articleId: string) {
   try {
     const res = await request.get(`/article/${articleId}/edit`)
-    await router.push(savedArticlePath(articleId, res.data?.status))
+    await router.push(savedArticlePath(articleId, res.data?.status, res.data))
   } catch (error: any) {
     ElMessage.error(error.message || '文章已删除或无法访问')
   }
 }
 
 // SSE 流式 resume
-async function streamResume(action: string, aiMsgIndex: number, session: Session) {
+async function streamResume(action: string, msg: ChatMessage, session: Session) {
   const token = localStorage.getItem('token')
   session.abortController = new AbortController()
 
@@ -1227,33 +1391,36 @@ async function streamResume(action: string, aiMsgIndex: number, session: Session
     body: JSON.stringify({
       conversationId: session.conversationId,
       action,
-      runId: session.messages[aiMsgIndex].interruptPayload?.runId,
-      draftHash: session.messages[aiMsgIndex].interruptPayload?.draftHash
+      runId: msg.interruptPayload?.runId,
+      draftHash: msg.interruptPayload?.draftHash,
+      editedDraft: action==='reject' ? undefined : msg.editedDraft
     }),
     signal: session.abortController.signal
   })
 
-  await consumeAgentStream(response, aiMsgIndex, session)
+  await consumeAgentStream(response, msg, session)
 }
 
-function handleResultEvent(data: string, index: number, session: Session): boolean {
-  const msg = session.messages[index]
+function handleResultEvent(data: string, msg: ChatMessage, session: Session): boolean {
   const json = (prefix: string) => JSON.parse(data.substring(prefix.length))
-  if (data.startsWith('__AGENT_EVENT__:')) {
-    applyAgentEvent(ensureAgent(index, session), json('__AGENT_EVENT__:'))
+  if (data.startsWith('__INPUT_ID__:')) {
+    const id = data.substring('__INPUT_ID__:'.length).trim()
+    const user = session.liveMessages.find(item => item.role === 'user')
+    if (user) { user.messageId = id; user.turnId = id }
+    msg.turnId = id
+  } else if (data.startsWith('__AGENT_EVENT__:')) {
+    applyAgentEvent(ensureAgent(msg), json('__AGENT_EVENT__:'))
   } else if (data.startsWith('__PREVIEW__:')) {
-    const preview = json('__PREVIEW__:')
-    if (typeof preview.content !== 'string' || !['delta', 'replace'].includes(preview.type)) throw new Error('回答预览格式无效')
-    msg.content = preview.type === 'replace' ? preview.content : msg.content + preview.content
-    msg.provisional = true
-    ensureAgent(index, session).answerReceiving = true
+    // Old persisted runs may replay provisional tokens. Wait for the settled
+    // answer or the verified approval draft rather than displaying a candidate.
+    return
   } else if (data.startsWith('__ANSWER__:')) {
-    msg.content = applyAnswerChunk(ensureAgent(index, session), msg.content, json('__ANSWER__:'))
+    msg.content = applyAnswerChunk(ensureAgent(msg), msg.content, json('__ANSWER__:'))
   } else if (data.startsWith('__RUN_ID__:')) {
     const runId = data.substring('__RUN_ID__:'.length).trim()
     msg.runId = runId
   } else if (data.startsWith('__STAGE__:')) {
-    const state = ensureAgent(index, session)
+    const state = ensureAgent(msg)
     if (!state.richEvents) {
       const payload = json('__STAGE__:')
       state.activities.push({ id: `stage/${payload.stage}`, label: `已完成 ${payload.stage}/${payload.total} 个阶段`, status: 'done' })
@@ -1261,20 +1428,21 @@ function handleResultEvent(data: string, index: number, session: Session): boole
   } else if (data.startsWith('__REPLY__:')) {
     msg.content = json('__REPLY__:').content
     msg.provisional = false
-    ensureAgent(index, session).answerReceiving = false
+    ensureAgent(msg).answerReceiving = false
   } else if (data.startsWith('__CITATIONS__:')) {
     msg.citations = json('__CITATIONS__:')
   } else if (data.startsWith('__ARTICLES__:')) {
     msg.articles = json('__ARTICLES__:')
   } else if (data.startsWith('__INTERRUPTED__:')) {
     const payload = json('__INTERRUPTED__:')
+    msg.editedDraft = undefined
     if (payload.draft) { msg.content = payload.draft; msg.isDraft = true }
     msg.interrupted = true
     msg.provisional = false
-    ensureAgent(index, session).answerReceiving = false
+    ensureAgent(msg).answerReceiving = false
     msg.interruptPayload = payload
     msg.draftRevision = ''
-    setRunStatus(ensureAgent(index, session), 'awaiting')
+    setRunStatus(ensureAgent(msg), 'awaiting')
   } else if (data.startsWith('__DRAFT_SAVED__:')) {
     const payload = json('__DRAFT_SAVED__:')
     msg.draftArticleId = payload.draftArticleId
@@ -1310,6 +1478,7 @@ watch(userInput, () => nextTick(resizeInput))
 // 滚动到底部
 // force=true 时无视 autoScrollToBottom，强制贴底并恢复自动跟随（用于用户主动发送消息、切会话、恢复中断等场景）
 function scrollToBottom(force = false) {
+  if (activeSession.value.historyWindow.hasNewer) return
   if (force) {
     autoScrollToBottom.value = true
   }
@@ -1326,7 +1495,12 @@ function handleMessageScroll() {
   const el = messageListRef.value
   if (!el) return
   const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight
-  autoScrollToBottom.value = distanceToBottom < SCROLL_BOTTOM_THRESHOLD
+  autoScrollToBottom.value = !activeSession.value.historyWindow.hasNewer && distanceToBottom < SCROLL_BOTTOM_THRESHOLD
+}
+
+function handleHistoryWheel(event: WheelEvent) {
+  if (event.deltaY < 0 && (messageListRef.value?.scrollTop || 0) < 80 &&
+      activeSession.value.historyWindow.hasOlder && !activeSession.value.historyBusy) void showEarlierMessages()
 }
 
 // Markdown渲染
@@ -1398,6 +1572,10 @@ function protectIncompleteTable(content: string): string {
   return before + (before ? '\n' : '') + '\n<pre class="streaming-table">' + tablePart.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</pre>'
 }
 
+function renderDraftPreview(content: string, format?: string, citations: SourceLink[] = []): string {
+  return format === 'html' ? safeHtml(linkCitations(content, citations)) : renderMarkdown(content, citations)
+}
+
 function renderMarkdown(content: string, citations: SourceLink[] = []): string {
   if (!content) return ''
   
@@ -1415,7 +1593,7 @@ function renderMarkdown(content: string, citations: SourceLink[] = []): string {
     processed = protectIncompleteTable(processed)
   }
   
-  const rendered = safeHtml(marked(processed) as string)
+  const rendered = safeHtml(renderChatMarkdown(processed))
   
   // 非流式状态下缓存结果（历史消息）
   if (!streaming.value) {
@@ -1448,26 +1626,6 @@ function formatTime(timeStr: string): string {
   if (diff < 604800000) return Math.floor(diff / 86400000) + '天前'
   
   return `${date.getMonth() + 1}/${date.getDate()}`
-}
-
-// 获取头像URL
-function getAvatarUrl(url: string | undefined): string {
-  if (!url) {
-    return 'https://cube.elemecdn.com/3/7c/3ea6beec64369c2642b92c6726f1epng.png'
-  }
-  if (url.startsWith('http://') || url.startsWith('https://')) {
-    if (url.includes('localhost:8080')) {
-      return url.replace(/https?:\/\/localhost:8080/, '')
-    }
-    return url
-  }
-  if (url.startsWith('/uploads')) return url
-  return url
-}
-
-function handleAvatarError(e: Event) {
-  const target = e.target as HTMLImageElement
-  target.src = 'https://cube.elemecdn.com/3/7c/3ea6beec64369c2642b92c6726f1epng.png'
 }
 
 // 文章卡片封面加载失败：缩略图回退原图，原图回退默认封面
@@ -1503,7 +1661,6 @@ function handleAuthExpired() {
   historyLoadVersion += 1
   currentConversationId.value = null
   messages.value = []
-  renderedMessageLimit.value = 80
   persistSelection(null)
   requestLogin()
 }
@@ -1543,7 +1700,6 @@ async function initializeConversation() {
         currentOriginArticleId.value = queryArticleId
         currentOriginArticleTitle.value = '当前文章'
         messages.value = []
-  renderedMessageLimit.value = 80
         articleGroupOpen.value = true
       }
     }
@@ -1606,7 +1762,6 @@ watch(() => props.originArticleId, () => {
   createNewConversation()
   currentConversationId.value = null
   messages.value = []
-  renderedMessageLimit.value = 80
   initializeConversation()
 })
 
@@ -2170,36 +2325,7 @@ onUnmounted(() => {
   opacity: 0.6;
 }
 
-/* Markdown样式 */
-.message-bubble :deep(pre) {
-  background: var(--ej-canvas);
-  padding: 12px;
-  border-radius: 8px;
-  overflow-x: auto;
-  margin: 10px 0;
-}
-
-.message-item.user .message-bubble :deep(pre) {
-  background: rgba(255, 255, 255, 0.15);
-}
-
-.message-bubble :deep(code) {
-  background: var(--ej-canvas);
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-family: 'Consolas', 'Monaco', monospace;
-  font-size: 13px;
-}
-
-.message-item.user .message-bubble :deep(code) {
-  background: rgba(255, 255, 255, 0.15);
-}
-
-.message-bubble :deep(pre code) {
-  background: transparent;
-  padding: 0;
-}
-
+/* Markdown样式；代码块与行内代码统一使用 styles/theme.css 中的墨色代码块 */
 .message-bubble :deep(strong) {
   font-weight: 600;
   color: #1a1a1a;
@@ -2228,7 +2354,7 @@ onUnmounted(() => {
   border-left: 3px solid var(--ej-accent);
   padding-left: 12px;
   margin: 8px 0;
-  color: #666;
+  color: var(--ej-muted);
 }
 
 .message-bubble :deep(a) {
@@ -2248,7 +2374,7 @@ onUnmounted(() => {
 
 .message-bubble :deep(th),
 .message-bubble :deep(td) {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--ej-hairline);
   padding: 6px 12px;
   text-align: left;
 }
@@ -2258,19 +2384,7 @@ onUnmounted(() => {
   font-weight: 600;
 }
 
-/* 流式传输中未完成的表格，用等宽字体暂存显示 */
-.message-bubble :deep(.streaming-table) {
-  background: var(--ej-canvas);
-  padding: 8px 12px;
-  border-radius: 6px;
-  font-family: 'Courier New', Courier, monospace;
-  font-size: 13px;
-  white-space: pre;
-  overflow-x: auto;
-  margin: 8px 0;
-  line-height: 1.6;
-  color: #555;
-}
+/* 流式传输中未完成的表格以等宽文本暂存，样式见 styles/theme.css 的 pre.streaming-table */
 
 /* 加载动画 */
 .typing-indicator {
@@ -2313,15 +2427,16 @@ onUnmounted(() => {
 /* 执行进度步骤条 */
 .draft-review-card { width: min(100%, 720px); border: 1px solid #e5e7eb; border-radius: 12px; background: #fff; overflow: hidden; margin-bottom: 12px; }
 .draft-review-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 17px 20px; background: #f8f9fb; border-bottom: 1px solid #eceef1; }
-.draft-review-eyebrow { font-size: 11px; color: #9197a1; }
-.draft-review-header h3 { font-size: 15px; color: #303640; margin: 5px 0 0; font-weight: 600; }
-.draft-review-status { font-size: 11px; color: #a08042; background: #fcf6e9; padding: 4px 8px; border-radius: 5px; white-space: nowrap; }
-.draft-review-body { max-height: 480px; overflow: auto; padding: 18px 22px; line-height: 1.8; font-size: 14px; color: #343943; overflow-wrap: anywhere; }
-.draft-review-body :deep(pre) { overflow-x: auto; background: #f5f6f8; padding: 14px; border-radius: 8px; line-height: 1.5; }
+.draft-review-eyebrow { font-size: 11px; color: var(--ej-muted); }
+.draft-review-header h3 { font-size: 15px; color: var(--ej-ink); margin: 5px 0 0; font-weight: 700; }
+.draft-review-status { font-size: 11px; padding: 4px 8px; white-space: nowrap; }
+/* 草稿预览的代码块见 styles/theme.css */
+.draft-review-body { max-height: 480px; overflow: auto; padding: 18px 22px; line-height: 1.8; font-size: 14px; color: #2f2d28; overflow-wrap: anywhere; }
 .draft-review-body :deep(table) { width: 100%; border-collapse: collapse; }
-.draft-review-body :deep(th), .draft-review-body :deep(td) { border: 1px solid #e5e7eb; padding: 8px; }
-.draft-review-footer { padding: 16px 20px; border-top: 1px solid #eceef1; }
-.draft-review-footer > p { color: #848b95; font-size: 12px; margin: 0 0 12px; }
+.draft-review-body :deep(th), .draft-review-body :deep(td) { border: 1px solid var(--ej-hairline); padding: 8px; }
+.draft-review-body :deep(th) { background: var(--ej-canvas); text-align: left; }
+.draft-review-footer { padding: 16px 20px; border-top: 1px solid var(--ej-hairline); }
+.draft-review-footer > p { color: var(--ej-muted); font-size: 12px; margin: 0 0 12px; }
 .draft-revision { display: flex; align-items: flex-end; gap: 10px; margin-top: 14px; }
 .draft-revision textarea { flex: 1; min-width: 0; border: 1px solid #e2e5ea; border-radius: 7px; padding: 10px; resize: vertical; font: inherit; font-size: 12px; outline: none; }
 .draft-revision textarea:focus { border-color: #a0b2c8; }
@@ -2922,15 +3037,6 @@ onUnmounted(() => {
     line-height: 1.5;
   }
   
-  .message-bubble :deep(pre) {
-    padding: 10px;
-    font-size: 12px;
-  }
-  
-  .message-bubble :deep(code) {
-    font-size: 12px;
-  }
-  
   .input-area {
     padding: 12px 15px;
   }
@@ -3140,17 +3246,6 @@ onUnmounted(() => {
   
   .message-item.assistant .message-bubble {
     border-radius: 3px 10px 10px 10px;
-  }
-  
-  .message-bubble :deep(pre) {
-    padding: 8px;
-    font-size: 11px;
-    border-radius: 6px;
-  }
-  
-  .message-bubble :deep(code) {
-    font-size: 11px;
-    padding: 1px 4px;
   }
   
   .message-bubble :deep(ul),

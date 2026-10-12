@@ -102,7 +102,7 @@
         </button>
       </div>
     </div>
-    <ArticleRevisionHistory v-if="historyArticle" v-model="showHistory" :article-id="historyArticle.articleId" :revision-id="historyArticle.revisionId" :initial-revision-id="historyArticle.initialRevisionId" :pending="historyArticle.revisionState===1" @restored="fetchDrafts" />
+    <ArticleRevisionHistory v-if="historyArticle" v-model="showHistory" :article-id="historyArticle.articleId" :revision-id="historyArticle.revisionId" :lock-version="historyArticle.lockVersion" :initial-revision-id="historyArticle.initialRevisionId" :pending="historyArticle.revisionState===1" @restored="fetchDrafts" />
 
     <!-- 登录弹窗 -->
     <el-dialog v-model="showLoginDialog" title="" :width="dialogWidth" :close-on-click-modal="true" class="modern-dialog">
@@ -196,7 +196,7 @@ async function publishDraft(draft: any) {
   busyIds.value.add(articleId)
   try {
     if (!await confirmAction(`将「${draft.title || '无标题'}」提交给管理员审核。${draft.articleStatus===1?'审核期间，当前公开版本保持不变；通过后更新正文。':'审核通过后，这篇文章才会公开。'}`, '提交审核', { confirmText:'提交审核' })) return
-    const res = await request.post(`/article/${articleId}/publish`,{expectedRevisionId:draft.revisionId})
+    const res = await request.post(`/article/${articleId}/publish`,{expectedRevisionId:draft.revisionId,expectedLockVersion:draft.lockVersion})
     if (res.code === 200) {
       notify.success('已提交审核')
       await fetchDrafts()

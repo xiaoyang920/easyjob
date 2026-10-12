@@ -16,12 +16,21 @@ export interface ChatSession<Message, Image> {
   historyLoadFailed: boolean
   abortController: AbortController | null
   unread: boolean
+  questionIndex: import('./historyPaging').QuestionPreview[]
+  historyWindow: import('./historyPaging').HistoryWindow
+  historyBusy: boolean
+  historyVersion: number
+  questionVersion: number
+  questionIndexFailed: boolean
+  liveMessages: Message[]
 }
 
 export function createChatSession<Message, Image>(key: string, conversationId: string | null = null): ChatSession<Message, Image> {
   return { key, conversationId, originArticleId: null, originArticleTitle: '', messages: [], userInput: '',
     selectedImages: [], loading: false, streaming: false, resuming: false, cancelling: false, operation: 0, historyLoaded: false,
-    historyLoadFailed: false, abortController: null, unread: false }
+    historyLoadFailed: false, abortController: null, unread: false, questionIndex: [],
+    historyWindow: { beforeCursor: null, afterCursor: null, hasOlder: false, hasNewer: false },
+    historyBusy: false, historyVersion: 0, questionVersion: 0, questionIndexFailed: false, liveMessages: [] }
 }
 
 export function beginChatOperation<Message, Image>(session: ChatSession<Message, Image>): number {

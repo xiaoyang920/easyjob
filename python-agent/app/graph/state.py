@@ -38,6 +38,11 @@ class AgentState(TypedDict):
     main_decision: dict
     action_history: list[dict]
     observations: list[dict]
+    previous_run: dict
+    grounding_audit: dict
+    delivery_evidence: dict
+    delivery_review: dict
+    backend_boundary: dict
     correction_count: int
     business_complete: bool
     action_task_ids: list[str]

@@ -46,7 +46,28 @@ npm run dev
 
 前端地址为 `http://localhost:3000`，Java 为 `8080`，Python 为 `8000`。Vite 已配置 `/api`、`/uploads` 与 WebSocket 代理。
 
-`scripts/start-local.ps1` 是 Windows 本地辅助脚本，使用前需准备运行配置并按实际安装目录设置参数。线上部署应另行配置反向代理、TLS、凭据与依赖服务访问权限。
+### Windows 一键启动
+
+本机直接双击项目根目录的 **`启动项目.cmd`**。它会按顺序启动或复用 MySQL、Docker 中的缓存 Redis 与 Checkpoint Redis、Elasticsearch、RabbitMQ、Java 后端、Python Agent 和前端，全部检查通过后打开 `http://127.0.0.1:3000`。
+
+第一次准备环境时仍需安装上述软件、创建 Python 虚拟环境并安装依赖、执行 `npm ci`、填写 Java/Python 本地配置并准备业务数据库。启动脚本使用本机现有安装目录；其他电脑可在 `scripts/start-local.ps1` 的参数中指定实际路径。缺少的 `temp/application-runtime.yml` 会由现有本地配置生成，已有配置保持原样，密码和密钥不打印到终端。
+
+启动时若 MySQL 未运行，会尝试启动名为 `MySQL` 的 Windows 服务；没有服务控制权限时，先以管理员启动 MySQL。两个 Redis 已可用时无需再启动 Docker；Checkpoint Redis 必须带 RedisJSON 和 RediSearch。首次 Docker 启动或首次 Java 构建需要等待，进度与错误写在 `logs/`。
+
+Java 停止时，脚本按源码、资源及 `pom.xml` 的修改时间判断是否重新构建；构建失败会停止后续启动。重复双击会复用健康服务，不重复启动，也不会停止其他进程。已经运行的 Java/Python 不自动重启，源码改动可使用已有的 `scripts/restart-java.ps1 -Build`、`scripts/restart-agent.ps1`。关闭启动窗口不会停止后台服务。
+
+```powershell
+# 只检查本机路径与端口，不启动服务、不构建、不改配置或数据库
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-local.ps1 -Check
+
+# 强制重新构建 Java 后启动；Java 需先停止
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-local.ps1 -Build -OpenBrowser
+
+# 显式应用已有增量迁移再启动；Java 和 Agent 需先停止
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-local.ps1 -Migrate -OpenBrowser
+```
+
+默认启动不执行数据库迁移或重建索引。服务真正就绪后才会显示 `READY`，Python 检查包含启动期数据库及 Checkpoint 初始化，前端检查包含 Java 代理接口。失败时保留报错窗口并显示对应日志路径，修复后重新双击即可。线上部署应另行配置反向代理、TLS、凭据与依赖服务访问权限。
 
 ## 验证
 

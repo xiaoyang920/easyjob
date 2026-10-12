@@ -22,4 +22,9 @@ def create_initial_state(user_id: int, user_message: str, history_messages: list
         "main_round": 0, "main_decision": {}, "action_history": [],
         "observations": [], "correction_count": 0, "business_complete": False,
         "action_task_ids": [],
+        "previous_run": {},
+        "grounding_audit": {},
+        "delivery_evidence": {},
+        "delivery_review": {},
+        "backend_boundary": {},
     }

@@ -19,8 +19,7 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 import java.util.Objects;
 import java.time.LocalDateTime;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.core.ConnectionCallback;
+import com.easyjob.component.ArticleIndexLock;
 
 /**
  * 文章向量索引消费者
@@ -28,6 +27,7 @@ import org.springframework.jdbc.core.ConnectionCallback;
  * 【职责】
  * 1. 监听文章发布/更新消息，执行分块+向量入库
  * 2. 监听文章删除消息，清理向量数据
+ * 3. 处理热度任务，从 MySQL 读取绝对计数后覆盖索引，不重新分块或生成向量
  *
  * 【重试策略】
  * 由RabbitMQ listener.retry配置控制：
@@ -49,7 +49,7 @@ public class ArticleVectorListener {
     @Autowired
     private ArticleTagMapper articleTagMapper;
     @Autowired
-    private JdbcTemplate jdbc;
+    private ArticleIndexLock articleIndexLock;
     @Autowired
     private ArticleIndexOutbox indexOutbox;
     /**
@@ -128,29 +128,26 @@ public class ArticleVectorListener {
         withArticleLock(message.getArticleId(), () -> {
             String jobId = message.getIndexJobId();
             if (jobId != null && indexOutbox.completed(jobId, message.getArticleId())) return;
-            indexCurrentArticle(message.getArticleId());
+            if (RabbitMqConstants.ACTION_COUNTS.equals(message.getAction())) {
+                syncCurrentCounts(message.getArticleId());
+            } else {
+                indexCurrentArticle(message.getArticleId());
+            }
             if (jobId != null) indexOutbox.complete(jobId, message.getArticleId());
         });
     }
 
+    private void syncCurrentCounts(Long articleId) {
+        Article article = articleMapper.selectInteractionCounts(articleId);
+        // Publication/deletion tasks own document creation/removal. A late count task cannot resurrect one.
+        if (article == null || !Objects.equals(article.getStatus(), 1) || !Objects.equals(article.getDeleted(), 0)) return;
+        int likes = article.getLikeCount() == null ? 0 : Math.max(0, article.getLikeCount());
+        int collects = article.getCollectCount() == null ? 0 : Math.max(0, article.getCollectCount());
+        esComponent.syncInteractionCounts(articleId.toString(), likes, collects);
+        esVectorStore.syncInteractionCounts(articleId.toString(), likes, collects);
+    }
+
     private void withArticleLock(Long articleId, Runnable work) {
-        if (articleId == null || articleId <= 0) throw new BusinessException("无效文章id");
-        jdbc.execute((ConnectionCallback<Void>) connection -> {
-            String name = "easyjob_rag_" + articleId;
-            try (var lock = connection.prepareStatement("SELECT GET_LOCK(?, 10)")) {
-                lock.setString(1, name);
-                try (var result = lock.executeQuery()) {
-                    if (!result.next() || result.getInt(1) != 1) throw new BusinessException("文章索引正在执行，请重试");
-                }
-            }
-            try { work.run(); }
-            finally {
-                try (var release = connection.prepareStatement("SELECT RELEASE_LOCK(?)")) {
-                    release.setString(1, name);
-                    release.execute();
-                }
-            }
-            return null;
-        });
+        articleIndexLock.withLock(articleId, work);
     }
 }

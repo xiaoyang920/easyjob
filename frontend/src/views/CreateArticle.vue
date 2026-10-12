@@ -51,21 +51,7 @@
         ></textarea>
         
         <!-- 富文本编辑器 -->
-        <div class="editor-wrapper">
-          <Toolbar
-            class="toolbar"
-            :editor="editorRef"
-            :defaultConfig="toolbarConfig"
-            mode="default"
-          />
-          <Editor
-            class="editor"
-            v-model="valueHtml"
-            :defaultConfig="editorConfig"
-            mode="default"
-            @onCreated="handleCreated"
-          />
-        </div>
+        <ArticleRichEditor v-model="valueHtml" />
         
         <div class="editor-hint">
           <svg class="hint-icon" viewBox="0 0 24 24" fill="currentColor">
@@ -116,7 +102,7 @@
           <!-- 文章分类 -->
           <div class="setting-item">
             <label class="category-setting-label">文章分类 <span class="required">*</span><button v-if="categoryAdmin" type="button" class="category-create-link" @click="creatingCategory=true">＋ 新增分类</button></label>
-            <select v-model="article.categoryId" class="category-select" :class="{ 'placeholder': !article.categoryId }" @focus="fetchCategories">
+            <select ref="categorySelect" v-model="article.categoryId" class="category-select" :class="{ 'placeholder': !article.categoryId }" @focus="fetchCategories">
               <option value="">请选择分类</option>
               <option v-for="category in categories" :key="category.categoryId" :value="category.categoryId">
                 {{ category.categoryName }}
@@ -227,7 +213,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, shallowRef, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import AppNavigation from '@/components/AppNavigation.vue'
 import AdminCategoryCreator from '@/components/AdminCategoryCreator.vue'
@@ -241,8 +227,7 @@ import request from '../utils/request'
 import { editableArticleStatus } from '../utils/articleLifecycle'
 import { uploadFile } from '../utils/upload'
 import { eventBus, EVENT_AUTH_EXPIRED } from '../utils/eventBus'
-import '@wangeditor/editor/dist/css/style.css'
-import { Editor, Toolbar } from '@wangeditor/editor-for-vue'
+import ArticleRichEditor from '@/components/ArticleRichEditor.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -254,6 +239,8 @@ const article = ref({
   articleId: '',
   revisionId: '0',
   expectedRevisionId: '0',
+  expectedLockVersion: 0,
+  lockVersion: 0,
   revisionState: 0,
   reviewReason: '',
   title: '',
@@ -276,7 +263,14 @@ let searchTimeout: any = null  // 防抖定时器
 
 // 分类列表
 const categories = ref<any[]>([])
+const categorySelect = ref<HTMLSelectElement | null>(null)
 const categoryAdmin=ref(false),creatingCategory=ref(false)
+
+// 窄屏下设置面板排在正文之后，提示缺少分类时直接把选择框带到视野中
+function focusCategorySelect() {
+  categorySelect.value?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  categorySelect.value?.focus({ preventScroll: true })
+}
 async function checkCategoryAdmin(){
   const id=localStorage.getItem('userId');if(!id)return
   try{const result:any=await request.get(`/user/space/${id}`);categoryAdmin.value=[2,4].includes(result.data.role) && result.data.status===1}catch{categoryAdmin.value=false}
@@ -284,7 +278,6 @@ async function checkCategoryAdmin(){
 async function categoryCreated(row:CategoryRow){await fetchCategories();article.value.categoryId=row.categoryId}
 
 // 编辑器实例
-const editorRef = shallowRef()
 const valueHtml = ref('')
 
 const isEditMode = computed(() => !!route.query.id)
@@ -307,91 +300,6 @@ onBeforeRouteLeave(async () => {
     return true
   } catch { return false }
 })
-
-// 工具栏配置
-const toolbarConfig = {
-  toolbarKeys: [
-    'headerSelect',
-    'blockquote',
-    '|',
-    'bold',
-    'underline',
-    'italic',
-    'through',
-    'color',
-    'bgColor',
-    '|',
-    'fontSize',
-    'lineHeight',
-    '|',
-    'bulletedList',
-    'numberedList',
-    'todo',
-    '|',
-    'insertLink',
-    'uploadImage',
-    'insertTable',
-    'codeBlock',
-    'divider',
-    '|',
-    'undo',
-    'redo',
-    '|',
-    'fullScreen'
-  ]
-}
-
-// 编辑器配置
-const editorConfig = {
-  placeholder: '开始创作你的文章...\n\n支持 Markdown 快捷输入：\n# 一级标题\n## 二级标题\n``` 代码块\n> 引用\n- 列表',
-  MENU_CONF: {
-    uploadImage: {
-      async customUpload(file: File, insertFn: Function) {
-        const formData = new FormData()
-        formData.append('file', file)
-        
-        try {
-          const res = await request.post('/file/upload-article-image', formData, {
-            headers: { 'Content-Type': 'multipart/form-data' }
-          })
-          
-          if (res.code === 200 && res.data?.url) {
-            // 直接使用相对路径，让 Vite 代理（本地）或 Nginx（服务器）处理
-            insertFn(res.data.url, '', res.data.url)
-          } else {
-            alert(res.message || '图片上传失败')
-          }
-        } catch (error) {
-          console.error('上传失败:', error)
-          alert('图片上传失败')
-        }
-      },
-      maxFileSize: 15 * 1024 * 1024,
-      allowedFileTypes: ['image/*']
-    },
-    codeSelectLang: {
-      codeLangs: [
-        { text: 'Java', value: 'java' },
-        { text: 'JavaScript', value: 'javascript' },
-        { text: 'TypeScript', value: 'typescript' },
-        { text: 'Python', value: 'python' },
-        { text: 'Go', value: 'go' },
-        { text: 'C/C++', value: 'cpp' },
-        { text: 'SQL', value: 'sql' },
-        { text: 'HTML', value: 'html' },
-        { text: 'CSS', value: 'css' },
-        { text: 'Shell', value: 'bash' },
-        { text: 'JSON', value: 'json' },
-        { text: 'XML', value: 'xml' }
-      ]
-    }
-  }
-}
-
-// 编辑器创建完成
-function handleCreated(editor: any) {
-  editorRef.value = editor
-}
 
 // 获取分类列表
 async function fetchCategories() {
@@ -484,6 +392,7 @@ async function fetchArticle() {
         articleId: articleId,
         status,
         expectedRevisionId: res.data.revisionId || '0',
+        expectedLockVersion: res.data.lockVersion ?? 0,
         // categoryId: null转为空字符串，确保select能正确显示placeholder
         categoryId: res.data.categoryId || '',
         // isOriginal: 后端返回0/1，转为布尔值，null/undefined默认为true
@@ -516,6 +425,7 @@ async function saveDraft() {
   
   if (!article.value.categoryId) {
     alert('请选择文章分类')
+    focusCategorySelect()
     return
   }
   
@@ -539,7 +449,7 @@ async function saveDraft() {
     
     if (res.code === 200) {
       notify.success('版本草稿已保存，公开内容未改变')
-      if (res.data?.revisionId) { article.value.revisionId=res.data.revisionId; article.value.expectedRevisionId=res.data.revisionId; article.value.revisionState=res.data.revisionState; article.value.reviewReason=res.data.reviewReason || '' }
+      if (res.data?.revisionId) { article.value.revisionId=res.data.revisionId; article.value.expectedRevisionId=res.data.revisionId; article.value.lockVersion=res.data.lockVersion; article.value.expectedLockVersion=res.data.lockVersion; article.value.revisionState=res.data.revisionState; article.value.reviewReason=res.data.reviewReason || '' }
       if (!isEditMode.value && res.data?.articleId) {
         article.value.articleId = res.data.articleId
         markSaved()
@@ -574,6 +484,7 @@ async function publishArticle() {
   
   if (!article.value.categoryId) {
     alert('请选择文章分类')
+    focusCategorySelect()
     return
   }
   
@@ -753,10 +664,6 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   eventBus.off(EVENT_AUTH_EXPIRED, handleAuthExpired)
-  // 销毁编辑器
-  if (editorRef.value) {
-    editorRef.value.destroy()
-  }
   document.removeEventListener('keydown', handleKeydown)
 })
 </script>
@@ -1125,39 +1032,24 @@ onBeforeUnmount(() => {
   cursor: pointer;
 }
 
-.radio-item input {
-  cursor: pointer;
-  accent-color: var(--ej-accent);
-}
-
+/* 单选框外观见 styles/theme.css 的原生控件部分 */
 .radio-label {
   font-size: 14px;
-  color: #333;
+  color: var(--ej-ink);
 }
 
-/* 分类选择 */
+/* 分类选择：边框、占位色与焦点态见 styles/theme.css */
 .category-select {
   width: 100%;
   padding: 10px 12px;
-  border: 1px solid #e0e0e0;
-  border-radius: 8px;
   font-size: 14px;
   outline: none;
   cursor: pointer;
   transition: border-color 0.3s;
-  background: white;
-}
-
-.category-select.placeholder {
-  color: #999;
-}
-
-.category-select:focus {
-  border-color: var(--ej-accent);
 }
 
 .required {
-  color: #ff4757;
+  color: var(--studio-coral);
   margin-left: 4px;
 }
 
@@ -1329,9 +1221,17 @@ onBeforeUnmount(() => {
   color: #333;
 }
 
-/* 响应式 */
+/* 响应式：窄屏把设置面板排到正文下方。分类是必填项，面板不能隐藏；快捷键只对实体键盘有意义 */
 @media (max-width: 1000px) {
+  .editor-container {
+    flex-direction: column;
+  }
+
   .editor-sidebar {
+    width: 100%;
+  }
+
+  .sidebar-card.shortcuts {
     display: none;
   }
 }

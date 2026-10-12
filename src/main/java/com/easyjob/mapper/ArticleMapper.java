@@ -15,8 +15,14 @@ import java.util.List;
 
 @Mapper
 public interface ArticleMapper extends BaseMapper<Article> {
+    List<Article> findReindexPage(@Param("afterId") long afterId);
 
     ArticleDetailVO selectArticleAndUser(Long articleId);
+
+    /** Serialize interaction changes without loading the article body. */
+    Article lockForInteraction(@Param("articleId") Long articleId);
+
+    Article selectInteractionCounts(@Param("articleId") Long articleId);
 
     /**
      * 获取公开文章列表（支持分页、搜索、排序）

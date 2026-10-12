@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.easyjob.mapper.ArticleReadMapper">
+    <update id="touchHistory">
+        UPDATE user_action SET action_time=NOW(),article_user_id=#{authorId} WHERE action_id=#{actionId}
+    </update>
+    <insert id="insertHistory">
+        INSERT INTO user_action(user_id,article_id,article_user_id,comment_id,action_type,action_count,action_time) VALUES (#{userId},#{articleId},#{authorId},0,7,1,NOW())
+    </insert>
+    <select id="findHistory" resultType="map">
+        SELECT action_id FROM user_action WHERE user_id=#{userId} AND article_id=#{articleId} AND action_type=7 ORDER BY action_id LIMIT 1
+    </select>
+    <update id="incrementViews">
+        UPDATE article_info SET view_count=COALESCE(view_count,0)+1 WHERE article_id=#{articleId}
+    </update>
+    <insert id="insertReceipt">
+        INSERT IGNORE INTO article_read_receipt(article_id,reader_hash,read_day) VALUES (#{articleId},#{readerHash},#{day})
+    </insert>
+    <select id="lockArticle" resultType="map">
+        SELECT user_id,status,deleted,view_count,required_level FROM article_info WHERE article_id=#{articleId} FOR UPDATE
+    </select>
+</mapper>

@@ -11,8 +11,9 @@ import java.util.List;
  */
 @Data
 public class ArticleCreateDTO implements Serializable {
-    // The editor's current immutable revision. Zero means a legacy article with no snapshot yet.
+    // Current workspace identity plus content lock. Zero revision is only for legacy publications.
     private String expectedRevisionId;
+    private Long expectedLockVersion;
     
     private static final long serialVersionUID = 1L;
     

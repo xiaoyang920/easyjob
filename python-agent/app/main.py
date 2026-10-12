@@ -26,10 +26,11 @@ from app.services.run_service import RunService
 from app.services.executor_heartbeat import maintain_executor
 from app.services.execution_admission import execution_admission
 from app.services.stream_delivery import stream_delivery
-from app.services.answer_preview import AnswerPreview
+from app.services.answer_stream import DirectAnswerStream
 from app.services.tool_registry import tool_registry
 from app.security.principal import Principal, require_principal, match_user
 from app.services.run_repository import run_repository
+from app.models.draft import EditedDraft
 from app.services.memory_management import memory_management, ProfileEdit, RecordEdit
 from app.migrate import check_runtime_schema, check_memory_schema
 from app.migrate import check_optimization_schema, check_heartbeat_schema, check_maintenance_schema
@@ -60,6 +61,8 @@ async def lifespan(app: FastAPI):
         await check_heartbeat_schema(mysql_client.db)
         await check_maintenance_schema(mysql_client.db)
         await check_task_recovery_schema(mysql_client.db)
+        from app.services.revision_migration import check_revision_workspace_schema
+        await check_revision_workspace_schema(mysql_client.db)
         if len(settings.AGENT_SERVICE_KEY.encode()) < 32:
             raise RuntimeError("请为 Java 和 Python 配置相同的 AGENT_SERVICE_KEY，至少32字节")
         from app.clients.es_client import BaseEsClient
@@ -121,6 +124,7 @@ class ResumeRequest(BaseModel):
     action: str = Field(min_length=1, max_length=4000)
     run_id: UUID
     draft_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    edited_draft: EditedDraft | None = None
 
 
 NODE_TO_PROGRESS = {
@@ -188,8 +192,10 @@ def _stream_source(graph, graph_input, conv_id, user_id, config):
         set_request_trace(conv_id)
         yield _sse(f"__CONV_ID__:{conv_id}")
         yield _sse(f"__RUN_ID__:{config['configurable']['run_id']}")
+        if config['configurable'].get('user_message_id'):
+            yield _sse(f"__INPUT_ID__:{config['configurable']['user_message_id']}")
         started_nodes = set()
-        preview = AnswerPreview()
+        answer_stream = DirectAnswerStream(min_interval=settings.STREAM_COALESCE_MS / 1000)
         try:
             async def events():
                 if not config["configurable"].get("replay"):
@@ -197,8 +203,12 @@ def _stream_source(graph, graph_input, conv_id, user_id, config):
                         async for item in graph.astream_events(graph_input, config=config, version="v2"):
                             yield item
             async for event in events():
-                if delta := preview.consume(event):
-                    yield _sse('__PREVIEW__:' + json.dumps(delta, ensure_ascii=False))
+                payloads = answer_stream.consume(event)
+                if payloads:
+                    await run_service.repository.assert_executor(config['configurable']['run_id'],
+                                                                 config['configurable']['execution_token'])
+                for payload in payloads:
+                    yield _sse('__ANSWER__:' + json.dumps(payload, ensure_ascii=False))
                 kind = event["event"]
                 node = event.get("metadata", {}).get("langgraph_node")
                 if kind == "on_custom_event" and event.get("name") == "agent_event":
@@ -212,8 +222,8 @@ def _stream_source(graph, graph_input, conv_id, user_id, config):
                         snapshot = await graph.aget_state(config)
                         workers = snapshot.values.get("active_workers") or [NODE_TO_PROGRESS[node]]
                         yield _sse(f"__PROGRESS__:dispatcher:{','.join(workers)}")
-                # Provisional reply text is separate from the committed answer.
-                # A final replacement retracts failed citations or repaired text.
+                # Only an explicitly eligible source-free Main answer streams.
+                # Retrieved answers, repairs and drafts stay private until gated.
             result = await _complete(graph, conv_id, user_id, config)
             if result["interrupted"] is not None:
                 yield _sse('__AGENT_EVENT__:' + json.dumps({"version": 1, "kind": "status", "status": "awaiting"}))
@@ -226,8 +236,13 @@ def _stream_source(graph, graph_input, conv_id, user_id, config):
                     yield _sse("__ARTICLES__:" + json.dumps(result["articles"], ensure_ascii=False))
                 if result["citations"]:
                     yield _sse("__CITATIONS__:" + json.dumps(result["citations"], ensure_ascii=False))
-                for frame in _answer_frames(result["reply"]):
-                    yield frame
+                if answer_stream.started:
+                    for payload in answer_stream.finish(result['reply']):
+                        yield _sse('__ANSWER__:' + json.dumps(payload, ensure_ascii=False))
+                    yield _sse('__REPLY__:' + json.dumps({'content': result['reply']}, ensure_ascii=False))
+                else:
+                    for frame in _answer_frames(result["reply"]):
+                        yield frame
                 if result["draft_article_id"]:
                     snapshot = await graph.aget_state(config)
                     title = next((r.get("draft_title", "") for r in snapshot.values.get("worker_results", [])
@@ -251,7 +266,8 @@ def _stream_source(graph, graph_input, conv_id, user_id, config):
             else:
                 yield _sse('__AGENT_EVENT__:' + json.dumps({"version": 1, "kind": "status", "status": "error"}))
                 from app.services.run_metrics import RunTokenBudgetExceeded
-                message = str(error) if isinstance(error, RunTokenBudgetExceeded) else (
+                from app.services.draft_gateway import DraftConflict
+                message = str(error) if isinstance(error, (RunTokenBudgetExceeded, DraftConflict)) else (
                     "本次处理超时，已结束运行，可以重新发送请求。" if isinstance(error, TimeoutError)
                     else "Agent 处理失败，请稍后重试")
                 yield _sse("[ERROR] " + message)
@@ -361,7 +377,8 @@ async def chat_resume(request: ResumeRequest, principal: Principal = Depends(req
     graph = await get_graph()
     conv_id, config = await _prepare_resume(request, graph)
     return await _invoke_admitted(graph, Command(resume={"action": request.action, "runId": str(request.run_id),
-                                               "draftHash": request.draft_hash}), conv_id, request.user_id, config)
+                                               "draftHash": request.draft_hash,
+                                               "editedDraft": request.edited_draft.model_dump() if request.edited_draft else None}), conv_id, request.user_id, config)
 
 
 @app.post("/chat/resume/stream")
@@ -370,7 +387,8 @@ async def chat_resume_stream(request: ResumeRequest, principal: Principal = Depe
     graph = await get_graph()
     conv_id, config = await _prepare_resume(request, graph)
     return _stream(graph, Command(resume={"action": request.action, "runId": str(request.run_id),
-                                        "draftHash": request.draft_hash}), conv_id, request.user_id, config)
+                                        "draftHash": request.draft_hash,
+                                        "editedDraft": request.edited_draft.model_dump() if request.edited_draft else None}), conv_id, request.user_id, config)
 
 
 @app.post("/chat/{conversation_id}/cancel")
@@ -400,15 +418,35 @@ async def get_conversation(conversation_id: int, user_id: int, principal: Princi
 
 
 @app.get("/conversations/{conversation_id}/messages")
-async def get_messages(conversation_id: int, user_id: int, principal: Principal = Depends(require_principal)):
+async def get_messages(conversation_id: int, user_id: int, principal: Principal = Depends(require_principal),
+                       limit: int | None = Query(default=None, ge=1, le=50),
+                       before: int | None = Query(default=None, gt=0), after: int | None = Query(default=None, gt=0),
+                       around: int | None = Query(default=None, gt=0)):
     match_user(principal, user_id)
     await conversation_service.require_owner(conversation_id, user_id)
+    if limit is not None:
+        from app.services.history_pages import history_pages
+        return {'data': await history_pages.page(conversation_id, user_id, limit, before, after, around)}
+    if any(value is not None for value in (before, after, around)):
+        raise HTTPException(422, '分页游标需要同时指定limit')
     history = await conversation_service.get_history(conversation_id)
+    from app.services.run_history import run_history
+    history = await run_history.history(conversation_id, user_id, history)
     pending = await run_repository.pending_approval(conversation_id)
     if pending:
         history = [*history, {"role": "assistant", "content": pending["draft"],
                              "interrupted": True, "interruptPayload": pending, "isDraft": True}]
     return {"data": history}
+
+
+@app.get('/conversations/{conversation_id}/questions')
+async def question_index(conversation_id: int, user_id: int, principal: Principal = Depends(require_principal),
+                         after: int | None = Query(default=None, gt=0), limit: int = Query(default=200, ge=1, le=500),
+                         snapshot: int | None = Query(default=None, gt=0)):
+    match_user(principal, user_id)
+    await conversation_service.require_owner(conversation_id, user_id)
+    from app.services.history_pages import history_pages
+    return {'data': await history_pages.questions(conversation_id, after, limit, snapshot)}
 
 
 @app.delete("/conversations/{conversation_id}")
@@ -505,6 +543,7 @@ async def run_overview(principal: Principal = Depends(require_principal)):
 
 
 async def reconciled_run_status(run, uid):
+    from app.services.run_service import public_run_result
     run = await run_service.reconcile_saved(run)
     if run["status"] in ("running", "awaiting_approval"):
         await run_repository.expire_existing(run["conversation_id"], uid, run["run_id"])
@@ -513,7 +552,7 @@ async def reconciled_run_status(run, uid):
     return {"runId": run["run_id"], "conversationId": str(run['conversation_id']), "status": run["status"],
             "recoverable": recoverable,
             "draftHash": run["draft_hash"], "deadline": run["deadline"].isoformat() + 'Z',
-            "result": json.loads(run["result_json"]) if run["result_json"] else None,
+            "result": public_run_result(run["result_json"]),
             "draftArticleId": str(run["draft_article_id"]) if run["draft_article_id"] else None}
 
 

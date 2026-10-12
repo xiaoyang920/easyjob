@@ -1,5 +1,15 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
+declare module 'vue-router' {
+  interface RouteMeta {
+    /**
+     * AI 任务浮窗默认停靠在右下角；页面在该区域有固定控件时声明避让方式：
+     * top - 底部是输入区，改停在顶部；above-actions - 窄屏右下角有浮动按钮组，排到按钮组上方
+     */
+    aiRunDock?: 'top' | 'above-actions'
+  }
+}
+
 const router = createRouter({
   history: createWebHistory(),
   scrollBehavior(_to, _from, savedPosition) {
@@ -26,7 +36,8 @@ const router = createRouter({
     {
       path: '/article/:id',
       name: 'ArticleDetail',
-      component: () => import('@/views/ArticleDetail.vue')
+      component: () => import('@/views/ArticleDetail.vue'),
+      meta: { aiRunDock: 'above-actions' }
     },
     {
       path: '/user-space/:id?',
@@ -66,7 +77,8 @@ const router = createRouter({
     {
       path: '/chat',
       name: 'Chat',
-      component: () => import('@/views/Chat.vue')
+      component: () => import('@/views/Chat.vue'),
+      meta: { aiRunDock: 'top' }
     },
     {
       path: '/notifications',

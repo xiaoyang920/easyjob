@@ -54,7 +54,7 @@ public class WebMvcConfig implements WebMvcConfigurer {
                 // 排除登录接口
                 .excludePathPatterns("/api/auth/**")
                 // Dedicated service-key authentication inside this exact endpoint.
-                .excludePathPatterns("/internal/agent/drafts")
+                .excludePathPatterns("/internal/agent/drafts", "/internal/agent/drafts/**")
                 .excludePathPatterns("/api/user/space/**")
                 .excludePathPatterns("/test/**")
                 // 排除文章详情（公开看）
@@ -62,6 +62,8 @@ public class WebMvcConfig implements WebMvcConfigurer {
                 .excludePathPatterns("/api/article/detail/**")
                 .excludePathPatterns("/api/article/*/view")
                 .excludePathPatterns("/api/article/recommend") // 推荐文章（未登录返回热门）
+                .excludePathPatterns("/api/article/user/*") // 个人空间的已发布文章列表（只含公开字段）
+                .excludePathPatterns("/api/category/list") // 首页分类导航
                 .excludePathPatterns("/api/comment/list")// 评论
                 .excludePathPatterns("/api/comment/replies")
                 // 排除搜索接口（公开）

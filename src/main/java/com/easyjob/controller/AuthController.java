@@ -4,20 +4,18 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.easyjob.component.RedisComponent;
 import com.easyjob.constants.RedisConstants;
 import com.easyjob.dto.EmailDTO;
-import com.easyjob.dto.JwtResponse;
 import com.easyjob.dto.UserAuthDTO;
 import com.easyjob.exception.BusinessException;
 import com.easyjob.service.EmailService;
 import com.easyjob.service.UserService;
 import com.easyjob.utils.PasswordUtil;
 import com.easyjob.utils.StringTools;
-import com.easyjob.vo.AuthVO;
 import com.easyjob.vo.ResponseVO;
 import com.easyjob.entity.User;
 import com.easyjob.mapper.UserMapper;
 import com.easyjob.utils.JwtUtil;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
@@ -133,7 +131,14 @@ public class AuthController {
         if (!passwordMatch) {
             throw new BusinessException(401, "邮箱或密码错误");
         }
-        // 生成token，包含用户ID
+        return signedIn(user, request, response, "登录成功");
+    }
+
+    /** Registration and both login methods establish the same renewable browser session. */
+    private ResponseVO<Map<String, Object>> signedIn(User user,
+                              jakarta.servlet.http.HttpServletRequest request,
+                              jakarta.servlet.http.HttpServletResponse response,
+                              String message) {
         sessions.revoke(cookie(request));
         var session = sessions.create(user);
         sessionCookie(request, response, session.credential(), session.remainingSeconds());
@@ -142,17 +147,20 @@ public class AuthController {
         Map<String, Object> data = new HashMap<>();
         data.put("token", token);
         data.put("userId", String.valueOf(user.getUserId()));  // 转成字符串避免精度丢失
-        data.put("email", email);
+        data.put("email", user.getEmail());
         data.put("nickName", user.getNickName());
         data.put("avatar", user.getAvatar());
 
         // 更新用户信息
         userMapper.touchLogin(user.getUserId());
-        return ResponseVO.success("登录成功", data);
+        return ResponseVO.success(message, data);
     }
 
     @PostMapping("/register")
-    public ResponseVO<?> register(@RequestBody UserAuthDTO authDTO) {
+    @Transactional
+    public ResponseVO<?> register(@RequestBody UserAuthDTO authDTO,
+                                  jakarta.servlet.http.HttpServletRequest request,
+                                  jakarta.servlet.http.HttpServletResponse response) {
         String nickName = authDTO.getNickName();
         String email = authDTO.getEmail();
         String password = authDTO.getPassword();
@@ -218,12 +226,7 @@ public class AuthController {
             throw new BusinessException(500, "注册失败，请稍后重试");
         }
         
-        // 注册成功
-        Map<String, Object> data = new HashMap<>();
-        data.put("userId", String.valueOf(newUser.getUserId()));  // 转成字符串避免精度丢失
-        data.put("nickName", newUser.getNickName());
-        data.put("email", newUser.getEmail());
-        return ResponseVO.success("注册成功", data);
+        return signedIn(newUser, request, response, "注册成功，已自动登录");
     }
     /**
      * 通过邮箱登录
@@ -288,19 +291,6 @@ public class AuthController {
         if(user == null){
             throw new BusinessException(400, "邮箱尚未注册");
         }
-        sessions.revoke(cookie(request));
-        var session = sessions.create(user);
-        sessionCookie(request, response, session.credential(), session.remainingSeconds());
-        String token = jwtUtil.generateSessionToken(user.getUserId(), session.id());
-
-        AuthVO authVO = new AuthVO();
-        authVO.setToken(token);
-        authVO.setUserId(user.getUserId().toString());
-        authVO.setNickName(user.getNickName());
-        authVO.setEmail(user.getEmail());
-        authVO.setAvatar(user.getAvatar());
-        // 更新用户信息
-        userMapper.touchLogin(user.getUserId());
-        return ResponseVO.success("登录成功", authVO);
+        return signedIn(user, request, response, "登录成功");
     }
 }

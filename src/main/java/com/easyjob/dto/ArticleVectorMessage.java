@@ -13,7 +13,7 @@ public class ArticleVectorMessage {
     private Long articleId;
     
     /**
-     * 操作类型: PUBLISH / UPDATE / DELETE
+     * 操作类型: PUBLISH / UPDATE / DELETE / COUNTS（只刷新热度，不生成向量）
      */
     private String action;
     private String indexJobId;

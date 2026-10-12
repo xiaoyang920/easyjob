@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.easyjob.mapper.ArticlePreferenceMapper">
+    <select id="findTopics" resultType="map">
+        SELECT user_id,interests,tech_stack FROM user_profile WHERE user_id=#{userId}
+    </select>
+</mapper>

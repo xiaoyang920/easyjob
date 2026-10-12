@@ -8,6 +8,7 @@ os.environ["AGENT_SERVICE_KEY"] = "offline-service-key-32-bytes-long!!"
 
 import json
 import unittest
+from grounding_fakes import setUpModule, tearDownModule
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -199,6 +200,59 @@ class WritingTests(unittest.IsolatedAsyncioTestCase):
             await graph.ainvoke(Command(resume="reject"), config)
         save.assert_not_awaited()
 
+    async def test_rich_text_manual_approval_preserves_html_without_regenerating(self):
+        from app.models.draft import EditedDraft
+        from app.services.draft_gateway import render_draft
+        html = '<h2>手动标题</h2><p><strong>关键步骤</strong></p><pre><code class="language-java">int n = 1;</code></pre><table><tbody><tr><td>Redis</td></tr></tbody></table><p><img src="/uploads/test.png" alt="示意图"></p>'
+        self.assertEqual(render_draft(EditedDraft(title="标题", summary="", content=html, content_format="html")), html)
+        self.assertIn('&lt;', render_draft(DraftOutput(title="标题", summary="", content='<script>bad</script>')))
+        with self.assertRaises(ValueError):
+            EditedDraft(title="标题", summary="", content=html, content_format="unknown")
+        graph = await self.make_graph()
+        config = {"configurable": {"thread_id": "rich-manual-approval"}}
+        with patch.object(writing_worker, "generate_draft", AsyncMock(return_value=DraftOutput(title="A", summary="", content="# A"))) as generate, \
+             patch.object(writing_worker, "save_approved_draft", AsyncMock(return_value=99)) as save:
+            await graph.ainvoke(self.initial(), config)
+            pending = (await graph.aget_state(config)).tasks[0].interrupts[0].value
+            await graph.ainvoke(Command(resume={"action": "approve", "runId": RUN_ID,
+                "draftHash": pending["draftHash"], "editedDraft": {"title": "手动标题", "summary": "摘要", "content": html, "content_format": "html"}}), config)
+        generate.assert_awaited_once()
+        save.assert_awaited_once()
+        self.assertEqual(save.call_args.args[0]['draft_html'], html)
+        self.assertEqual(save.call_args.args[0]['approved_base_hash'], pending['draftHash'])
+        self.assertNotEqual(save.call_args.args[0]['draft_hash'], pending['draftHash'])
+        self.assertEqual(save.call_args.args[1].content, html)
+
+    async def test_ai_revision_uses_manual_edits_and_waits_for_second_approval(self):
+        graph = await self.make_graph()
+        config = {"configurable": {"thread_id": "manual-revision"}}
+        generate = AsyncMock(side_effect=[DraftOutput(title="A", summary="S", content="original"),
+                                          DraftOutput(title="B", summary="S", content="AI revised")])
+        with patch.object(writing_worker, "generate_draft", generate), \
+             patch.object(writing_worker, "save_approved_draft", AsyncMock(return_value=99)) as save:
+            await graph.ainvoke(self.initial(), config)
+            pending = (await graph.aget_state(config)).tasks[0].interrupts[0].value
+            await graph.ainvoke(Command(resume={"action": "补充例子", "runId": RUN_ID,
+                "draftHash": pending["draftHash"], "editedDraft": {"title": "手动标题", "summary": "", "content": "manual text"}}), config)
+            save.assert_not_awaited()
+            self.assertIn("manual text", generate.call_args.args[0])
+            self.assertIn("补充例子", generate.call_args.args[0])
+            self.assertTrue((await graph.aget_state(config)).tasks[0].interrupts)
+            await graph.ainvoke(Command(resume="approve"), config)
+        self.assertEqual(save.call_args.args[1].content, "AI revised")
+
+    async def test_unknown_reference_cannot_save_manually_edited_draft(self):
+        graph = await self.make_graph()
+        config = {"configurable": {"thread_id": "invalid-manual"}}
+        with patch.object(writing_worker, "generate_draft", AsyncMock(return_value=DraftOutput(title="A", summary="", content="original"))), \
+             patch.object(writing_worker, "save_approved_draft", AsyncMock()) as save:
+            await graph.ainvoke(self.initial(), config)
+            pending = (await graph.aget_state(config)).tasks[0].interrupts[0].value
+            with self.assertRaises(ValueError):
+                await graph.ainvoke(Command(resume={"action": "approve", "runId": RUN_ID,
+                    "draftHash": pending["draftHash"], "editedDraft": {"title": "A", "summary": "", "content": "fake [unknown:1]"}}), config)
+        save.assert_not_awaited()
+
     async def test_revision_requires_a_second_approval(self):
         graph = await self.make_graph()
         config = {"configurable": {"thread_id": "revision"}}
@@ -215,19 +269,12 @@ class WritingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(generate.await_count, 2)
         self.assertEqual(save.call_args.args[1].content, "revised")
 
-    async def test_idempotent_save_uses_same_id_and_does_not_overwrite(self):
-        records = {}
-        async def execute(sql, params):
-            records.setdefault(params["aid"], params.copy())
-            self.assertIn("ON DUPLICATE KEY", sql)
-        async def fetch(sql, params):
-            return row(user_id=records[params["aid"]]["uid"])
-        with patch("app.services.save_draft_to_article_info.db", SimpleNamespace(execute=execute, fetch_one=fetch)):
-            draft = DraftOutput(title="A", summary="S", content="original")
-            await save_draft_to_article_info(7, draft, 123)
-            await save_draft_to_article_info(7, draft, 123)
-        self.assertEqual(len(records), 1)
-        self.assertEqual(records[123]["content"], "original")
+    async def test_retired_writer_cannot_bypass_revision_gateway(self):
+        execute = AsyncMock()
+        with patch("app.services.save_draft_to_article_info.db", SimpleNamespace(execute=execute)):
+            with self.assertRaises(RuntimeError):
+                await save_draft_to_article_info(7, DraftOutput(title="A", summary="S", content="original"), 123)
+        execute.assert_not_awaited()
 
     async def test_new_turn_does_not_reuse_old_results(self):
         async def planner(state):
@@ -279,6 +326,9 @@ class FailureTests(unittest.IsolatedAsyncioTestCase):
 
 class EntryTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
+        history = patch('app.services.run_service.run_history.previous', AsyncMock(return_value=({}, {})))
+        history.start()
+        self.addCleanup(history.stop)
         self.admission = patch.object(main, 'execution_admission', SimpleNamespace(acquire=AsyncMock(return_value='ticket'), release=AsyncMock()))
         self.admission.start()
         # These assertions exercise graph/result parity, not persistence transport.
@@ -334,6 +384,17 @@ class EntryTests(unittest.IsolatedAsyncioTestCase):
             await RunService(conv, memory, repository()).prepare_resume(main.ResumeRequest(user_id=7, conversation_id=11, action="approve", run_id=RUN_ID, draft_hash=HASH),
                                                          SimpleNamespace(aget_state=AsyncMock(return_value=snapshot())))
         self.assertEqual(error.exception.status_code, 409)
+
+    async def test_invalid_manual_reference_is_rejected_before_claiming_approval(self):
+        conv, memory = services()
+        repo = repository()
+        request = main.ResumeRequest(user_id=7, conversation_id=11, action="approve", run_id=RUN_ID, draft_hash=HASH,
+            edited_draft={"title": "标题", "summary": "", "content": "不存在 [unknown:1]"})
+        graph = SimpleNamespace(aget_state=AsyncMock(return_value=snapshot(interrupted=True)))
+        with self.assertRaises(HTTPException) as error:
+            await RunService(conv, memory, repo).prepare_resume(request, graph)
+        self.assertEqual(error.exception.status_code, 422)
+        repo.claim_resume.assert_not_awaited()
 
     async def test_owner_failure_precedes_read_or_resume(self):
         conv, memory = services()

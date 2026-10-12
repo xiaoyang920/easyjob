@@ -10,6 +10,7 @@ from app.config import settings
 from app.graph import staged_runtime as runtime
 from app.graph.nodes.search_worker import retrieve_evidence
 from app.graph.nodes.memory_retrieval import retrieve_memory
+from app.services.private_drafts import retrieve_drafts
 from app.graph.staged_plan import load_execution_plan, merge_task_results
 from app.services.agent_events import activity
 from app.services.task_artifacts import task_artifacts, task_fingerprint
@@ -49,10 +50,11 @@ async def main_retrieve_node(state):
     # separate summary here rather than removing it with a message-count slice.
     context["history_messages"] = list(state.get("history_messages", []))
     memory_lookup = task.retrieval_target == "memory"
-    label = "召回相关记忆" if memory_lookup else "检索资料"
+    draft_lookup = task.retrieval_target == "drafts"
+    label = "读取本人草稿" if draft_lookup else "召回相关记忆" if memory_lookup else "检索资料"
     await activity(context, "task", label)
     try:
-        retriever = retrieve_memory if memory_lookup else retrieve_evidence
+        retriever = retrieve_drafts if draft_lookup else retrieve_memory if memory_lookup else retrieve_evidence
         evidence = await asyncio.wait_for(retriever(context), 120)
         update = {"worker_results": [{"worker_name": "search", "status": evidence["status"],
                     "result": evidence.get("rag_context") or evidence.get("result") or "未找到可用资料。"}],
@@ -61,9 +63,11 @@ async def main_retrieve_node(state):
             update["retrieval_report"] = evidence["retrieval_report"]
         if evidence.get('citation_contents'):
             update['citation_contents'] = evidence['citation_contents']
+        if evidence.get('draft_document'):
+            update['draft_document'] = evidence['draft_document']
         if memory_lookup:
             update.update({k: evidence[k] for k in ("memory_sources", "memory_found", "memory_match_count")})
-        result = runtime.task_result(context, update, raw_retrieval=not memory_lookup)
+        result = runtime.task_result(context, update, raw_retrieval=not (memory_lookup or draft_lookup))
     except RECOVERABLE:
         result = failed_result(task, "tool_error", "检索服务暂时不可用，可调整查询或稍后重试。")
     await runtime.assert_run(state)

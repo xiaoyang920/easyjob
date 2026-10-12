@@ -7,6 +7,8 @@ def task_capabilities(task) -> frozenset[str]:
     # retrieval use the same policy; analysis has no tool capabilities.
     if task.kind == "search" and task.retrieval_target == "memory":
         return frozenset({"memory_read"})
+    if task.kind == "search" and task.retrieval_target == "drafts":
+        return frozenset({"own_draft_read"})
     allowed = {"search": {"platform_read"}, "analysis": set(), "writing": {"draft_generate"}}[task.kind]
     if task.allow_web and task.kind != "search":
         raise PermissionError("当前任务不能请求联网能力")

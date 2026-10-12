@@ -11,6 +11,7 @@ from app.services.durable_jobs import durable_jobs
 from app.services.article_context import article_context_service
 from app.services.run_metrics import RunMetrics, metrics_from
 from app.services.executor_heartbeat import maintain_executor
+from app.services.run_history import run_history
 
 log = logging.getLogger(__name__)
 
@@ -34,13 +35,22 @@ def unique_items(items: list[dict], key: str) -> list[dict]:
     return result
 
 
+def public_run_result(raw):
+    """Recovery artifacts/input anchors stay server-side, outside response payloads."""
+    if raw is None:
+        return None
+    result = json.loads(raw) if isinstance(raw, str) else raw
+    return {key: value for key, value in result.items() if key not in ('progress', 'user_message_id')}
+
+
 class RunService:
-    def __init__(self, conversations, memory, repository=run_repository, jobs=durable_jobs, articles=article_context_service):
+    def __init__(self, conversations, memory, repository=run_repository, jobs=durable_jobs, articles=article_context_service, history=run_history):
         self.conversations = conversations
         self.memory = memory
         self.jobs = jobs
         self.repository = repository
         self.articles = articles
+        self.history = history
 
     async def prepare_chat(self, request, graph, admission_ticket=None):
         for image in request.image_paths or []:
@@ -91,10 +101,17 @@ class RunService:
                 config['configurable']['admission_ticket'] = run['execution_token']
             async with maintain_executor(self.repository, config):
                 context = await self.conversations.get_context_for_llm(conv_id)
+                message_id = await self.conversations.add_message(conv_id, "user", request.message, image_paths=request.image_paths)
+                if message_id:
+                    config['configurable']['user_message_id'] = str(message_id)
+                if message_id and hasattr(self.repository, 'record_input'):
+                    await self.repository.record_input(run['run_id'], run['execution_token'], message_id)
                 message = await preprocess_message(request.message, request.image_paths)
-                await self.conversations.add_message(conv_id, "user", request.message, image_paths=request.image_paths)
                 # No embedding or recall model on this path.
                 memory_context = await self.memory.load_context(request.user_id, conv_id)
+                previous_run, reusable = ({}, {})
+                if not is_new:
+                    previous_run, reusable = await self.history.previous(conv_id, request.user_id, run['run_id'])
         except BaseException:
             await self.repository.fail(run["run_id"], run["execution_token"])
             raise
@@ -102,6 +119,7 @@ class RunService:
         state.update(run_id=run["run_id"], execution_token=run["execution_token"],
                      conversation_id=conv_id, memory_source_message=request.message, **memory_context)
         state["origin_article_id"] = origin
+        state['previous_run'] = {**previous_run, 'reusable_results': reusable} if previous_run else {}
         if origin is not None and article is None:
             state["article_context"] = {"article_id": str(origin), "availability": "unavailable",
                 "notice": "来源文章已不可读；历史中的旧正文不代表当前版本。可以继续讨论其他主题或检索其他文章。"}
@@ -180,6 +198,17 @@ class RunService:
             raise await self.approval_conflict(str(request.run_id), "当前会话没有可恢复的审批")
         if interrupt_payload(snapshot).get("draftHash") != request.draft_hash:
             raise await self.approval_conflict(str(request.run_id), "审批内容与检查点版本不一致")
+        edited = getattr(request, 'edited_draft', None)
+        if edited is not None:
+            if request.action == 'reject':
+                raise HTTPException(422, "放弃保存时不能提交编辑内容")
+            # Validate before claiming the run, so invalid edits leave approval usable.
+            from app.graph.staged_runtime import invalid_references
+            payload = interrupt_payload(snapshot)
+            allowed = payload.get('citations', [])
+            old_markers = invalid_references(payload.get('draft', ''), allowed)
+            if invalid_references(edited.content, allowed) - old_markers:
+                raise HTTPException(422, "编辑内容包含未知引用编号，请保留已有引用或移除无效引用")
         try:
             run = await self.repository.claim_resume(request.conversation_id, request.user_id,
                                                    str(request.run_id), request.draft_hash)
@@ -219,6 +248,13 @@ class RunService:
             return result
         if snapshot.next or not result["reply"].strip():
             raise RuntimeError("运行未完成或未产生有效回复")
+        if audit := values.get('grounding_audit'):
+            result['grounding_audit'] = audit
+            from app.graph.staged_runtime import used_evidence
+            evidence = values.get('delivery_evidence') or {}
+            result['citations'], result['articles'] = used_evidence(result['reply'],
+                unique_items(evidence.get('citations', result['citations']), 'id'),
+                unique_items(evidence.get('article_cards', result['articles']), 'articleId'))
         async def append_message():
             await self.conversations.add_message(
                 conv_id, "assistant", result["reply"], article_cards=result["articles"] or None,
@@ -230,11 +266,11 @@ class RunService:
             await self.conversations.invalidate_cache(conv_id)
         else:
             await append_message()
-        return result
+        return public_run_result(result)
 
     async def cached_result(self, config):
         run = await self.repository.get(config["configurable"]["run_id"])
-        return json.loads(run["result_json"])
+        return public_run_result(run["result_json"])
 
     async def reconcile_saved(self, run):
         if run["status"] == "running" and run["draft_article_id"]:

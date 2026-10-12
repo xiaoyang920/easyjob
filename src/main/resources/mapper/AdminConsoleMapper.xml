@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.easyjob.mapper.AdminConsoleMapper">
+    <update id="updateArticleVisibility">
+        UPDATE article_info
+        SET status=#{status},update_time=NOW()
+        WHERE article_id=#{articleId}
+    </update>
+    <insert id="insertArticleAudit">
+        INSERT INTO admin_operation_log(admin_user_id,action,target_type,target_id,before_value,after_value)
+        VALUES (#{actorId},#{action},'article',#{articleId},#{beforeValue},#{afterValue})
+    </insert>
+    <select id="lockArticle" resultType="map">
+        SELECT user_id,status,required_level
+        FROM article_info
+        WHERE article_id=#{articleId} AND deleted=0 FOR UPDATE
+    </select>
+    <select id="lockOwner" resultType="map">
+        SELECT user_id
+        FROM user_info
+        WHERE user_id=#{userId} FOR UPDATE
+    </select>
+    <select id="findArticleOwner" resultType="map">
+        SELECT user_id,status,required_level
+        FROM article_info
+        WHERE article_id=#{articleId} AND deleted=0
+    </select>
+    <select id="findOperationLogs" resultType="map">
+        SELECT CAST(l.id AS CHAR) AS id,CAST(l.admin_user_id AS CHAR) AS adminUserId,u.nick_name AS adminName,l.action,CAST(l.target_id AS CHAR) AS targetId,l.before_value AS beforeValue,l.after_value AS afterValue,l.reason,l.details_json AS detailsJson,l.created_at AS createdAt
+        FROM admin_operation_log l
+        LEFT
+        JOIN user_info u ON u.user_id=l.admin_user_id
+        ORDER BY l.id DESC
+        LIMIT #{size}
+        OFFSET #{offset}
+    </select>
+    <select id="countOperationLogs" resultType="Long">
+        SELECT COUNT(*)
+        FROM admin_operation_log
+    </select>
+    <select id="countPendingReviews" resultType="Long">
+        SELECT COUNT(*)
+        FROM article_revision r
+        LEFT
+        JOIN article_info a ON a.article_id=r.article_id
+        WHERE r.state=1 AND r.deleted=0 AND (a.article_id IS NULL OR a.deleted=0)
+    </select>
+    <select id="totalReadingSeconds" resultType="Long">
+        SELECT COALESCE(SUM(total_millis),0) DIV 1000
+        FROM user_reading_progress
+    </select>
+    <select id="countRemoved" resultType="Long">
+        SELECT COUNT(*)
+        FROM article_info
+        WHERE status=2 AND deleted=0
+    </select>
+    <select id="countRestricted" resultType="Long">
+        SELECT COUNT(*)
+        FROM article_info
+        WHERE status=1 AND deleted=0 AND required_level&gt;0
+    </select>
+    <select id="countPublished" resultType="Long">
+        SELECT COUNT(*)
+        FROM article_info
+        WHERE status=1 AND deleted=0
+    </select>
+    <select id="countUsers" resultType="Long">
+        SELECT COUNT(*)
+        FROM user_info
+    </select>
+    <select id="findOperator" resultType="map">
+        SELECT CAST(user_id AS CHAR) AS userId,nick_name AS nickName,role
+        FROM user_info
+        WHERE user_id=#{userId}
+    </select>
+    <select id="countArticles" resultType="Long">
+        SELECT COUNT(*)
+        FROM article_info a
+        LEFT
+        JOIN user_info u ON u.user_id=a.user_id
+        WHERE a.deleted=0 AND a.status IN(1,2) AND (a.title LIKE #{pattern} ESCAPE '!' OR u.nick_name LIKE #{pattern} ESCAPE '!')
+        <if test="status != null"> AND a.status=#{status}</if>
+
+    </select>
+    <select id="findArticles" resultType="map">
+        SELECT CAST(a.article_id AS CHAR) AS articleId,a.title,u.nick_name AS authorName,a.status,a.required_level AS requiredLevel,a.view_count AS viewCount,a.update_time AS updateTime
+        FROM article_info a
+        LEFT
+        JOIN user_info u ON u.user_id=a.user_id
+        WHERE a.deleted=0 AND a.status IN(1,2) AND (a.title LIKE #{pattern} ESCAPE '!' OR u.nick_name LIKE #{pattern} ESCAPE '!')
+        <if test="status != null"> AND a.status=#{status}</if>
+
+        ORDER BY a.update_time DESC,a.article_id DESC
+        LIMIT #{size}
+        OFFSET #{offset}
+    </select>
+    <select id="countMatchingUsers" resultType="Long">
+        SELECT COUNT(*)
+        FROM user_info u
+        LEFT
+        JOIN user_reading_progress p ON p.user_id=u.user_id
+        WHERE u.nick_name LIKE #{pattern} ESCAPE '!' OR CAST(u.user_id AS CHAR) LIKE #{pattern} ESCAPE '!'
+    </select>
+    <select id="findUsers" resultType="map">
+        SELECT CAST(u.user_id AS CHAR) AS userId,u.nick_name AS nickName,u.role,CAST(u.status AS UNSIGNED) AS status,u.join_time AS joinTime,COALESCE(p.total_millis,0) DIV 1000 AS readingSeconds,GREATEST(COALESCE(p.earned_level,0),COALESCE((SELECT MAX(level)
+        FROM reading_level_rule
+        WHERE min_seconds&lt;=COALESCE(p.total_millis,0) DIV 1000),0)) AS readingLevel
+        FROM user_info u
+        LEFT
+        JOIN user_reading_progress p ON p.user_id=u.user_id
+        WHERE u.nick_name LIKE #{pattern} ESCAPE '!' OR CAST(u.user_id AS CHAR) LIKE #{pattern} ESCAPE '!'
+        ORDER BY u.join_time DESC,u.user_id DESC
+        LIMIT #{size}
+        OFFSET #{offset}
+    </select>
+</mapper>

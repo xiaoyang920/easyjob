@@ -69,4 +69,7 @@
         WHERE conversation_id = #{conversationId}
     </select>
 
+    <select id="lockConversation" resultType="Long">
+        SELECT conversation_id FROM conversation WHERE conversation_id=#{id} FOR UPDATE
+    </select>
 </mapper>

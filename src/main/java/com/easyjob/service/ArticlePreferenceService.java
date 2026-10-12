@@ -1,18 +1,18 @@
 package com.easyjob.service;
 
 import com.alibaba.fastjson2.JSON;
-import org.springframework.jdbc.core.JdbcTemplate;
+import com.easyjob.mapper.ArticlePreferenceMapper;
 import org.springframework.stereotype.Service;
 import java.util.*;
 
 /** Explicit blog topics are read fresh, so profile removal takes effect immediately. */
 @Service
 public class ArticlePreferenceService {
-    private final JdbcTemplate jdbc;
-    public ArticlePreferenceService(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+    private final ArticlePreferenceMapper store;
+    public ArticlePreferenceService(ArticlePreferenceMapper store) { this.store = store; }
     public List<String> topics(Long uid) {
         if (uid == null) return List.of();
-        var rows = jdbc.queryForList("SELECT interests,tech_stack FROM user_profile WHERE user_id=?", uid);
+        var rows = store.findTopics(uid);
         if (rows.isEmpty()) return List.of();
         var result = new LinkedHashMap<String,String>();
         for (String field : List.of("interests", "tech_stack")) {

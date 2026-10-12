@@ -10,4 +10,13 @@
                                         ORDER BY update_time DESC, conversation_id DESC
                                         LIMIT #{limit}
     </select>
+    <update id="updateTitle">
+        UPDATE ai_conversation SET title = #{title} WHERE conversation_id = #{conversationId}
+    </update>
+    <update id="incrementMessageCount">
+        UPDATE ai_conversation SET message_count = message_count + 1, update_time = NOW() WHERE conversation_id = #{conversationId}
+    </update>
+    <select id="selectByUserId" resultType="com.easyjob.entity.AiConversation">
+        SELECT * FROM ai_conversation WHERE user_id = #{userId} AND status = 1 ORDER BY update_time DESC LIMIT #{limit}
+    </select>
 </mapper>

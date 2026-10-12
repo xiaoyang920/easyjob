@@ -287,7 +287,8 @@ async def retrieve_evidence(state: AgentState) -> dict:
     for item in web_results:
         cid = f"{state.get('task_id', 'web')}:web{len(citation_dicts)+1}"
         citation_dicts.append({"id": cid, "articleId": "", "title": item.get("title", "网页资料"),
-                              "chunkIndex": 0, "excerpt": item["content"][:1200], "url": item["url"], "source": "web"})
+                              "chunkIndex": 0, "excerpt": item["content"][:1200], "url": item["url"], "source": "web",
+                              "contentScope": "search_excerpt"})
         citation_contents[cid] = item['content'][:1200]
         rag_context += f"\n\n[{cid}] {item.get('title', '')}\n{item['content'][:1200]}"
     if web_error:

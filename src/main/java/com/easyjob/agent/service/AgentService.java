@@ -84,16 +84,27 @@ public class AgentService {
         return stream("/chat/stream", uid, chatBody(cid, uid, message, images, requestId, originArticleId));
     }
     private Map<String,Object> resumeBody(Long cid, Long uid, String action, String runId, String hash) {
+        return resumeBody(cid,uid,action,runId,hash,null);
+    }
+    private Map<String,Object> resumeBody(Long cid, Long uid, String action, String runId, String hash,Map<String,String> editedDraft) {
         if (cid == null || action == null || runId == null || hash == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "审批参数缺失，请重新加载会话后操作");
         }
-        return Map.of("user_id", uid, "conversation_id", cid, "action", action, "run_id", runId, "draft_hash", hash);
+        var body=new HashMap<String,Object>();body.put("user_id",uid);body.put("conversation_id",cid);body.put("action",action);body.put("run_id",runId);body.put("draft_hash",hash);
+        if(editedDraft!=null)body.put("edited_draft",editedDraft);
+        return body;
     }
     public AiChatVO chatResume(Long cid, Long uid, String action, String runId, String hash) {
         return JSON.parseObject(post("/chat/resume", uid, resumeBody(cid, uid, action, runId, hash)), AiChatVO.class);
     }
     public Flux<String> chatResumeStream(Long cid, Long uid, String action, String runId, String hash) {
         return stream("/chat/resume/stream", uid, resumeBody(cid, uid, action, runId, hash));
+    }
+    public AiChatVO chatResume(Long cid,Long uid,String action,String runId,String hash,Map<String,String> editedDraft) {
+        return JSON.parseObject(post("/chat/resume",uid,resumeBody(cid,uid,action,runId,hash,editedDraft)),AiChatVO.class);
+    }
+    public Flux<String> chatResumeStream(Long cid,Long uid,String action,String runId,String hash,Map<String,String> editedDraft) {
+        return stream("/chat/resume/stream",uid,resumeBody(cid,uid,action,runId,hash,editedDraft));
     }
     public Map<String,Object> cancelChat(Long cid, Long uid) {
         return JSON.parseObject(post("/chat/" + cid + "/cancel?user_id=" + uid, uid, null));

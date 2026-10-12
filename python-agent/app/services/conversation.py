@@ -255,6 +255,7 @@ class ConversationService:
         result = [
             {
                 "role": m["role"],
+                "messageId": str(m['message_id']),
                 "content": m["content"],
                 "imagePaths": m.get("image_paths"),
                 "articleCards": m.get("article_cards"),
@@ -491,16 +492,17 @@ class ConversationService:
         """读全部消息（仅给前端 get_history 用）"""
         rows = await db.fetch_all(
             """
-            SELECT role, content, token_count, image_paths, article_cards, draft_article_id, citations, create_time
+            SELECT message_id, role, content, token_count, image_paths, article_cards, draft_article_id, citations, create_time
             FROM ai_message
             WHERE conversation_id = :cid
-            ORDER BY create_time ASC
+            ORDER BY message_id ASC
             """,
             {"cid": conversation_id},
         )
         return [
             {
                 "role": r._mapping["role"],
+                "message_id": r._mapping['message_id'],
                 "content": r._mapping["content"],
                 "token_count": r._mapping["token_count"] or 0,
                 "image_paths": json.loads(r._mapping["image_paths"]) if r._mapping["image_paths"] else None,

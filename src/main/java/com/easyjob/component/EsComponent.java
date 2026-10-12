@@ -137,6 +137,17 @@ public class EsComponent {
         }
     }
 
+    /** Assign authoritative interaction counters. Failures must reach the durable outbox retry. */
+    public void syncInteractionCounts(String articleId, int likes, int collects) {
+        try {
+            client.update(u -> u.index(INDEX_NAME).id(articleId).script(s -> s
+                    .source("ctx._source.likeCount = params.likes; ctx._source.collectCount = params.collects;")
+                    .params("likes", JsonData.of(likes)).params("collects", JsonData.of(collects))), ArticleEsDTO.class);
+        } catch (IOException exception) {
+            throw new BusinessException("文章热度同步失败，需重试", exception);
+        }
+    }
+
     public void updateDocCount(String articleId, String fieldName, Integer count){
         try {
             // 脚本：count 字段 += params.count；null 时初始化为 0

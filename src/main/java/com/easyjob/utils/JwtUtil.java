@@ -137,6 +137,24 @@ public class JwtUtil {
     }
 
     /**
+     * 解析公开接口上的可选登录态，用于区分“本人 / 其他访客”。
+     * 没有令牌、令牌无效或会话无法确认时返回 null，调用方按匿名访客处理（隐私字段默认不返回）。
+     * @param authorization Authorization 请求头
+     * @return 当前登录用户ID，匿名时为 null
+     */
+    public Long resolveOptionalUserId(String authorization) {
+        String token = getTokenFromAuthorization(authorization);
+        if (token == null || token.isEmpty() || !Boolean.TRUE.equals(validateToken(token))) {
+            return null;
+        }
+        try {
+            return getUserIdFromToken(token);
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    /**
      * 检查令牌是否过期
      * @param token JWT令牌
      * @return 是否过期

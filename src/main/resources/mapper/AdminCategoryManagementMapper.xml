@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.easyjob.mapper.AdminCategoryManagementMapper">
+    <update id="incrementVersion">
+        UPDATE category SET version=version+1 WHERE category_id=#{categoryId}
+    </update>
+    <update id="redirectCategory">
+        UPDATE category SET status=0,migrated_to=#{targetId},version=version+1 WHERE category_id=#{categoryId}
+    </update>
+    <update id="moveArticle">
+        UPDATE article_info SET category_id=#{targetId},update_time=NOW(3) WHERE article_id=#{articleId}
+    </update>
+    <select id="lockArticlesForMove" resultType="map">
+        SELECT article_id,status FROM article_info WHERE category_id=#{categoryId} AND deleted=0 ORDER BY article_id LIMIT 501 FOR UPDATE
+    </select>
+    <select id="findArticleIds" resultType="Long">
+        SELECT article_id FROM article_info WHERE category_id=#{categoryId} AND deleted=0
+    </select>
+    <update id="updateCategory">
+        UPDATE category SET category_name=#{name},sort_order=#{sortOrder},description=#{description},status=#{status},version=version+1 WHERE category_id=#{categoryId}
+    </update>
+    <insert id="insertAudit">
+        INSERT INTO admin_operation_log(admin_user_id,action,target_type,target_id,before_value,after_value,details_json) VALUES (#{actorId},#{action},'category',#{categoryId},#{beforeValue},#{afterValue},#{details})
+    </insert>
+    <select id="lockEnabledChildren" resultType="map">
+        SELECT category_id FROM category WHERE parent_id=#{parentId} AND status=1 FOR UPDATE
+    </select>
+    <select id="lockIdentity" resultType="map">
+        SELECT category_id FROM category WHERE category_id=#{categoryId} FOR UPDATE
+    </select>
+    <select id="findParent" resultType="map">
+        SELECT parent_id FROM category WHERE category_id=#{categoryId}
+    </select>
+    <select id="lockCategory" resultType="map">
+        SELECT * FROM category WHERE category_id=#{categoryId} FOR UPDATE
+    </select>
+</mapper>

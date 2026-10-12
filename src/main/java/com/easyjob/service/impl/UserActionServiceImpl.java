@@ -4,14 +4,14 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.easyjob.component.EsComponent;
-import com.easyjob.agent.component.EsVectorStore;
-import com.easyjob.component.RedisComponent;
+import com.easyjob.agent.component.ArticleIndexPublisher;
+import com.easyjob.constants.RabbitMqConstants;
 import com.easyjob.dto.NotificationMessage;
 import com.easyjob.entity.Article;
 import com.easyjob.entity.UserAction;
 import com.easyjob.enums.ActionTypeEnum;
 import com.easyjob.enums.NotificationTypeEnum;
+import com.easyjob.exception.BusinessException;
 import com.easyjob.mapper.ArticleMapper;
 import com.easyjob.mapper.UserActionMapper;
 import com.easyjob.mapper.UserMapper;
@@ -33,107 +33,97 @@ public class UserActionServiceImpl extends ServiceImpl<UserActionMapper, UserAct
     @Autowired
     private ArticleMapper articleMapper;
     @Autowired
-    private EsComponent esComponent;
-    @Autowired
-    private EsVectorStore esVectorStore;
-    @Autowired
-    private RedisComponent redisComponent;
+    private ArticleIndexPublisher articleIndexPublisher;
     @Autowired
     private NotificationServiceImpl notificationService;
     @Autowired
     private UserMapper userMapper;
+
     @Override
-    public void like(Long articleId) {
-        UserAction userAction = userActionMapper.selectOne(new LambdaQueryWrapper<UserAction>().eq(UserAction::getArticleId, articleId)
-                .eq(UserAction::getUserId, UserContext.getUserId())
-                .eq(UserAction::getActionType, ActionTypeEnum.ARTICLE_LIKE.getCode()));
-        if(userAction == null){
-            Article article = articleMapper.selectById(articleId);
-            userAction = new UserAction();
-            userAction.setArticleId(articleId);
-            userAction.setUserId(UserContext.getUserId());
-            userAction.setActionType(ActionTypeEnum.ARTICLE_LIKE.getCode());
-            userAction.setActionCount(1);
-            userAction.setActionTime(LocalDateTime.now());
-            userAction.setArticleUserId(article.getUserId());
-            userActionMapper.insert(userAction);
-            articleMapper.changeLikeCount(articleId, 1);
-            // 同步ES
-            esComponent.updateDocCount(articleId.toString(), "likeCount", 1);
-            // 同步向量索引热度
-            esVectorStore.updateChunkCounts(articleId.toString(), "like_count", 1);
-            // 新增点赞时发通知（取消点赞不通知）
-            User liker = userMapper.selectById(UserContext.getUserId());
-            notificationService.send(NotificationMessage.builder()
-                    .userId(article.getUserId())
-                    .senderId(UserContext.getUserId())
-                    .senderNickname(liker != null ? liker.getNickName() : null)
-                    .senderAvatar(liker != null ? liker.getAvatar() : null)
-                    .type(NotificationTypeEnum.LIKE.getCode())
-                    .articleId(articleId)
-                    .articleTitle(article.getTitle())
-                    .targetId(articleId)
-                    .content("赞了你的文章")
-                    .build()
-            );
-        }else{
-            userActionMapper.delete(new LambdaQueryWrapper<UserAction>().eq(UserAction::getArticleId, articleId)
-                    .eq(UserAction::getUserId, UserContext.getUserId())
-                    .eq(UserAction::getActionType, ActionTypeEnum.ARTICLE_LIKE.getCode()));
-            articleMapper.changeLikeCount(articleId, -1);
-            // 同步ES
-            esComponent.updateDocCount(articleId.toString(), "likeCount", -1);
-            // 同步向量索引热度
-            esVectorStore.updateChunkCounts(articleId.toString(), "like_count", -1);
-        }
-        redisComponent.deleteArticleDetail(articleId);
-    }
     @Transactional
+    public void like(Long articleId) {
+        changeInteraction(articleId, null, true);
+    }
+
     @Override
+    @Transactional
     public void collect(Long articleId) {
-        UserAction userAction = userActionMapper.selectOne(new LambdaQueryWrapper<UserAction>().eq(UserAction::getArticleId, articleId)
-                .eq(UserAction::getUserId, UserContext.getUserId())
-                .eq(UserAction::getActionType, ActionTypeEnum.ARTICLE_COLLECT.getCode()));
-        if(userAction == null){
-            Article article = articleMapper.selectById(articleId);
-            userAction = new UserAction();
-            userAction.setArticleId(articleId);
-            userAction.setUserId(UserContext.getUserId());
-            userAction.setActionType(ActionTypeEnum.ARTICLE_COLLECT.getCode());
-            userAction.setActionCount(1);
-            userAction.setActionTime(LocalDateTime.now());
-            userAction.setArticleUserId(article.getUserId());
-            userActionMapper.insert(userAction);
-            articleMapper.changeCollectCount(articleId, 1);
-            // 同步ES
-            esComponent.updateDocCount(articleId.toString(), "collectCount", 1);
-            // 同步向量索引热度
-            esVectorStore.updateChunkCounts(articleId.toString(), "collect_count", 1);
-            // 新增收藏时发通知（取消收藏不通知）
-            User collector = userMapper.selectById(UserContext.getUserId());
-            notificationService.send(NotificationMessage.builder()
-                    .userId(article.getUserId())
-                    .senderId(UserContext.getUserId())
-                    .senderNickname(collector != null ? collector.getNickName() : null)
-                    .senderAvatar(collector != null ? collector.getAvatar() : null)
-                    .type(NotificationTypeEnum.COLLECT.getCode())
-                    .articleId(articleId)
-                    .articleTitle(article.getTitle())
-                    .targetId(articleId)
-                    .content("收藏了你的文章")
-                    .build()
-            );
-        }else {
-            userActionMapper.delete(new LambdaQueryWrapper<UserAction>().eq(UserAction::getArticleId, articleId)
-                    .eq(UserAction::getUserId, UserContext.getUserId())
-                    .eq(UserAction::getActionType, ActionTypeEnum.ARTICLE_COLLECT.getCode()));
-            articleMapper.changeCollectCount(articleId, -1);
-            // 同步ES
-            esComponent.updateDocCount(articleId.toString(), "collectCount", -1);
-            // 同步向量索引热度
-            esVectorStore.updateChunkCounts(articleId.toString(), "collect_count", -1);
+        changeInteraction(articleId, null, false);
+    }
+
+    @Override
+    @Transactional
+    public InteractionResult like(Long articleId, Boolean active) {
+        return changeInteraction(articleId, active, true);
+    }
+
+    @Override
+    @Transactional
+    public InteractionResult collect(Long articleId, Boolean active) {
+        return changeInteraction(articleId, active, false);
+    }
+
+    private InteractionResult changeInteraction(Long articleId, Boolean desired, boolean like) {
+        Long userId = UserContext.getUserId();
+        if (userId == null) throw new BusinessException(401, "请先登录");
+        if (articleId == null || articleId <= 0) throw new BusinessException(400, "文章ID无效");
+
+        // Hold the article row lock until the relationship, counter and outbox commit together.
+        Article article = articleMapper.lockForInteraction(articleId);
+        if (article == null || !Integer.valueOf(1).equals(article.getStatus())
+                || !Integer.valueOf(0).equals(article.getDeleted())) {
+            throw new BusinessException(404, "文章不存在或未公开");
         }
-        redisComponent.deleteArticleDetail(articleId);
+        int actionType = like ? ActionTypeEnum.ARTICLE_LIKE.getCode() : ActionTypeEnum.ARTICLE_COLLECT.getCode();
+        var relationship = new LambdaQueryWrapper<UserAction>()
+                .eq(UserAction::getArticleId, articleId)
+                .eq(UserAction::getCommentId, 0L)
+                .eq(UserAction::getUserId, userId)
+                .eq(UserAction::getActionType, actionType);
+        UserAction existing = userActionMapper.selectOne(relationship);
+        boolean wasActive = existing != null;
+        boolean active = desired == null ? !wasActive : desired;
+        Integer currentCount = like ? article.getLikeCount() : article.getCollectCount();
+        int count = currentCount == null ? 0 : Math.max(0, currentCount);
+        if (active == wasActive) return new InteractionResult(active, count);
+
+        if (active) {
+            var action = new UserAction();
+            action.setArticleId(articleId);
+            action.setCommentId(0L);
+            action.setUserId(userId);
+            action.setArticleUserId(article.getUserId());
+            action.setActionType(actionType);
+            action.setActionCount(1);
+            action.setActionTime(LocalDateTime.now());
+            if (userActionMapper.insert(action) != 1) throw new BusinessException(409, "操作未成功，请重试");
+        } else if (userActionMapper.delete(relationship) != 1) {
+            throw new BusinessException(409, "状态已变更，请刷新后重试");
+        }
+        int delta = active ? 1 : -1;
+        if (like) articleMapper.changeLikeCount(articleId, delta);
+        else articleMapper.changeCollectCount(articleId, delta);
+
+        // Search popularity is an asynchronous projection; never invalidate the cached article body.
+        articleIndexPublisher.publish(articleId, RabbitMqConstants.ACTION_COUNTS, RabbitMqConstants.ROUTING_KEY_UPDATE);
+        if (active) notifyAuthor(article, userId, like);
+        return new InteractionResult(active, Math.max(0, count + delta));
+    }
+
+    private void notifyAuthor(Article article, Long userId, boolean like) {
+        if (userId.equals(article.getUserId())) return;
+        User sender = userMapper.selectById(userId);
+        notificationService.send(NotificationMessage.builder()
+                .userId(article.getUserId())
+                .senderId(userId)
+                .senderNickname(sender != null ? sender.getNickName() : null)
+                .senderAvatar(sender != null ? sender.getAvatar() : null)
+                .type(like ? NotificationTypeEnum.LIKE.getCode() : NotificationTypeEnum.COLLECT.getCode())
+                .articleId(article.getArticleId())
+                .articleTitle(article.getTitle())
+                .targetId(article.getArticleId())
+                .content(like ? "赞了你的文章" : "收藏了你的文章")
+                .build());
     }
 
     @Override

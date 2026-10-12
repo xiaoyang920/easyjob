@@ -16,6 +16,8 @@ class TaskSpec(BaseModel):
 
 class DraftRequest(TaskSpec):
     """Writing execution and approval belong to the backend, not the model."""
+    draft_source_task_id: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_]{0,39}$",
+        description="修改已有本人草稿时，填写已读取全文的成功任务ID，并将其列入depends_on；新建时为空")
 
 
 class DelegatedTask(TaskSpec):
@@ -49,7 +51,8 @@ class ExecutionTask(TaskSpec):
     """Backend-only contract; this schema is never exposed to Main's LLM."""
     kind: Literal["search", "analysis", "writing"]
     actor: Literal["main", "subagent"]
-    retrieval_target: Literal["knowledge", "memory"] | None = None
+    retrieval_target: Literal["knowledge", "memory", "drafts"] | None = None
+    draft_source_task_id: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_]{0,39}$")
     allow_web: bool = False
     article_ids: list[PositiveInt] = Field(default_factory=list, max_length=8)
     filters: QueryFilters | None = None
@@ -65,7 +68,7 @@ class ExecutionTask(TaskSpec):
                 self.retrieval_target = "knowledge"
         elif self.retrieval_target is not None:
             raise ValueError("只有检索任务可以指定检索目标")
-        if self.article_ids and (self.kind != "search" or self.retrieval_target != "knowledge"):
+        if self.article_ids and (self.kind != "search" or self.retrieval_target not in ("knowledge", "drafts")):
             raise ValueError("只有知识检索任务可以限定文章范围")
         if self.filters is not None and (self.kind != "search" or self.retrieval_target != "knowledge"):
             raise ValueError("只有知识检索任务可以指定过滤条件")
@@ -74,6 +77,10 @@ class ExecutionTask(TaskSpec):
         if self.retrieval_target == "memory":
             if self.actor != "main" or self.allow_web or self.requires_evidence:
                 raise ValueError("记忆召回仅允许 Main 读取自身记忆，不使用联网或文章证据")
+        if self.retrieval_target == "drafts" and (self.actor != "main" or self.allow_web or self.requires_evidence or len(self.article_ids) > 1):
+            raise ValueError("草稿仅允许Main读取本人资料，一次读取一篇，不联网或作为公共证据")
+        if self.draft_source_task_id and (self.kind != "writing" or self.draft_source_task_id not in self.depends_on):
+            raise ValueError("修改草稿必须依赖已读取的源任务")
         if self.allow_web and self.kind != "search":
             raise ValueError("分析和写作不能请求联网能力")
         if self.kind == "writing" and self.actor != "main":

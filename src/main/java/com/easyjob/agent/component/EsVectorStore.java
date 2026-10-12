@@ -3,6 +3,7 @@ package com.easyjob.agent.component;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
 import co.elastic.clients.elasticsearch.core.bulk.BulkOperation;
+import co.elastic.clients.json.JsonData;
 import com.easyjob.entity.DocumentChunk;
 import com.easyjob.exception.BusinessException;
 import com.easyjob.agent.service.ZhipuEmbeddingService;
@@ -177,6 +178,21 @@ public class EsVectorStore {
      * @param fieldName 字段名（like_count 或 collect_count）
      * @param delta     增量值（正数增加，负数减少）
      */
+    public void syncInteractionCounts(String articleId, int likes, int collects) {
+        try {
+            var response = esClient.updateByQuery(u -> u.index(VECTOR_INDEX)
+                    .query(q -> q.term(t -> t.field("article_id").value(articleId)))
+                    .script(s -> s.source("ctx._source.like_count = params.likes; ctx._source.collect_count = params.collects;")
+                            .params("likes", JsonData.of(likes)).params("collects", JsonData.of(collects))));
+            if (Boolean.TRUE.equals(response.timedOut()) || !response.failures().isEmpty()
+                    || (response.versionConflicts() != null && response.versionConflicts() > 0)) {
+                throw new BusinessException("文本块热度未完全同步");
+            }
+        } catch (Exception exception) {
+            throw new BusinessException("文本块热度同步失败，需重试", exception);
+        }
+    }
+
     public void updateChunkCounts(String articleId, String fieldName, int delta) {
         try {
             // 使用原生JSON方式构建updateByQuery请求，避免API兼容性问题

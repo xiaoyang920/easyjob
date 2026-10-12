@@ -1,7 +1,7 @@
 package com.easyjob.service;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.jdbc.core.JdbcTemplate;
+import com.easyjob.mapper.ArticlePreferenceMapper;
 import java.util.*;
 import java.util.regex.Pattern;
 import static org.junit.jupiter.api.Assertions.*;
@@ -9,14 +9,14 @@ import static org.mockito.Mockito.*;
 
 class ArticlePreferenceTests {
     @Test void readsMergedLegacyTopicsWithoutCachingDeletedPreferences() {
-        var jdbc=mock(JdbcTemplate.class); var service=new ArticlePreferenceService(jdbc);
-        when(jdbc.queryForList(anyString(),eq(7L))).thenReturn(
+        var store=mock(ArticlePreferenceMapper.class); var service=new ArticlePreferenceService(store);
+        when(store.findTopics(eq(7L))).thenReturn(
             List.of(Map.of("interests","[\"Redis\",\" Agent \"]","tech_stack","[\"redis\",\"Java\"]")),
             List.of(Map.of("interests","[\"Java\"]","tech_stack","[]")));
         assertEquals(List.of("Redis","Agent","Java"),service.topics(7L));
         assertEquals(List.of("Java"),service.topics(7L));
         assertEquals(List.of(),service.topics(null));
-        verify(jdbc,times(2)).queryForList(anyString(),eq(7L));
+        verify(store,times(2)).findTopics(eq(7L));
     }
     @Test void titlePatternsMatchWordsAndLiteralSpecialCharacters() {
         var java=Pattern.compile(ArticlePreferenceService.titlePattern("Java"),Pattern.CASE_INSENSITIVE);

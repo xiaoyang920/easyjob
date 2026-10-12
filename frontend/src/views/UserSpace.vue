@@ -24,10 +24,10 @@
       <ContentState v-else-if="profileError" kind="error" title="个人空间暂时无法加载" :description="profileError" @retry="fetchUserInfo" />
       <div v-else class="header-content">
         <img 
-          :src="getAvatarUrl(userInfo.avatar)" 
+          :src="avatarUrl(userInfo.avatar, userInfo.nickName)"
           alt="用户头像" 
           class="user-avatar"
-          @error="handleAvatarError"
+          @error="onAvatarError($event, userInfo.nickName)"
         >
         <div class="user-info">
           <div class="space-kicker">个人空间</div>
@@ -124,6 +124,9 @@
 
         <!-- 文章列表 -->
         <ContentState v-if="loading" kind="loading" title="正在加载内容" />
+        <ContentState v-else-if="tabNeedsLogin" kind="empty" title="登录后查看收藏和点赞" description="收藏和点赞列表只对登录用户开放。">
+          <button type="button" class="content-state-retry" @click="showLoginDialog = true">登录</button>
+        </ContentState>
         <ContentState v-else-if="articleError" kind="error" title="内容暂时无法加载" :description="articleError" @retry="fetchArticles()" />
         <ContentState v-else-if="articles.length === 0" kind="empty" title="暂无内容" />
         <div v-else class="article-grid">
@@ -151,15 +154,10 @@
                 class="article-cover"
                 @error="handleCoverError($event, article.coverImage)"
               >
-              <div 
-                v-else 
-                class="no-cover-placeholder"
-              >
-                <span class="placeholder-title">{{ stripHtmlTags(article.title) }}</span>
-              </div>
+              <CoverPlaceholder v-else class="no-cover-placeholder" :title="stripHtmlTags(article.title)" />
             </div>
             <div class="article-info">
-              <div class="space-card-index"><span>{{ String(articleIndex + 1).padStart(2, '0') }} / 文章</span><span aria-hidden="true">↗</span></div>
+              <div class="space-card-index"><span class="space-card-kicker"><span class="card-dot" aria-hidden="true"></span>{{ String(articleIndex + 1).padStart(2, '0') }}</span><span aria-hidden="true">↗</span></div>
               <div class="article-title">{{ article.title }}</div>
               <div class="article-meta">
                 <span v-if="article.requiredLevel > 0" class="reading-level-badge">L{{ article.requiredLevel }} 阅读</span>
@@ -221,17 +219,18 @@
         <div class="sidebar-card">
           <div class="card-title">个人信息</div>
           <div class="user-detail-card">
-            <div class="detail-item">
+            <!-- 邮箱只返回给本人，访客看不到这一行 -->
+            <div v-if="userInfo.email" class="detail-item detail-item--wide" title="邮箱（仅自己可见）">
               <span class="detail-icon">
                 <svg viewBox="0 0 24 24"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/></svg>
               </span>
-              <span>{{ userInfo.email || '-' }}</span>
+              <span>{{ userInfo.email }}</span>
             </div>
-            <div class="detail-item">
+            <div class="detail-item" title="生日">
               <span class="detail-icon">
                 <svg viewBox="0 0 24 24"><path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V9h14v10zM7 11h5v5H7z"/></svg>
               </span>
-              <span>{{ userInfo.birthday || '未设置' }}</span>
+              <span><small class="detail-label">生日</small>{{ userInfo.birthday || '未设置' }}</span>
             </div>
             <div class="detail-item">
               <span class="detail-icon">
@@ -249,13 +248,13 @@
               <span class="detail-icon">
                 <svg viewBox="0 0 24 24"><path d="M9 11H7v2h2v-2zm4 0h-2v2h2v-2zm4 0h-2v2h2v-2zm2-7h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V9h14v11z"/></svg>
               </span>
-              <span>{{ formatDate(userInfo.joinTime) }}</span>
+              <span><small class="detail-label">加入</small>{{ formatDate(userInfo.joinTime) }}</span>
             </div>
-            <div class="detail-item">
+            <div class="detail-item" title="最近登录">
               <span class="detail-icon">
                 <svg viewBox="0 0 24 24"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>
               </span>
-              <span>{{ formatDate(userInfo.lastLoginTime) }}</span>
+              <span><small class="detail-label">最近登录</small>{{ formatDate(userInfo.lastLoginTime) }}</span>
             </div>
           </div>
         </div>
@@ -282,7 +281,7 @@
           <!-- 头像 -->
           <div class="edit-avatar-section">
             <div class="edit-avatar-upload">
-              <img v-if="!avatarUploading" :src="getAvatarUrl(editProfile.avatar)" alt="头像" class="edit-avatar-preview" @error="handleAvatarError">
+              <img v-if="!avatarUploading" :src="avatarUrl(editProfile.avatar, editProfile.nickName)" alt="头像" class="edit-avatar-preview" @error="onAvatarError($event, editProfile.nickName)">
               <div v-if="avatarUploading" class="edit-avatar-progress">
                 <div class="progress-bar" :style="{ height: avatarProgress + '%' }"></div>
                 <span class="progress-text">{{ avatarProgress }}%</span>
@@ -356,6 +355,7 @@ import { signOutSession } from '@/utils/authSession'
 import AppNavigation from '@/components/AppNavigation.vue'
 import SearchBox from '@/components/SearchBox.vue'
 import ContentState from '@/components/ContentState.vue'
+import CoverPlaceholder from '@/components/CoverPlaceholder.vue'
 import { notify, errorMessage } from '@/utils/feedback'
 import { latestRequest } from '@/utils/latestRequest'
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
@@ -366,6 +366,7 @@ import request from '../utils/request'
 import ReadingProgress from '@/components/ReadingProgress.vue'
 import { getThumbUrl } from '../utils/image'
 import { uploadFile } from '../utils/upload'
+import { avatarUrl, onAvatarError } from '../utils/avatar'
 import { updateCardTilt, resetCardTilt } from '../utils/cardMotion'
 import { eventBus, EVENT_AUTH_EXPIRED, EVENT_AUTH_CHANGED } from '../utils/eventBus'
 
@@ -415,6 +416,9 @@ const filters = [
   { label: '最多点赞', value: 'like' },
   { label: '最多收藏', value: 'collect' }
 ]
+
+// 收藏、点赞列表需要登录：匿名访客看到登录提示，而不是请求失败
+const tabNeedsLogin = computed(() => !accountUserId.value && currentTab.value !== 'article')
 
 // 判断是否是自己的空间
 const isOwner = computed(() => {
@@ -475,8 +479,15 @@ async function fetchArticles(reset = false) {
     currentPage.value = 1
   }
   
-  loading.value = true
   articleError.value = ''
+  if (tabNeedsLogin.value) {
+    articles.value = []
+    totalPages.value = 0
+    loading.value = false
+    initialized.value = true
+    return
+  }
+  loading.value = true
   
   try {
     if (!userId.value) throw new Error('请先登录或选择要查看的用户')
@@ -729,29 +740,6 @@ function getImageUrl(url: string | undefined): string {
   }
   if (url.startsWith('/uploads')) return url
   return url
-}
-
-// 获取头像URL
-function getAvatarUrl(url: string | undefined): string {
-  if (!url) {
-    return 'https://cube.elemecdn.com/3/7c/3ea6beec64369c2642b92c6726f1epng.png'
-  }
-  if (url.startsWith('http://') || url.startsWith('https://')) {
-    if (url.includes('localhost:8080')) {
-      return url.replace(/https?:\/\/localhost:8080/, '')
-    }
-    return url
-  }
-  if (url.startsWith('/uploads')) return url
-  return url
-}
-
-function handleAvatarError(e: Event) {
-  const target = e.target as HTMLImageElement
-  // 防止无限循环
-  if (target.dataset.errorHandled) return
-  target.dataset.errorHandled = 'true'
-  target.src = 'https://cube.elemecdn.com/3/7c/3ea6beec64369c2642b92c6726f1epng.png'
 }
 
 function handleCoverError(e: Event, originalCoverImage?: string) {
@@ -1322,26 +1310,9 @@ onUnmounted(() => {
   opacity: 0.5;
 }
 
+/* 无封面占位见 components/CoverPlaceholder.vue */
 .no-cover-placeholder {
-  width: 100%;
   height: 160px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 10px;
-  text-align: center;
-  background: #e8e8e8;
-}
-
-.placeholder-title {
-  color: #666;
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 1.3;
-  max-width: 100%;
-  word-break: break-word;
-  text-align: center;
-  padding: 0 4px;
 }
 
 /* 封面区域容器 */
@@ -1486,8 +1457,27 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
   font-size: 13px;
-  color: #666;
+  color: #47453f;
+}
+
+.detail-item > span:last-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* 邮箱较长，独占一行 */
+.detail-item--wide {
+  grid-column: 1 / -1;
+}
+
+.detail-label {
+  display: block;
+  margin-bottom: 1px;
+  color: var(--ej-muted);
+  font-size: 10px;
+  letter-spacing: .04em;
 }
 
 .detail-icon {
@@ -1502,7 +1492,7 @@ onUnmounted(() => {
 .detail-icon svg {
   width: 100%;
   height: 100%;
-  fill: #999;
+  fill: var(--ej-muted);
 }
 
 /* 直播间 */

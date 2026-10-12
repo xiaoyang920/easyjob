@@ -4,7 +4,7 @@
       <div class="app-nav-account" :class="{ 'is-open': accountOpen }" @pointerenter="enterAccount" @pointerleave="leaveAccount" @focusout="leaveAccountFocus">
         <button class="app-nav-avatar" :aria-expanded="accountOpen" aria-controls="app-account-panel" aria-label="账户菜单" @click="toggleAccount" @keydown.down.prevent="openAccount">
           <span class="app-nav-avatar-visual">
-          <img v-if="avatarUrl" :src="avatarUrl" alt="用户头像" @error="avatarUrl = ''"><User v-else />
+          <img v-if="avatarUrl" :src="avatarUrl" alt="用户头像" @error="avatarUrl = ''"><img v-else :src="avatarPlaceholder(displayName)" alt="用户头像">
           </span>
         </button>
         <Transition name="app-account" :duration="220">
@@ -57,6 +57,7 @@ import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { EditPen, Document, ChatDotRound, Bell, User, Menu, Close, SwitchButton, House, Setting } from '@element-plus/icons-vue'
 import request from '@/utils/request'
+import { avatarPlaceholder } from '@/utils/avatar'
 import { eventBus, EVENT_AUTH_CHANGED } from '@/utils/eventBus'
 import { notifyUnreadCount, fetchNotifyUnreadCount, connectNotifyStream, closeNotifyStream, resetNotifyState } from '@/utils/notification'
 

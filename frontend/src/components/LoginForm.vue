@@ -112,8 +112,7 @@
 </template>
 
 <script setup lang="ts">
-import { clearAccountStorage } from '@/utils/searchHistory'
-import { eventBus, EVENT_AUTH_CHANGED } from '@/utils/eventBus'
+import { acceptAuthSession } from '@/utils/authSession'
 import { ref, reactive } from 'vue'
 import { ElMessage } from 'element-plus'
 import request from '@/utils/request'
@@ -182,15 +181,8 @@ async function handleLogin() {
       
       // 兼容多种响应格式
       if (response.status === 'success' || response.code === 200) {
-        clearAccountStorage()
-        
         const data = response.data || response
-        localStorage.setItem('token', data.token)
-        localStorage.setItem('userId', data.userId)
-        localStorage.setItem('email', data.email)
-        localStorage.setItem('nickName', data.nickName || '')
-        localStorage.setItem('avatar', data.avatar || '')
-        eventBus.emit(EVENT_AUTH_CHANGED)
+        acceptAuthSession(data)
         
         emit('success')
       } else {
@@ -273,15 +265,8 @@ async function handleCodeLogin() {
       
       // 兼容多种响应格式
       if (response.status === 'success' || response.code === 200) {
-        clearAccountStorage()
-        
         const data = response.data || response
-        localStorage.setItem('token', data.token)
-        localStorage.setItem('userId', data.userId)
-        localStorage.setItem('email', data.email)
-        localStorage.setItem('nickName', data.nickName || '')
-        localStorage.setItem('avatar', data.avatar || '')
-        eventBus.emit(EVENT_AUTH_CHANGED)
+        acceptAuthSession(data)
         
         if (countdownTimer) {
           clearInterval(countdownTimer)
@@ -312,7 +297,7 @@ async function handleCodeLogin() {
   text-align: center;
   font-size: 26px;
   font-weight: 700;
-  color: #1a1a1a;
+  color: var(--ej-ink);
   margin-bottom: 35px;
   letter-spacing: 2px;
 }
@@ -337,7 +322,7 @@ async function handleCodeLogin() {
 .login-tabs :deep(.el-tabs__item) {
   font-size: 15px;
   font-weight: 500;
-  color: #9ca3af;
+  color: var(--ej-muted);
   padding: 0;
   height: 36px;
   line-height: 36px;
@@ -345,11 +330,11 @@ async function handleCodeLogin() {
 }
 
 .login-tabs :deep(.el-tabs__item:hover) {
-  color: #4b5563;
+  color: var(--ej-ink);
 }
 
 .login-tabs :deep(.el-tabs__item.is-active) {
-  color: #1f2937;
+  color: var(--ej-ink);
   font-weight: 600;
 }
 
@@ -386,7 +371,7 @@ async function handleCodeLogin() {
 
 /* 彻底清除输入框内部蓝色 */
 .login-tabs :deep(.el-input__inner) {
-  color: #1f2937;
+  color: var(--ej-ink);
   font-size: 15px;
   height: 100%;
   background: transparent !important;
@@ -404,12 +389,12 @@ async function handleCodeLogin() {
 }
 
 .login-tabs :deep(.el-input__inner::placeholder) {
-  color: #9ca3af;
+  color: var(--ej-muted);
   font-size: 14px;
 }
 
 .login-tabs :deep(.el-input__prefix) {
-  color: #9ca3af;
+  color: var(--ej-muted);
   font-size: 18px;
 }
 
@@ -431,41 +416,45 @@ async function handleCodeLogin() {
   border-color: var(--ej-ink);
 }
 
+/* 按下时收起偏移阴影，形成“压下去”的反馈 */
 .login-tabs :deep(.el-button--primary:active) {
-  background: #0093c4;
+  background: var(--studio-lime);
+  color: var(--ej-ink);
+  box-shadow: 1px 1px 0 var(--ej-ink);
+  transform: translateY(0);
 }
 
 .login-tabs :deep(.el-button--primary.is-disabled) {
-  background: #99d6ed;
-  border-color: #99d6ed;
+  background: var(--ej-soft);
+  border-color: var(--ej-line);
+  color: var(--ej-muted);
 }
 
 .login-tabs :deep(.el-button--default) {
   background: var(--ej-surface);
   border: 1px solid var(--ej-ink);
-  color: #4b5563;
+  color: var(--ej-ink);
   height: 52px;
 }
 
-.login-tabs :deep(.el-button--default:hover) {
-  background: #fff;
-  border-color: var(--ej-accent);
-  color: var(--ej-accent);
+.login-tabs :deep(.el-button--default:hover:not(.is-disabled)) {
+  background: var(--studio-lime);
+  border-color: var(--ej-ink);
+  color: var(--ej-ink);
 }
 
-.login-tabs :deep(.el-button--success) {
-  background: #f0fff4;
-  border: 1.5px solid #52c41a;
-  color: #52c41a;
-  height: 52px;
+.login-tabs :deep(.el-button--default.is-disabled) {
+  background: var(--ej-canvas);
+  border-color: var(--ej-line);
+  color: var(--ej-muted);
 }
 
 .form-footer {
   text-align: center;
   margin-top: 28px;
   padding-top: 24px;
-  border-top: 1px solid #f1f5f9;
-  color: #6b7280;
+  border-top: 1px solid var(--ej-hairline);
+  color: var(--ej-muted);
   font-size: 14px;
   position: relative;
   z-index: 1;

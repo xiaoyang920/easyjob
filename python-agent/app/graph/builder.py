@@ -56,6 +56,7 @@ def _build_legacy_graph() -> StateGraph:
 
 
 def _build_graph() -> StateGraph:
+    from app.graph.delivery_recovery import after_retrieve, after_final_gate
     graph = StateGraph(AgentState)
     graph.add_node("main_agent", guard_node("main_agent", main_agent_node))
     graph.add_node("main_retrieve", guard_node("main_retrieve", main_retrieve_node))
@@ -66,12 +67,12 @@ def _build_graph() -> StateGraph:
     graph.add_node("final_gate", guard_node("final_gate", final_gate))
     graph.add_edge(START, "main_agent")
     graph.add_conditional_edges("main_agent", main_dispatcher)
-    graph.add_edge("main_retrieve", "main_agent")
+    graph.add_conditional_edges("main_retrieve", after_retrieve, ['main_agent', 'final_gate'])
     graph.add_edge("main_delegate", "main_agent")
     graph.add_conditional_edges("prepare_draft", draft_dispatcher)
     graph.add_edge("writing_worker", "collect_draft")
     graph.add_edge("collect_draft", "main_agent")
-    graph.add_edge("final_gate", END)
+    graph.add_conditional_edges("final_gate", after_final_gate, ['main_agent', END])
     return graph
 
 # -------- 全局单例 --------

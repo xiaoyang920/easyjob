@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.easyjob.mapper.AdminOperationsMapper">
+    <!-- Queue identifiers are fixed literals; callers cannot provide table names. -->
+    <sql id="jobTable"><choose>
+        <when test="queue == 'article'">article_index_outbox</when>
+        <when test="queue == 'memory'">agent_background_job</when>
+    </choose></sql>
+    <sql id="stateFilter"><if test="state != 'all'">WHERE status=#{state}</if></sql>
+    <sql id="jobIdentity"><choose>
+        <when test="queue == 'article'">CAST(article_id AS CHAR) AS targetId,action AS kind</when>
+        <when test="queue == 'memory'">CAST(user_id AS CHAR) AS targetId,kind</when>
+    </choose></sql>
+    <insert id="insertReconcileAudit">
+        INSERT INTO admin_operation_log(admin_user_id,action,target_type,target_id,before_value,after_value) VALUES (#{actorId},'index_reconcile','maintenance',#{targetId},'idle',#{kind})
+    </insert>
+    <update id="scheduleReconciliation">
+        UPDATE maintenance_cursor SET next_at=UTC_TIMESTAMP(6) WHERE kind=#{kind} AND (lease_until IS NULL OR lease_until&lt;=UTC_TIMESTAMP(6)) AND next_at&gt;UTC_TIMESTAMP(6)
+    </update>
+    <insert id="insertRetryAudit">
+        INSERT INTO admin_operation_log(admin_user_id,action,target_type,target_id,before_value,after_value) VALUES (#{actorId},'task_retry',#{queue},#{targetId},#{jobId},'pending')
+    </insert>
+    <select id="reconciliationSummary" resultType="map">
+        SELECT kind,last_id AS lastId,scanned,repaired,last_error AS error,next_at AS nextAt,last_finished_at AS finishedAt,(lease_until&gt;UTC_TIMESTAMP(6)) AS running FROM maintenance_cursor ORDER BY kind
+    </select>
+    <select id="viewSummary" resultType="map">
+        SELECT COUNT(*) AS pending,COALESCE(MAX(attempts),0) AS maxAttempts FROM article_view_sync
+    </select>
+    <select id="runSummary" resultType="map">
+        SELECT status,COUNT(*) AS count FROM agent_run WHERE created_at&gt;=TIMESTAMPADD(DAY,-1,NOW(6)) GROUP BY status
+    </select>
+    <select id="queueSummary" resultType="map">
+        SELECT status,COUNT(*) AS count,COALESCE(MAX(TIMESTAMPDIFF(SECOND,created_at,UTC_TIMESTAMP(6))),0) AS oldestSeconds FROM <include refid="jobTable"/> GROUP BY status
+    </select>
+    <select id="countJobs" resultType="Long">
+        SELECT COUNT(*) FROM <include refid="jobTable"/> <include refid="stateFilter"/>
+    </select>
+    <select id="findJobs" resultType="map">
+        SELECT job_id AS jobId,<include refid="jobIdentity"/>,status,attempts,available_at AS availableAt,updated_at AS updatedAt,CASE WHEN last_error REGEXP '^[a-zA-Z0-9_]{1,128}$' THEN last_error ELSE 'task_failed' END AS error FROM <include refid="jobTable"/> <include refid="stateFilter"/> ORDER BY updated_at DESC,job_id DESC LIMIT #{size} OFFSET #{offset}
+    </select>
+    <select id="countRuns" resultType="Long">
+        SELECT COUNT(*) FROM agent_run <include refid="stateFilter"/>
+    </select>
+    <select id="findRuns" resultType="map">
+        SELECT run_id AS runId,CAST(user_id AS CHAR) AS userId,CAST(conversation_id AS CHAR) AS conversationId,status,DATE_FORMAT(TIMESTAMPADD(SECOND,-TIMESTAMPDIFF(SECOND,UTC_TIMESTAMP(),NOW()),created_at),'%Y-%m-%dT%H:%i:%sZ') AS createdAt,updated_at AS updatedAt,deadline FROM agent_run <include refid="stateFilter"/> ORDER BY created_at DESC,run_id DESC LIMIT #{size} OFFSET #{offset}
+    </select>
+    <select id="lockJob" resultType="map">
+        SELECT status,<choose><when test="queue == 'article'">article_id AS target_id</when><when test="queue == 'memory'">user_id AS target_id,kind</when></choose> FROM <include refid="jobTable"/> WHERE job_id=#{jobId} FOR UPDATE
+    </select>
+    <update id="retryJob">
+        UPDATE <include refid="jobTable"/> SET status='pending',attempts=0,lease_until=NULL,lease_token=NULL,last_error=NULL,available_at=UTC_TIMESTAMP(6),updated_at=UTC_TIMESTAMP(6) WHERE job_id=#{jobId} AND status='dead'
+    </update>
+</mapper>

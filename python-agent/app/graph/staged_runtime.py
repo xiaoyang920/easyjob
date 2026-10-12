@@ -4,6 +4,7 @@ import json
 import re
 import time
 import inspect
+import hashlib
 
 from langgraph.config import get_config
 from langgraph.errors import GraphInterrupt
@@ -61,6 +62,13 @@ def task_context(state, task):
     for result in dependencies.values():
         # Internal source storage must not duplicate full chunks in model inputs.
         result.pop('citation_contents', None)
+    target_draft = {}
+    if task.draft_source_task_id:
+        source = dependencies.get(task.draft_source_task_id, {})
+        document = source.get('draft_document')
+        if source.get('retrieval_target') != 'drafts' or not document or not document.get('editable'):
+            raise ValueError("必须先读取可编辑的本人草稿全文")
+        target_draft = dict(document)
     evidence = {}
     for result in dependencies.values():
         for citation in result.get("citations", []):
@@ -70,6 +78,8 @@ def task_context(state, task):
             evidence[cid] = citation
     if task.requires_evidence and task.kind in ("analysis", "writing") and not evidence:
         raise ValueError("必需证据缺失")
+    from app.services.grounding import source_contents
+    evidence_contents = {str(source['id']): source['content'] for source in source_contents(state, list(evidence.values()))}
     return {
         "user_id": state["user_id"], "run_id": state.get("run_id", ""),
         "execution_token": state.get("execution_token", ""),
@@ -83,7 +93,8 @@ def task_context(state, task):
         "user_profile": turn_context['user_profile'] if task.actor == "main" else {},
         "active_constraints": [c for c in turn_context['active_constraints'] if c["id"] not in state.get("constraint_overrides", [])],
         "dependency_context": dependency_text(dependencies),
-        "citations": list(evidence.values()), "allow_web": task.allow_web,
+        "target_draft": target_draft,
+        "citations": list(evidence.values()), "evidence_contents": evidence_contents, "allow_web": task.allow_web,
         "dependency_cards": [card for dep in dependencies.values() for card in dep.get("article_cards", [])],
         "execution_mode": "delegate" if task.actor == "subagent" else "direct",
         "capabilities": sorted(task_capabilities(task)),
@@ -127,8 +138,9 @@ def task_result(state, update, *, raw_retrieval=False):
     citations = update.get("citations", state.get("citations", []))
     cards = update.get("article_cards", state.get("dependency_cards", []))
     memory_lookup = task.retrieval_target == "memory"
-    if memory_lookup and (citations or cards):
-        raise ValueError("记忆结果不能携带文章引用或卡片")
+    private_lookup = task.retrieval_target in ("memory", "drafts")
+    if private_lookup and (citations or cards):
+        raise ValueError("私有检索结果不能携带公共文章引用或卡片")
     result = workers[0]
     # Search returns source data rather than generated prose; it uses the input
     # allowance. Generated analysis/writing use the worker output allowance.
@@ -142,13 +154,14 @@ def task_result(state, update, *, raw_retrieval=False):
     # not a freshly generated answer with public article evidence.
     # Original documents can quote footnotes and old chat references. They are
     # data, not newly authored citations; generated outputs still use this gate.
-    if status == "succeeded" and not memory_lookup and not raw_retrieval and invalid_references(result["result"], citations):
+    if status == "succeeded" and not private_lookup and not raw_retrieval and invalid_references(result["result"], citations):
         status = "invalid_citation"
     if status == "succeeded" and task.requires_evidence and not citations:
         status = "insufficient_evidence"
     return {"task_id": task.task_id, "kind": task.kind, "actor": task.actor, "status": status,
             "retrieval_target": task.retrieval_target, "result": result["result"], "citations": citations,
             "article_cards": cards,
+            **({'draft_document': update['draft_document']} if task.retrieval_target == 'drafts' and update.get('draft_document') else {}),
             **({"retrieval_report": update["retrieval_report"]} if update.get("retrieval_report") else {}),
             **({'citation_contents': {str(c['id']): update['citation_contents'][str(c['id'])]
                                      for c in citations if str(c['id']) in update['citation_contents']}}
@@ -156,6 +169,7 @@ def task_result(state, update, *, raw_retrieval=False):
             **({"memory_sources": update.get("memory_sources", []), "memory_found": update["memory_found"],
                 "memory_match_count": update["memory_match_count"]} if memory_lookup else {}),
             "draft_article_id": update.get("draft_article_id"),
+            **({'grounding_audit': update['grounding_audit']} if update.get('grounding_audit') else {}),
             "draft_title": result.get("draft_title", ""),
             "instruction": task.instruction}
 
@@ -195,6 +209,11 @@ def guard_node(name, function):
             if run_id and metrics and hasattr(run_repository, 'persist_metrics'):
                 await run_repository.persist_metrics(run_id, executor_token(state), metrics)
             if run_id:
+                if hasattr(run_repository, 'record_progress'):
+                    from app.services.run_history import progress_snapshot
+                    merged = {**state, **(output or {}), 'task_results': {
+                        **(state.get('task_results') or {}), **((output or {}).get('task_results') or {})}}
+                    await run_repository.record_progress(run_id, executor_token(state), progress_snapshot(merged, name, 'succeeded'))
                 await run_repository.event(run_id, label, "succeeded", int((time.perf_counter()-started)*1000))
             await node_activity(state, name, "done")
             return output
@@ -209,6 +228,9 @@ def guard_node(name, function):
             if run_id and metrics and hasattr(run_repository, 'persist_metrics'):
                 await run_repository.persist_metrics(run_id, executor_token(state), metrics)
             if run_id:
+                if hasattr(run_repository, 'record_progress'):
+                    from app.services.run_history import progress_snapshot
+                    await run_repository.record_progress(run_id, executor_token(state), progress_snapshot(state, name, 'failed'))
                 await run_repository.event(run_id, label, "failed", int((time.perf_counter()-started)*1000))
             await node_activity(state, name, "error")
             raise
@@ -254,7 +276,35 @@ async def final_gate(state):
     text = state.get("final_reply", "")
     if not text.strip():
         raise ValueError("汇总没有有效回复")
-    if invalid_references(text, state.get("citations", [])):
+    evidence = state.get('delivery_evidence') or {}
+    from app.graph.delivery_recovery import can_lookup, supplemented_evidence
+    state, evidence = supplemented_evidence(state, evidence)
+    citations = evidence.get('citations', state.get('citations') or [])
+    if invalid_references(text, citations):
         raise ValueError("最终回复包含不存在的引用")
-    await verify_public_evidence(state.get("citations", []))
-    return {}
+    await verify_public_evidence(citations)
+    from app.services.grounding import AUDIT_VERSION, verify_delivery, EvidenceLookupNeeded
+    if state.get('backend_boundary'):
+        from app.graph.main_agent import valid_backend_boundary
+        if not valid_backend_boundary(state, text, citations):
+            raise ValueError('边界回复与后端状态不一致')
+        audit = {'version': AUDIT_VERSION, 'status': 'not_required', 'review_calls': 0,
+                 'repair_calls': 0, 'reason_code': 'backend_boundary',
+                 'text_hash': hashlib.sha256(text.encode()).hexdigest()}
+    else:
+        try:
+            text, audit = await verify_delivery(state, text, citations, allow_retrieval=can_lookup(state))
+        except EvidenceLookupNeeded as gap:
+            return {'grounding_audit': gap.audit, 'delivery_review': {
+                'phase': 'needs_retrieval', 'candidate_hash': hashlib.sha256(text.encode()).hexdigest(),
+                'issues': gap.issues, 'audit': gap.audit, 'lookup_count': 0,
+                'review_projection': gap.review_projection},
+                'observations': [*state.get('observations', []), {
+                    'round': state.get('main_round', 0), 'action': 'answer',
+                    'status': 'needs_evidence', 'findings': gap.audit.get('initial_findings', [])}]}
+    # Repair has no tools; still verify its identifiers and the source version.
+    if invalid_references(text, citations):
+        raise ValueError('依据修正包含不存在的引用')
+    await verify_public_evidence(citations)
+    return {'final_reply': text, 'grounding_audit': audit, 'delivery_evidence': evidence,
+            'delivery_review': {'phase': 'complete', 'lookup_count': audit.get('lookup_count', 0)}}

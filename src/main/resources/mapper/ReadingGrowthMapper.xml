@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.easyjob.mapper.ReadingGrowthMapper">
+    <resultMap id="sessionRow" type="map">
+        <id property="article_id" column="article_id" javaType="java.lang.Long"/>
+        <result property="last_sequence" column="last_sequence" javaType="java.lang.Long"/>
+        <result property="last_heartbeat" column="last_heartbeat" javaType="java.sql.Timestamp"/>
+        <result property="active" column="active" javaType="java.lang.Boolean"/>
+    </resultMap>
+    <insert id="creditDay">
+        INSERT INTO user_reading_daily(user_id,read_day,total_millis) VALUES (#{userId},#{day},#{millis}) ON DUPLICATE KEY UPDATE total_millis=total_millis+#{increment}
+    </insert>
+    <update id="updateProgress">
+        UPDATE user_reading_progress SET total_millis=#{millis},earned_level=#{level},updated_at=#{now} WHERE user_id=#{userId}
+    </update>
+    <update id="heartbeatSession">
+        UPDATE reading_session SET last_sequence=#{sequence},last_heartbeat=#{now},active=#{active},credited_millis=credited_millis+#{credit} WHERE session_id=#{sessionId}
+    </update>
+    <update id="activateSession">
+        UPDATE user_reading_progress SET active_session=#{sessionId},earned_level=#{level},updated_at=#{now} WHERE user_id=#{userId}
+    </update>
+    <insert id="insertSession">
+        INSERT INTO reading_session(session_id,user_id,article_id,last_heartbeat,active) VALUES (#{sessionId},#{userId},#{articleId},#{now},#{active})
+    </insert>
+    <select id="findReadableArticle" resultType="map">
+        SELECT user_id,status,deleted,required_level FROM article_info WHERE article_id=#{articleId}
+    </select>
+    <select id="lockProgress" resultType="map">
+        SELECT * FROM user_reading_progress WHERE user_id=#{userId} FOR UPDATE
+    </select>
+    <insert id="ensureProgress">
+        INSERT INTO user_reading_progress(user_id) VALUES (#{userId}) ON DUPLICATE KEY UPDATE user_id=user_id
+    </insert>
+    <update id="promoteEarnedLevel">
+        UPDATE user_reading_progress SET earned_level=GREATEST(earned_level,#{level}) WHERE user_id=#{userId} AND total_millis=#{millis} AND earned_level=#{earned}
+    </update>
+    <select id="findProgress" resultType="map">
+        SELECT total_millis,earned_level FROM user_reading_progress WHERE user_id=#{userId}
+    </select>
+    <select id="findRules" resultType="map">
+        SELECT level,min_seconds AS minSeconds FROM reading_level_rule ORDER BY level
+    </select>
+    <select id="findSession" resultMap="sessionRow">
+        SELECT article_id,last_sequence,last_heartbeat,active FROM reading_session WHERE session_id=#{sessionId} AND user_id=#{userId}
+    </select>
+</mapper>

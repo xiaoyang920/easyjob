@@ -13,7 +13,6 @@ import java.util.List;
  */
 @Mapper
 public interface MessageMapper extends BaseMapper<Message> {
-    @org.apache.ibatis.annotations.Select("SELECT * FROM message WHERE sender_id=#{uid} AND client_message_id=#{key}")
     Message findClientMessage(@Param("uid") Long uid, @Param("key") String key);
     List<MessageVO> selectMessagesAfter(@Param("conversationId") Long conversationId,
             @Param("afterMessageId") Long afterMessageId, @Param("size") Integer size);

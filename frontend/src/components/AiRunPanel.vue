@@ -1,5 +1,5 @@
 <template>
-  <aside v-if="aiRunCount && route.path !== '/ai-chat'" class="ai-run-panel" aria-label="AI 任务状态">
+  <aside v-if="aiRunCount && route.path !== '/ai-chat'" class="ai-run-panel" :class="dockClass" aria-label="AI 任务状态">
     <button class="ai-run-toggle" :aria-expanded="open" @click="open = !open">
       <span class="ai-run-dot" :class="{ working: running }"></span>
       {{ running ? `${running} 个 AI 任务正在生成` : 'AI 对话有更新' }}<span>{{ aiRunCount }}</span>
@@ -21,6 +21,8 @@ import { runLabel } from '@/utils/runOverview'
 const route = useRoute()
 const open = ref(false)
 const running = computed(() => aiRunItems.value.filter(item => item.status === 'running').length)
+// 停靠位置由路由 meta 声明，见 router/index.ts 的 aiRunDock
+const dockClass = computed(() => route.meta.aiRunDock ? `dock-${route.meta.aiRunDock}` : '')
 </script>
 <style scoped>
 .ai-run-panel { position: fixed; right: 24px; bottom: 24px; z-index: 110; max-width: calc(100vw - 32px); }
@@ -34,6 +36,13 @@ const running = computed(() => aiRunItems.value.filter(item => item.status === '
 .ai-run-menu a { display: flex; flex-direction: column; gap: 6px; padding: 14px 0; border-bottom: 1px solid #17171718; color: inherit; text-decoration: none; }
 .ai-run-menu a > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .ai-run-menu small, .ai-run-menu p { color: var(--ej-muted); font-size: 12px; }
+/* 私信页底部是输入区：停到会话标题栏右侧，菜单改为向下展开 */
+.ai-run-panel.dock-top { top: 104px; right: 40px; bottom: auto; }
+.ai-run-panel.dock-top .ai-run-menu { top: calc(100% + 12px); bottom: auto; }
+/* 文章页窄屏右下角是浮动按钮组（问 AI、聊天室、在线人数），浮窗排在按钮组上方并与其右对齐 */
+@media (max-width: 1200px) { .ai-run-panel.dock-above-actions { right: 20px; bottom: 194px; } }
+@media (max-width: 768px) { .ai-run-panel.dock-top { top: 86px; right: 24px; } }
+@media (max-width: 480px) { .ai-run-panel.dock-above-actions { right: 15px; bottom: 172px; } }
 @keyframes task-pulse { 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) { .ai-run-dot.working { animation: none; } }
 </style>

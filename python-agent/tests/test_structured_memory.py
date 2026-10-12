@@ -375,6 +375,9 @@ class MemoryPersistenceTests(unittest.IsolatedAsyncioTestCase):
 
 class StartupAndGraphTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
+        history = patch('app.services.run_service.run_history.previous', AsyncMock(return_value=({}, {})))
+        history.start()
+        self.addCleanup(history.stop)
         fence = patch("app.graph.staged_runtime.run_repository", repository())
         fence.start()
         self.addCleanup(fence.stop)

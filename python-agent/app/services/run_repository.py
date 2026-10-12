@@ -177,6 +177,18 @@ class RunRepository:
             WHERE run_id=:rid AND execution_token=:token AND status='running' ''',
             {'rid': run_id, 'token': token, 'node': node})
 
+    async def record_input(self, run_id, token, message_id):
+        await self.db.execute('''UPDATE agent_run SET result_json=JSON_SET(
+            COALESCE(result_json,JSON_OBJECT()),'$.user_message_id',:mid)
+            WHERE run_id=:rid AND execution_token=:token AND status='running' ''',
+            {'rid': run_id, 'token': token, 'mid': str(message_id)})
+
+    async def record_progress(self, run_id, token, progress):
+        await self.db.execute('''UPDATE agent_run SET result_json=JSON_SET(
+            COALESCE(result_json,JSON_OBJECT()),'$.progress',CAST(:progress AS JSON))
+            WHERE run_id=:rid AND execution_token=:token AND status='running' ''',
+            {'rid': run_id, 'token': token, 'progress': json.dumps(progress, ensure_ascii=False)})
+
     async def claim_recovery(self, cid, uid, rid):
         async with self.db.transaction():
             await self._lock_conversation(cid, uid)
@@ -213,6 +225,8 @@ class RunRepository:
             await self.assert_executor(run_id, token)
             if append_message:
                 await append_message()
+            # Keep the input anchor/progress through approval, recovery and settlement.
+            result = {**json.loads(current.get('result_json') or '{}'), **result}
             await self.db.execute("""UPDATE agent_run SET status=:status,result_json=:result,draft_hash=COALESCE(:hash,draft_hash),
                 executor_lease_until=NULL,
                 deadline=IF(:status='awaiting_approval',TIMESTAMPADD(SECOND,:ttl,UTC_TIMESTAMP(6)),deadline),

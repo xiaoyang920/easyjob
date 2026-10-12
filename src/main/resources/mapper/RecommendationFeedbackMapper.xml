@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.easyjob.mapper.RecommendationFeedbackMapper">
+    <select id="findFeedback" resultType="map">
+        SELECT CAST(f.article_id AS CHAR) AS articleId,f.kind,a.title,u.nick_name AS authorName,f.created_at AS createdAt FROM recommendation_feedback f LEFT JOIN article_info a ON a.article_id=f.article_id LEFT JOIN user_info u ON u.user_id=f.target_author_id WHERE f.user_id=#{userId} ORDER BY f.created_at DESC,f.article_id DESC LIMIT 200
+    </select>
+    <delete id="deleteFeedback">
+        DELETE FROM recommendation_feedback WHERE user_id=#{userId} AND article_id=#{articleId}
+    </delete>
+    <insert id="upsertFeedback">
+        INSERT INTO recommendation_feedback(user_id,article_id,target_author_id,kind) VALUES (#{userId},#{articleId},#{authorId},#{kind}) ON DUPLICATE KEY UPDATE kind=VALUES(kind),target_author_id=VALUES(target_author_id),created_at=NOW(3)
+    </insert>
+    <select id="countOtherFeedback" resultType="Long">
+        SELECT COUNT(*) FROM recommendation_feedback WHERE user_id=#{userId} AND article_id&lt;&gt;#{articleId}
+    </select>
+    <select id="findPublicArticle" resultType="map">
+        SELECT user_id FROM article_info WHERE article_id=#{articleId} AND status=1 AND deleted=0
+    </select>
+    <select id="lockActiveUser" resultType="map">
+        SELECT user_id FROM user_info WHERE user_id=#{userId} AND status=1 FOR UPDATE
+    </select>
+</mapper>

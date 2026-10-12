@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.easyjob.mapper.ArticleIndexOutboxMapper">
+    <update id="markCompleted">
+        UPDATE article_index_outbox SET status='completed',lease_until=NULL,last_error=NULL WHERE job_id=#{jobId} AND article_id=#{articleId}
+    </update>
+    <select id="isCompleted" resultType="Boolean">
+        SELECT COUNT(*)&gt;0 FROM article_index_outbox WHERE job_id=#{jobId} AND article_id=#{articleId} AND status='completed'
+    </select>
+    <update id="retryJob">
+        UPDATE article_index_outbox SET status=#{state},lease_until=NULL,last_error=#{error},
+            available_at=TIMESTAMPADD(SECOND,#{seconds},UTC_TIMESTAMP(6))
+            WHERE job_id=#{jobId} AND status='running' AND lease_token=#{token}
+    </update>
+    <update id="markDispatched">
+        UPDATE article_index_outbox SET status='dispatched',lease_until=NULL,last_error=NULL,
+            available_at=TIMESTAMPADD(SECOND,#{seconds},UTC_TIMESTAMP(6))
+            WHERE job_id=#{jobId} AND status='running' AND lease_token=#{token}
+    </update>
+    <update id="leaseJob">
+        UPDATE article_index_outbox SET status='running',attempts=attempts+1,lease_token=#{token},
+                    lease_until=TIMESTAMPADD(SECOND,30,UTC_TIMESTAMP(6)) WHERE job_id=#{jobId}
+    </update>
+    <update id="exhaustJob">
+        UPDATE article_index_outbox SET status='dead',lease_until=NULL,last_error='attempts_exhausted' WHERE job_id=#{jobId}
+    </update>
+    <select id="lockAvailableJob" resultType="map">
+        SELECT job_id,article_id,action,routing_key,attempts FROM article_index_outbox
+                    WHERE job_id=#{jobId} AND ((status IN ('pending','dispatched') AND available_at&lt;=UTC_TIMESTAMP(6))
+                    OR (status='running' AND lease_until&lt;=UTC_TIMESTAMP(6))) FOR UPDATE SKIP LOCKED
+    </select>
+    <select id="findCandidates" resultType="map">
+        SELECT job_id FROM article_index_outbox WHERE
+            (status IN ('pending','dispatched') AND available_at&lt;=UTC_TIMESTAMP(6))
+            OR (status='running' AND lease_until&lt;=UTC_TIMESTAMP(6))
+            ORDER BY available_at,created_at LIMIT 16
+    </select>
+    <insert id="enqueue">
+        INSERT INTO article_index_outbox(job_id,article_id,action,routing_key,available_at,created_at,updated_at) VALUES (#{jobId},#{articleId},#{action},#{routingKey},UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+    </insert>
+    <select id="checkSchema" resultType="map">
+        SELECT job_id,article_id,action,routing_key,status,attempts,available_at,lease_until,lease_token,last_error FROM article_index_outbox LIMIT 0
+    </select>
+</mapper>

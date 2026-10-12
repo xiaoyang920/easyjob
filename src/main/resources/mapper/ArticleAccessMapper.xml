@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.easyjob.mapper.ArticleAccessMapper">
+    <update id="updateRequiredLevel">
+        UPDATE article_info SET required_level=#{level},update_time=NOW() WHERE article_id=#{articleId}
+    </update>
+    <select id="lockArticle" resultType="map">
+        SELECT user_id FROM article_info WHERE article_id=#{articleId} AND deleted=0 FOR UPDATE
+    </select>
+    <select id="findPermissions" resultType="String">
+        SELECT p.permission FROM user_info u JOIN admin_role_permission p ON p.role_id=u.role WHERE u.user_id=#{userId} AND u.status=1
+    </select>
+    <select id="findAdmin" resultType="map">
+        SELECT user_id FROM user_info WHERE user_id=#{userId} AND role=2 AND status=1
+    </select>
+</mapper>

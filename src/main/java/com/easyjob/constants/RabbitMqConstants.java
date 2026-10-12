@@ -20,6 +20,7 @@ public class RabbitMqConstants {
      */
     public static final String ROUTING_KEY_PUBLISH = "article.publish";
     public static final String ROUTING_KEY_UPDATE = "article.update";
+    public static final String ACTION_COUNTS = "COUNTS";
     public static final String ROUTING_KEY_DELETE = "article.delete";
     /**
      * 通知路由键

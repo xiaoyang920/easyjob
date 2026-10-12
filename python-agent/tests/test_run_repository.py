@@ -182,6 +182,15 @@ class RunCreationTests(unittest.IsolatedAsyncioTestCase):
 
 
 class RunArbitrationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_settlement_preserves_input_anchor_and_progress_for_approval_and_history(self):
+        metadata = {'user_message_id': '123', 'progress': {'node': 'main_delegate'}}
+        db, _ = database({'execution_token': 't', 'status': 'running', 'result_json': json.dumps(metadata)})
+        repo = RunRepository(db)
+        repo.assert_executor = AsyncMock()
+        result = await repo.settle(11, 7, RUN_ID, 't', 'awaiting_approval', {'reply': 'preview'})
+        self.assertEqual(result, {**metadata, 'reply': 'preview'})
+        self.assertEqual(json.loads(db.execute.await_args.args[1]['result']), result)
+
     async def test_cancelled_run_cannot_persist_assistant_result(self):
         db, calls = database({"execution_token": "t", "status": "cancelled"})
         append = AsyncMock()

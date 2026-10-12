@@ -55,7 +55,7 @@ class UserSearchTests {
         SearchController controller = new SearchController();
         ReflectionTestUtils.setField(controller, "userSearchService", new UserSearchService(mapper));
         ReflectionTestUtils.setField(controller, "jwtUtil", jwt);
-        EsComponent es = mock(EsComponent.class); ReflectionTestUtils.setField(controller, "esComponent", es);
+        ArticleSearchService articleSearch = mock(ArticleSearchService.class); ReflectionTestUtils.setField(controller, "articleSearch", articleSearch);
         MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
         mvc.perform(get("/api/search/users").param("keyword", "Alice"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.records[0].nickName").value("Alice"))
@@ -71,7 +71,7 @@ class UserSearchTests {
         when(mapper.searchUsers("Alice", "%Alice%", 9L, 0, 10)).thenReturn(List.of(user));
         mvc.perform(get("/api/search/users").param("keyword", "Alice").header("Authorization", "Bearer valid"))
                 .andExpect(jsonPath("$.data.records[0].isFollowing").value(true));
-        verifyNoInteractions(es);
+        verifyNoInteractions(articleSearch);
     }
     @Test void realMapperOnlySelectsPublicUsersAndPublishedArticleCounts() throws Exception {
         Configuration config = new Configuration();

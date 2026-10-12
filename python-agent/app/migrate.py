@@ -528,7 +528,9 @@ async def main():
         await apply_category_migration(db)
         await apply_statistics_category_migration(db)
         await apply_platform_completion(db)
-        print("001..019: applied (existing data preserved)")
+        from app.services.revision_migration import apply_revision_workspace_migration
+        await apply_revision_workspace_migration(db)
+        print("001..020: applied (legacy data preserved)")
     finally:
         await db.disconnect()
 

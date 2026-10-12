@@ -4,26 +4,30 @@ import com.easyjob.component.RedisComponent;
 import com.easyjob.exception.BusinessException;
 import com.easyjob.mapper.UserMapper;
 import org.junit.jupiter.api.Test;
-import org.springframework.jdbc.core.JdbcTemplate;
+import com.easyjob.mapper.AdminConsoleMapper;
 import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class AdminConsoleTests {
-    final JdbcTemplate jdbc=mock(JdbcTemplate.class);
+    final AdminConsoleMapper store=mock(AdminConsoleMapper.class);
     final ArticleAccessService access=mock(ArticleAccessService.class);
     final UserMapper users=mock(UserMapper.class);
     final ArticleIndexPublisher index=mock(ArticleIndexPublisher.class);
-    final AdminConsoleService service=new AdminConsoleService(jdbc,access,mock(ReadingGrowthService.class),mock(RedisComponent.class),users,index);
+    final AdminConsoleService service=new AdminConsoleService(store,access,mock(ReadingGrowthService.class),mock(RedisComponent.class),users,index);
     void admin(){when(access.isAdmin(7L)).thenReturn(true);}
-    void article(int status,int level){when(jdbc.queryForList("SELECT user_id,status,required_level FROM article_info WHERE article_id=? AND deleted=0 FOR UPDATE",42L)).thenReturn(List.of(Map.of("user_id",8L,"status",status,"required_level",level)));}
+    void article(int status,int level){
+        var row=List.of(Map.<String,Object>of("user_id",8L,"status",status,"required_level",level));
+        when(store.findArticleOwner(42L)).thenReturn(row);
+        when(store.lockArticle(42L)).thenReturn(row);
+    }
     @Test void ordinaryUsersCannotReadOrWriteAdminData(){
         assertThrows(BusinessException.class,()->service.overview(7L));
         assertThrows(BusinessException.class,()->service.users(7L,"",1,20));
         assertThrows(BusinessException.class,()->service.logs(7L,1,20));
         assertThrows(BusinessException.class,()->service.level(7L,42L,0,1));
         assertThrows(BusinessException.class,()->service.visibility(7L,42L,1,2));
-        verifyNoInteractions(jdbc,users,index);
+        verifyNoInteractions(store,users,index);
     }
     @Test void keywordsAreLiteralAndBounded(){
         assertEquals("%a!!b!%!_%",AdminConsoleService.searchPattern(" a!b%_ "));
@@ -33,7 +37,7 @@ class AdminConsoleTests {
         admin();assertThrows(BusinessException.class,()->service.articles(7L,"",99,1,20));
         assertThrows(BusinessException.class,()->service.users(7L,"",0,20));
         assertThrows(BusinessException.class,()->service.logs(7L,1,101));
-        verifyNoInteractions(jdbc);
+        verifyNoInteractions(store);
     }
     @Test void staleEditsNeverOverwriteNewerLevel(){
         admin();article(1,2);assertThrows(BusinessException.class,()->service.level(7L,42L,1,3));

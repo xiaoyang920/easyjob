@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.easyjob.mapper.ArticleIndexLockMapper">
+    <!-- Advisory locks belong to the connection, never the MyBatis query cache. -->
+    <select id="acquire" resultType="Integer" useCache="false" flushCache="true">
+        SELECT GET_LOCK(#{name}, 10)
+    </select>
+    <select id="release" resultType="Integer" useCache="false" flushCache="true">
+        SELECT RELEASE_LOCK(#{name})
+    </select>
+</mapper>

@@ -11,6 +11,7 @@ import java.util.List;
 @Data
 public class ArticleDetailVO {
     private String revisionId;
+    private Long lockVersion;
     private Integer revisionState;
     private String reviewReason;
     private Boolean hasPublishedVersion;

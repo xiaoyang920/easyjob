@@ -124,7 +124,7 @@ public class AgentController {
         public ResponseVO chatResume(@RequestBody ResumeParam param) {
             Long userId = UserContext.getUserId();
             return ResponseVO.success(agentService.chatResume(
-                    param.getConversationId(), userId, param.getAction(), param.getRunId(), param.getDraftHash()));
+                    param.getConversationId(), userId, param.getAction(), param.getRunId(), param.getDraftHash(),param.getEditedDraft()));
         }
 
         // 新增：Human-in-the-loop 流式恢复
@@ -134,7 +134,7 @@ public class AgentController {
             response.setHeader("X-Accel-Buffering", "no");
             Long userId = UserContext.getUserId();
             return agentService.chatResumeStream(
-                    param.getConversationId(), userId, param.getAction(), param.getRunId(), param.getDraftHash());
+                    param.getConversationId(), userId, param.getAction(), param.getRunId(), param.getDraftHash(),param.getEditedDraft());
         }
 
         // 新增：暂停
@@ -156,8 +156,24 @@ public class AgentController {
         }
 
         @GetMapping("/conversations/{conversationId}/messages")
-        public ResponseVO getMessages(@PathVariable Long conversationId) {
+        public ResponseVO getMessages(@PathVariable Long conversationId,
+                                      @RequestParam(required = false) Integer limit,
+                                      @RequestParam(required = false) Long before,
+                                      @RequestParam(required = false) Long after,
+                                      @RequestParam(required = false) Long around) {
+            if (limit != null) return ResponseVO.success(aiConversationService.historyPage(conversationId, limit, before, after, around));
+            if (before != null || after != null || around != null) {
+                throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "分页游标需要同时指定limit");
+            }
             return ResponseVO.success(aiConversationService.getContext(conversationId));
+        }
+
+        @GetMapping("/conversations/{conversationId}/questions")
+        public ResponseVO getQuestions(@PathVariable Long conversationId,
+                                       @RequestParam(defaultValue = "200") int limit,
+                                       @RequestParam(required = false) Long after,
+                                       @RequestParam(required = false) Long snapshot) {
+            return ResponseVO.success(aiConversationService.questionIndex(conversationId, limit, after, snapshot));
         }
 
         @DeleteMapping("/conversations/{conversationId}")

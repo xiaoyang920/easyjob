@@ -67,7 +67,7 @@ class AgentErrorTests {
     @Test void synchronousControllerReturnsHttpAndBusiness409() throws Exception {
         UserContext.setUserId(7L);
         var service = mock(AgentService.class);
-        when(service.chatResume(anyLong(), anyLong(), anyString(), anyString(), anyString()))
+        when(service.chatResume(anyLong(), anyLong(), anyString(), anyString(), anyString(), isNull()))
                 .thenThrow(new ResponseStatusException(HttpStatus.CONFLICT, "草稿版本已更新，请重新加载"));
         var controller = new AgentController();
         ReflectionTestUtils.setField(controller, "agentService", service);
@@ -81,7 +81,7 @@ class AgentErrorTests {
     @Test void streamingControllerReturnsJsonConflictBeforeStreamStarts() throws Exception {
         UserContext.setUserId(7L);
         var service = mock(AgentService.class);
-        when(service.chatResumeStream(anyLong(), anyLong(), anyString(), anyString(), anyString()))
+        when(service.chatResumeStream(anyLong(), anyLong(), anyString(), anyString(), anyString(), isNull()))
                 .thenReturn(Flux.error(new ResponseStatusException(HttpStatus.CONFLICT, "审批已失效，请重新加载")));
         var controller = new AgentController();
         ReflectionTestUtils.setField(controller, "agentService", service);

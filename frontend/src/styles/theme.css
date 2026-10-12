@@ -112,6 +112,10 @@ html::-webkit-scrollbar-thumb { background: #11110f40; border-radius: 999px; bor
 }
 #app :is(.nav-btn.danger, .action-btn.delete, .delete-btn):hover:not(:disabled) { background: var(--studio-coral-soft); color: var(--ej-ink); border-color: var(--ej-ink); }
 #app :is(.page-btn, .submit-btn, .modal-submit):disabled { opacity: .4; }
+/* Follow toggles: an ink pill invites following; "已关注" settles into a quiet outline that warns coral on hover. */
+#app .follow-btn:not(.following) { background: var(--ej-ink); color: var(--ej-surface); }
+#app .follow-btn.following { background: transparent; color: var(--ej-muted); border-color: var(--ej-line); }
+#app .follow-btn.following:hover:not(:disabled) { background: var(--studio-coral-soft); color: var(--ej-ink); border-color: var(--ej-ink); }
 
 /* Search */
 #app .search-box { background: #fffdf773; border: 1px solid var(--ej-line); border-radius: 999px; box-shadow: none; transition: background 180ms, border-color 180ms, box-shadow 250ms var(--studio-spring); }
@@ -138,9 +142,15 @@ html::-webkit-scrollbar-thumb { background: #11110f40; border-radius: 999px; bor
 #app :is(.user-card, .follow-card, .draft-card, .result-card, .notify-card) { transition: transform 350ms var(--studio-spring), box-shadow 350ms ease, background 200ms; }
 #app :is(.user-card, .follow-card, .draft-card, .result-card, .notify-card):hover { transform: translateY(-3px); box-shadow: var(--ej-shadow-lift); border-color: var(--ej-ink); }
 
-/* Headings */
-#app :is(.page-header h1, .search-header h1, .form-card h2) { font-weight: 800; letter-spacing: -.05em; color: var(--ej-ink); }
-#app .page-header h1::before { content: '✳'; color: var(--studio-coral); margin-right: 10px; font-size: .95em; }
+/* Headings: list and settings pages share one heading — coral asterisk, tight display title, muted lead. */
+#app :is(.page-header h1, .search-header h1, .memory-heading h1, .form-card h2) { font-weight: 850; letter-spacing: -.05em; color: var(--ej-ink); }
+#app :is(.page-header, .search-header, .memory-heading) h1::before { content: '✳'; color: var(--studio-coral); margin-right: 10px; font-size: .95em; }
+#app :is(.page-description, .search-header .search-info, .memory-heading p) { color: var(--ej-muted); }
+/* The page name follows the wordmark behind a hairline divider (as in the admin console), whether it sits in a left
+   group or directly in the bar; the auto margin keeps the account menu on the right edge. */
+#app :is(.nav-left, .top-bar-left) { display: flex; align-items: center; gap: 0; }
+#app :is(.navbar, .top-bar) .page-title { display: inline-flex; align-items: center; height: 18px; margin-left: 14px; padding-left: 14px; border-left: 1px solid var(--ej-line); white-space: nowrap; }
+#app :is(.navbar, .top-bar) > .page-title { margin-right: auto; }
 
 /* Tabs and filters: pills with a lime active state, matching the home category nav. */
 #app :is(.tabs, .filter-tabs, .content-tabs) { border-color: var(--ej-line); }
@@ -165,6 +175,38 @@ html::-webkit-scrollbar-thumb { background: #11110f40; border-radius: 999px; bor
 #app :is(.form-item input, .form-item textarea, .form-item select, .setting-item input, .setting-item select, .edit-form-item input, .edit-form-item textarea, .edit-form-item select, .sort-options select, .category-select):focus {
   border-color: var(--ej-ink); box-shadow: 3px 3px 0 #11110f14; outline: none;
 }
+/* An unselected category reads as a placeholder; the option list itself keeps ink text. */
+#app .category-select.placeholder { color: var(--ej-muted); }
+#app .category-select option { color: var(--ej-ink); }
+
+/* Native controls in the studio language. Selects drop the OS arrow for an ink chevron (longhands only, so each
+   field keeps its own background color); checkboxes and radios become ink outlines that fill lime when checked.
+   Element Plus renders hidden native inputs (el-* classes) behind its own widgets, so those are left alone. */
+#app select:not([multiple]):not([size]) {
+  -webkit-appearance: none; appearance: none; padding-right: 38px; cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='%2311110f' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 14px center; background-size: 12px 12px;
+}
+#app select:disabled { cursor: not-allowed; opacity: .6; }
+#app input:is([type="checkbox"], [type="radio"]):not([class*="el-"]) {
+  -webkit-appearance: none; appearance: none; flex-shrink: 0; width: 18px; height: 18px; margin: 0;
+  display: inline-grid; place-content: center; vertical-align: -4px;
+  border: 1.5px solid var(--ej-ink); border-radius: 5px; background: var(--ej-surface); cursor: pointer;
+  transition: background 150ms ease, box-shadow 200ms ease;
+}
+#app input[type="radio"]:not([class*="el-"]) { border-radius: 50%; }
+#app input:is([type="checkbox"], [type="radio"]):not([class*="el-"])::before { content: ''; width: 10px; height: 10px; background: var(--ej-ink); transform: scale(0); transition: transform 160ms var(--studio-spring); }
+#app input[type="checkbox"]:not([class*="el-"])::before { clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%); }
+#app input[type="radio"]:not([class*="el-"])::before { width: 8px; height: 8px; border-radius: 50%; }
+#app input:is([type="checkbox"], [type="radio"]):not([class*="el-"]):checked { background: var(--studio-lime); }
+#app input:is([type="checkbox"], [type="radio"]):not([class*="el-"]):checked::before { transform: scale(1); }
+#app input:is([type="checkbox"], [type="radio"]):not([class*="el-"]):hover:not(:disabled) { box-shadow: 2px 2px 0 #11110f26; }
+#app input:is([type="checkbox"], [type="radio"]):not([class*="el-"]):focus-visible { outline: 2px solid var(--ej-accent); outline-offset: 2px; }
+#app input:is([type="checkbox"], [type="radio"]):not([class*="el-"]):disabled { opacity: .45; cursor: not-allowed; }
+/* Date fields keep the native picker; only its trigger icon joins the palette. */
+#app input[type="date"] { color: var(--ej-ink); color-scheme: light; }
+#app input[type="date"]::-webkit-calendar-picker-indicator { padding: 3px; border-radius: 6px; opacity: .55; cursor: pointer; transition: opacity 150ms, background 150ms; }
+#app input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; background: var(--studio-lime); }
 
 /* Pagination */
 #app .page-btn { background: var(--ej-surface); padding: 9px 21px; }
@@ -182,7 +224,6 @@ html::-webkit-scrollbar-thumb { background: #11110f40; border-radius: 999px; bor
 #app .home-page .sort-tab.active { box-shadow: none; color: var(--ej-ink); border-bottom-color: var(--ej-ink); }
 #app .home-page .article-grid { display: flex; flex-direction: column; gap: 0; }
 #app .home-page .article-card { will-change: auto; }
-#app .home-page .cover-overlay { display: none; }
 #app .home-page .article-info { flex: 1; min-width: 0; }
 #app .home-page .article-title { margin: 0; color: var(--ej-ink); }
 #app .article-deck { margin-top: 8px; color: var(--ej-muted); font-size: 12px; line-height: 1.8; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
@@ -201,7 +242,13 @@ html::-webkit-scrollbar-thumb { background: #11110f40; border-radius: 999px; bor
 #app .article-detail-page .article-header { border-bottom: 1px solid var(--ej-ink); padding-bottom: 26px; }
 #app .article-detail-page .article-meta { color: var(--ej-muted); }
 #app .article-detail-page .author-avatar { border: 1.5px solid var(--ej-ink); }
-#app .article-detail-page .article-content { font-size: 16px; line-height: 1.95; color: #2f2d28; }
+#app .article-detail-page .article-content { font-size: 16px; line-height: 1.85; color: #2f2d28; }
+/* Body rhythm: authors often write one line per paragraph, so paragraphs sit close together, and wangEditor's
+   blank lines (a paragraph holding only <br>) shrink to a short gap instead of a full empty row. */
+#app .article-detail-page .article-content p { margin: 0 0 .6em; }
+#app .article-detail-page .article-content p:has(> br:only-child) { margin: 0; line-height: 1; }
+#app .article-detail-page .article-content :is(ul, ol) { margin: .6em 0 .9em; padding-left: 1.6em; }
+#app .article-detail-page .article-content li { margin-bottom: .35em; line-height: 1.8; }
 
 /* Heading hierarchy, shared by the reading view and the editor. Each level differs in size, spacing and marker:
    h1 ink rule, h2 lime bar, h3 coral dot, h4 violet chevron, h5/h6 muted small caps. */
@@ -238,36 +285,48 @@ html::-webkit-scrollbar-thumb { background: #11110f40; border-radius: 999px; bor
 #app .article-detail-page .article-content a { color: var(--ej-accent); text-decoration-color: #745cff66; text-underline-offset: 3px; }
 #app .article-detail-page .article-content blockquote { border-left: 3px solid var(--studio-coral); background: #fffdf7; color: #47453f; }
 
-/* Code: one ink sheet shared by the reading view (highlight.js tokens) and the editor (Prism tokens from wangEditor).
-   The block is a single surface: pre carries the ink background, code stays transparent inside it. */
+/* Code: one ink sheet shared by the reading view and AI answers (highlight.js tokens) and the editor (Prism tokens
+   from wangEditor). The block is a single surface: pre carries the ink background, code stays transparent inside it.
+   The streaming placeholder for an unfinished table is not code, so it keeps its own quiet style. */
 html:root { --code-bg: #17171a; --code-text: #e8e4da; --code-muted: #8f8a80; --code-keyword: #b4a7ff; --code-string: #c8ff3d; --code-number: #f3a093; --code-title: #ffd27a; --code-attr: #e9ffb3; --code-punct: #bdb8ad; --code-font: "JetBrains Mono", "Fira Code", Consolas, Monaco, monospace; }
-#app :is(.article-detail-page .article-content, .article-editor-page .w-e-text-container [data-slate-editor]) pre {
+#app :is(.article-detail-page .article-content, .article-editor-page .w-e-text-container [data-slate-editor], .ai-chat-page .message-bubble, .ai-chat-page .draft-review-body) pre:not(.streaming-table) {
   margin: 20px 0; padding: 0; background: var(--code-bg); border: 1px solid var(--ej-ink); border-radius: 14px; box-shadow: var(--ej-shadow); overflow: hidden;
 }
-#app :is(.article-detail-page .article-content, .article-editor-page .w-e-text-container [data-slate-editor]) pre > code {
-  display: block; margin: 0; padding: 16px 20px; overflow-x: auto; background: transparent; border: 0; border-radius: 0; color: var(--code-text);
+/* Edge glows appear only while more code is hidden on that side (scroll-shadow technique: the "local" covers travel
+   with the content and hide the fixed glows once an end is reached), so narrow screens show the block scrolls. */
+#app :is(.article-detail-page .article-content, .article-editor-page .w-e-text-container [data-slate-editor], .ai-chat-page .message-bubble, .ai-chat-page .draft-review-body) pre:not(.streaming-table) > code {
+  display: block; margin: 0; padding: 16px 20px; overflow-x: auto; border: 0; border-radius: 0; color: var(--code-text);
+  background:
+    linear-gradient(90deg, var(--code-bg) 40%, #17171a00) left center / 32px 100% no-repeat local,
+    linear-gradient(270deg, var(--code-bg) 40%, #17171a00) right center / 32px 100% no-repeat local,
+    linear-gradient(90deg, #ffffff26, #ffffff00) left center / 14px 100% no-repeat scroll,
+    linear-gradient(270deg, #ffffff26, #ffffff00) right center / 14px 100% no-repeat scroll;
   font-family: var(--code-font); font-size: 13.5px; line-height: 1.7; white-space: pre; text-shadow: none; tab-size: 4;
-  scrollbar-width: thin; scrollbar-color: #ffffff33 transparent;
+  -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; scrollbar-width: thin; scrollbar-color: #ffffff33 transparent;
 }
-#app :is(.article-detail-page .article-content, .article-editor-page .w-e-text-container [data-slate-editor]) :not(pre) > code {
+#app :is(.article-detail-page .article-content, .article-editor-page .w-e-text-container [data-slate-editor], .ai-chat-page .message-bubble, .ai-chat-page .draft-review-body) :not(pre) > code {
   padding: 2px 6px; background: var(--ej-accent-soft); color: var(--ej-ink); border: 0; border-radius: 6px; font-family: var(--code-font); font-size: .88em;
 }
-/* Token colors: highlight.js classes in articles, Prism classes in the editor. */
-#app .article-detail-page .article-content pre :is(.hljs-comment, .hljs-quote, .hljs-meta),
+#app .ai-chat-page pre.streaming-table {
+  margin: 10px 0; padding: 12px 14px; overflow-x: auto; background: var(--ej-surface); border: 1px dashed var(--ej-line); border-radius: 12px;
+  color: var(--ej-muted); font-family: var(--code-font); font-size: 12px; line-height: 1.7; white-space: pre;
+}
+/* Token colors: highlight.js classes in articles and AI answers, Prism classes in the editor. */
+#app :is(.article-detail-page .article-content, .ai-chat-page .message-bubble, .ai-chat-page .draft-review-body) pre :is(.hljs-comment, .hljs-quote, .hljs-meta),
 #app .article-editor-page [data-slate-editor] pre :is(.token.comment, .token.prolog, .token.doctype, .token.cdata) { color: var(--code-muted); font-style: italic; }
-#app .article-detail-page .article-content pre :is(.hljs-keyword, .hljs-selector-tag, .hljs-section, .hljs-link, .hljs-doctag),
+#app :is(.article-detail-page .article-content, .ai-chat-page .message-bubble, .ai-chat-page .draft-review-body) pre :is(.hljs-keyword, .hljs-selector-tag, .hljs-section, .hljs-link, .hljs-doctag),
 #app .article-editor-page [data-slate-editor] pre :is(.token.keyword, .token.atrule, .token.important) { color: var(--code-keyword); }
-#app .article-detail-page .article-content pre :is(.hljs-string, .hljs-regexp, .hljs-addition, .hljs-template-tag),
+#app :is(.article-detail-page .article-content, .ai-chat-page .message-bubble, .ai-chat-page .draft-review-body) pre :is(.hljs-string, .hljs-regexp, .hljs-addition, .hljs-template-tag),
 #app .article-editor-page [data-slate-editor] pre :is(.token.string, .token.char, .token.regex, .token.inserted, .token.url) { color: var(--code-string); }
-#app .article-detail-page .article-content pre :is(.hljs-number, .hljs-literal, .hljs-symbol, .hljs-bullet, .hljs-deletion),
+#app :is(.article-detail-page .article-content, .ai-chat-page .message-bubble, .ai-chat-page .draft-review-body) pre :is(.hljs-number, .hljs-literal, .hljs-symbol, .hljs-bullet, .hljs-deletion),
 #app .article-editor-page [data-slate-editor] pre :is(.token.number, .token.boolean, .token.constant, .token.symbol, .token.deleted) { color: var(--code-number); }
-#app .article-detail-page .article-content pre :is(.hljs-title, .hljs-function, .hljs-class, .hljs-type, .hljs-built_in, .hljs-name),
+#app :is(.article-detail-page .article-content, .ai-chat-page .message-bubble, .ai-chat-page .draft-review-body) pre :is(.hljs-title, .hljs-function, .hljs-class, .hljs-type, .hljs-built_in, .hljs-name),
 #app .article-editor-page [data-slate-editor] pre :is(.token.function, .token.class-name, .token.builtin, .token.tag) { color: var(--code-title); }
-#app .article-detail-page .article-content pre :is(.hljs-attr, .hljs-attribute, .hljs-variable, .hljs-template-variable, .hljs-property, .hljs-params),
+#app :is(.article-detail-page .article-content, .ai-chat-page .message-bubble, .ai-chat-page .draft-review-body) pre :is(.hljs-attr, .hljs-attribute, .hljs-variable, .hljs-template-variable, .hljs-property, .hljs-params),
 #app .article-editor-page [data-slate-editor] pre :is(.token.attr-name, .token.attr-value, .token.property, .token.variable, .token.selector) { color: var(--code-attr); }
 #app .article-editor-page [data-slate-editor] pre :is(.token.punctuation, .token.operator, .token.entity) { color: var(--code-punct); background: transparent; }
-#app .article-detail-page .article-content pre :is(.hljs-emphasis) { font-style: italic; }
-#app .article-detail-page .article-content pre :is(.hljs-strong) { font-weight: 700; }
+#app :is(.article-detail-page .article-content, .ai-chat-page .message-bubble, .ai-chat-page .draft-review-body) pre :is(.hljs-emphasis) { font-style: italic; }
+#app :is(.article-detail-page .article-content, .ai-chat-page .message-bubble, .ai-chat-page .draft-review-body) pre :is(.hljs-strong) { font-weight: 700; }
 #app .article-detail-page .article-cover { max-height: 250px; object-fit: cover; border: 1px solid var(--ej-ink); border-radius: 14px; box-shadow: none; }
 #app .article-detail-page .article-cover:hover { transform: none; box-shadow: none; }
 #app .article-detail-page .article-summary { background: var(--ej-canvas); border: 0; border-left: 3px solid var(--studio-coral); color: #47453f; border-radius: 0 12px 12px 0; }
@@ -280,7 +339,9 @@ html:root { --code-bg: #17171a; --code-text: #e8e4da; --code-muted: #8f8a80; --c
 #app .article-detail-page :is(.toc-sidebar, .online-sidebar) { position: sticky; top: 96px; max-height: calc(100dvh - 120px); align-self: flex-start; }
 #app .toc-sidebar { width: 190px; padding: 12px 14px; background: transparent; border: 0; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; overscroll-behavior: contain; }
 #app .toc-title { color: var(--ej-ink); font-size: 11px; font-weight: 800; letter-spacing: .12em; }
-#app .toc-item a { color: var(--ej-muted); border-left-color: transparent; border-radius: 0 8px 8px 0; }
+/* Long headings stay within two lines in the outline; the full text is in the link's title. */
+#app .toc-item a { color: var(--ej-muted); border-left-color: transparent; border-radius: 0 8px 8px 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+#app .toc-item { margin: 4px 0; }
 #app .toc-item.active a { background: var(--studio-lime); color: var(--ej-ink); border-left-color: var(--ej-ink); font-weight: 700; }
 #app .toc-item a:hover { background: var(--ej-surface); color: var(--ej-ink); transform: translateX(2px); border-left-color: var(--ej-ink); }
 #app .online-sidebar { width: 210px; }
@@ -340,7 +401,8 @@ html:root { --code-bg: #17171a; --code-text: #e8e4da; --code-muted: #8f8a80; --c
 #app .user-space-page .sidebar-card .card-title { border-bottom-color: var(--ej-hairline); }
 #app .user-space-page .filter-bar { background: transparent; padding: 14px 0; border: 0; border-radius: 0; box-shadow: none; }
 #app .user-space-page .filter-btn { padding: 7px 15px; margin-right: 6px; font-size: 12px; }
-#app .user-space-page .article-card { --card-paper: #f3a093; padding: 0; background: var(--card-paper); border: 1.5px solid var(--ej-ink); border-radius: 22px; overflow: hidden; box-shadow: 0 6px 0 #11110f14; transform: perspective(900px) rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg)); transition: transform 300ms ease, box-shadow 350ms ease; }
+/* Same card language as the home feed: cream paper, color only in the cover band, kicker dot and placeholder. */
+#app .user-space-page .article-card { --card-paper: #f3a093; padding: 0; background: var(--ej-surface); border: 1.5px solid var(--ej-ink); border-radius: 22px; overflow: hidden; box-shadow: 0 6px 0 #11110f14; transform: perspective(900px) rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg)); transition: transform 300ms ease, box-shadow 350ms ease; }
 #app .user-space-page .article-card:nth-child(3n+2) { --card-paper: #b4a7ff; }
 #app .user-space-page .article-card:nth-child(3n+3) { --card-paper: #d3f795; }
 #app .user-space-page .article-card:hover { transform: perspective(900px) rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg)) translateY(-3px); box-shadow: 0 9px 0 #11110f1c, 0 18px 32px #11110f12; }
@@ -348,13 +410,15 @@ html:root { --code-bg: #17171a; --code-text: #e8e4da; --code-muted: #8f8a80; --c
 #app .user-space-page .article-cover { transition: opacity 300ms, transform 400ms ease; }
 #app .user-space-page .article-card:hover .article-cover { transform: scale(1.045); }
 #app .user-space-page .article-info { padding: 17px 22px 20px; }
-#app .user-space-page .space-card-index { display: flex; justify-content: space-between; align-items: center; font-size: 10px; font-weight: 750; letter-spacing: .1em; padding-bottom: 10px; margin-bottom: 12px; border-bottom: 1px solid #11110f40; }
+#app .user-space-page .space-card-index { display: flex; justify-content: space-between; align-items: center; color: var(--ej-ink); font-size: 10px; font-weight: 800; letter-spacing: .12em; padding-bottom: 10px; margin-bottom: 12px; border-bottom: 1px solid var(--ej-hairline); }
+#app .user-space-page .space-card-kicker { display: inline-flex; align-items: center; gap: 8px; }
+#app .user-space-page .card-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--card-paper); border: 1px solid var(--ej-ink); }
 #app .user-space-page .space-card-index > span:last-child { font-size: 21px; line-height: 1; transition: transform 400ms var(--studio-spring); }
 #app .user-space-page .article-card:hover .space-card-index > span:last-child { transform: rotate(45deg); }
-#app .user-space-page .cover-wrapper { border-bottom: 1px solid #11110f40; border-radius: 0; background: var(--ej-surface); }
-#app .user-space-page .no-cover-placeholder { background: var(--card-paper) !important; background-image: linear-gradient(30deg, transparent 48%, #11110f0d 49%, #11110f0d 51%, transparent 52%) !important; }
-#app .user-space-page .no-cover-placeholder { padding: 22px; text-align: left; }
-#app .user-space-page .placeholder-title { color: var(--ej-ink); font-size: 20px; line-height: 1.5; font-weight: 750; text-align: left; }
+#app .user-space-page .cover-wrapper { position: relative; border-bottom: 1.5px solid var(--ej-ink); border-radius: 0; background: var(--card-paper); }
+#app .user-space-page .cover-wrapper::after { content: ''; position: absolute; z-index: 1; left: 0; right: 0; bottom: 0; height: 7px; background: var(--card-paper); border-top: 1.5px solid var(--ej-ink); pointer-events: none; }
+#app .user-space-page .no-cover-placeholder { --cover-glyph-size: 104px; padding: 0; }
+#app .user-space-page .article-card:hover .cover-glyph-char { transform: translate(-4px, -6px) rotate(-4deg); }
 #app .user-space-page .card-title { color: var(--ej-ink); font-size: 14px; font-weight: 750; }
 #app .user-space-page .article-meta { color: #47453f; }
 #app .user-space-page .modal-content { background: var(--ej-surface); border: 1.5px solid var(--ej-ink); border-radius: 22px; box-shadow: 6px 6px 0 #11110f26; }
@@ -363,8 +427,6 @@ html:root { --code-bg: #17171a; --code-text: #e8e4da; --code-muted: #8f8a80; --c
 /* Lists: drafts, search results, notifications, follows */
 #app .draft-card .draft-title, #app .result-card .article-title { color: var(--ej-ink); font-weight: 750; }
 #app :is(.draft-cover, .result-card .cover-wrapper) { border: 1px solid var(--ej-ink); border-radius: 12px; overflow: hidden; }
-#app :is(.draft-box-page, .search-page) .no-cover-placeholder { background: var(--studio-lime-soft) !important; }
-#app :is(.draft-box-page, .search-page) .placeholder-title { color: var(--ej-ink); font-weight: 700; }
 #app .search-page .filter-bar { background: transparent; border: 0; border-radius: 0; box-shadow: none; padding: 0 0 18px; }
 #app .search-page .highlight, #app .search-page :is(em, mark) { background: var(--studio-lime); color: var(--ej-ink); border-radius: 3px; font-style: normal; }
 #app :is(.user-card, .follow-card) .user-avatar, #app .notify-card .avatar { border: 1.5px solid var(--ej-ink); }
@@ -437,13 +499,15 @@ html:root { --code-bg: #17171a; --code-text: #e8e4da; --code-muted: #8f8a80; --c
 #app .ai-chat-page :is(.interrupt-btn.approve, .draft-revision button) { background: var(--ej-ink); color: var(--ej-surface); border-color: var(--ej-ink); }
 #app .ai-chat-page :is(.interrupt-btn.approve, .draft-revision button):hover:not(:disabled) { background: var(--studio-lime); color: var(--ej-ink); box-shadow: 3px 3px 0 var(--ej-ink); }
 #app .ai-chat-page .draft-link { background: var(--ej-accent-soft); border: 1px solid var(--ej-ink); border-radius: 14px; color: var(--ej-ink); }
-#app .chat-page :is(.chat-area, .chat-header, .input-area) { background: var(--ej-surface); border-color: var(--ej-line); }
+/* Private chat: both columns share one frame (cream paper, ink outline, offset shadow); inner rules are hairlines. */
+#app .chat-page :is(.conversation-list, .chat-area) { background: var(--ej-surface); border: 1px solid var(--ej-ink); box-shadow: var(--ej-shadow); }
+#app .chat-page :is(.chat-header, .input-area) { background: var(--ej-surface); border-color: var(--ej-hairline); }
 #app .chat-page .chat-container { margin-top: 0; padding: 92px 20px 20px; height: 100dvh; }
 #app .chat-page .conversation-list { flex-shrink: 0; }
-#app .chat-page .conversation-list { background: var(--ej-surface); border: 1px solid var(--ej-ink); box-shadow: var(--ej-shadow); }
-#app .chat-page .conversation-item { border-bottom-color: var(--ej-hairline); }
+#app .chat-page .conversation-items { padding: 6px 0; }
+#app .chat-page .conversation-item { margin: 2px 8px; padding: 12px; border-bottom-color: transparent; }
 #app .chat-page .conversation-item:hover { background: var(--ej-canvas); }
-#app .chat-page .conversation-item.active { background: #eef7d9; }
+#app .chat-page .conversation-item.active { background: var(--studio-lime-soft); }
 #app .chat-page .msg-bubble { box-shadow: none; border: 1px solid var(--ej-hairline); border-radius: 16px; }
 #app .chat-page .message-item.self .msg-bubble { background: var(--ej-accent-soft); color: var(--ej-ink); border-color: var(--ej-ink); }
 #app .chat-page .msg-content.image-content { max-width: min(332px, 60%); }
@@ -494,7 +558,7 @@ html .modern-dialog .el-tabs__item.is-active { color: var(--ej-ink); font-weight
   #app .article-detail-page .main-container { margin-top: 80px; }
   #app .article-detail-page :is(.toc-sidebar, .online-sidebar) { top: 76px; max-height: calc(100dvh - 92px); }
   #app .article-detail-page .article-card { padding: 24px 20px; border-radius: 18px; }
-  #app :is(.article-detail-page .article-content, .article-editor-page .w-e-text-container [data-slate-editor]) pre > code { padding: 14px 16px; font-size: 12px; }
+  #app :is(.article-detail-page .article-content, .article-editor-page .w-e-text-container [data-slate-editor], .ai-chat-page .message-bubble, .ai-chat-page .draft-review-body) pre:not(.streaming-table) > code { padding: 14px 16px; font-size: 12px; }
   #app :is(.article-detail-page .article-content, .article-editor-page .w-e-text-container [data-slate-editor]) h1 { font-size: 24px; }
   #app :is(.article-detail-page .article-content, .article-editor-page .w-e-text-container [data-slate-editor]) h2 { font-size: 20px; padding-left: 15px; }
   #app :is(.article-detail-page .article-content, .article-editor-page .w-e-text-container [data-slate-editor]) h3 { font-size: 17px; padding-left: 16px; }

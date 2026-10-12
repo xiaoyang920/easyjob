@@ -46,10 +46,10 @@
             @click="selectConversation(conv)"
           >
             <img 
-              :src="getAvatarUrl(conv.otherUserAvatar)" 
+              :src="avatarUrl(conv.otherUserAvatar, conv.otherUserName)"
               :alt="conv.otherUserName"
               class="conversation-avatar"
-              @error="handleAvatarError"
+              @error="onAvatarError($event, conv.otherUserName)"
             >
             <div class="conversation-info">
               <div class="conversation-name">{{ conv.otherUserName }}</div>
@@ -87,11 +87,11 @@
               </svg>
             </button>
             <img 
-              :src="getAvatarUrl(currentConversation.otherUserAvatar)" 
+              :src="avatarUrl(currentConversation.otherUserAvatar, currentConversation.otherUserName)"
               :alt="currentConversation.otherUserName"
               class="chat-avatar"
               @click="goToUserSpace(currentConversation.otherUserId)"
-              @error="handleAvatarError"
+              @error="onAvatarError($event, currentConversation.otherUserName)"
             >
             <div class="chat-user-info">
               <div class="chat-user-name" @click="goToUserSpace(currentConversation.otherUserId)">
@@ -123,9 +123,10 @@
               <div v-else :class="['message-item', msg.senderId === myUserId ? 'self' : 'other']">
                 <img 
                   v-if="msg.senderId !== myUserId"
-                  :src="getAvatarUrl(msg.senderAvatar)" 
+                  :src="avatarUrl(msg.senderAvatar, msg.senderName)"
+                  alt=""
                   class="msg-avatar"
-                  @error="handleAvatarError"
+                  @error="onAvatarError($event, msg.senderName)"
                 >
                 <div class="msg-content" :class="{ 'image-content': msg.messageType === 2 }">
                   <div class="msg-bubble" :class="{ 'image-bubble': msg.messageType === 2 }" @contextmenu.prevent="showMessageMenu($event, msg)">
@@ -144,9 +145,10 @@
                 </div>
                 <img 
                   v-if="msg.senderId === myUserId"
-                  :src="getAvatarUrl(myAvatar)" 
+                  :src="avatarUrl(myAvatar, myNickName)"
+                  alt=""
                   class="msg-avatar"
-                  @error="handleAvatarError"
+                  @error="onAvatarError($event, myNickName)"
                 >
               </div>
             </template>
@@ -259,6 +261,7 @@ import request from '@/utils/request'
 import { uploadFile } from '@/utils/upload'
 import { ensureAccessToken } from '@/utils/authSession'
 import { eventBus, EVENT_AUTH_EXPIRED } from '@/utils/eventBus'
+import { avatarUrl, onAvatarError } from '@/utils/avatar'
 
 const router = useRouter()
 const route = useRoute()
@@ -906,26 +909,6 @@ function formatFullTime(timeStr: string): string {
   return `${date.getMonth() + 1}月${date.getDate()}日 ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`
 }
 
-// 获取头像URL
-function getAvatarUrl(url: string | undefined): string {
-  if (!url) {
-    return 'https://cube.elemecdn.com/3/7c/3ea6beec64369c2642b92c6726f1epng.png'
-  }
-  if (url.startsWith('http://') || url.startsWith('https://')) {
-    if (url.includes('localhost:8080')) {
-      return url.replace(/https?:\/\/localhost:8080/, '')
-    }
-    return url
-  }
-  if (url.startsWith('/uploads')) return url
-  return url
-}
-
-function handleAvatarError(e: Event) {
-  const target = e.target as HTMLImageElement
-  target.src = 'https://cube.elemecdn.com/3/7c/3ea6beec64369c2642b92c6726f1epng.png'
-}
-
 // 换行
 function newLine() {
   messageInput.value += '\n'
@@ -1137,12 +1120,10 @@ onUnmounted(() => {
   gap: 20px;
 }
 
-/* 会话列表 */
+/* 会话列表：纸面、墨线边框与偏移阴影见 styles/theme.css，左右两栏使用同一套外框 */
 .conversation-list {
   width: 320px;
-  background: white;
   border-radius: 20px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1150,7 +1131,7 @@ onUnmounted(() => {
 
 .conversation-header {
   padding: 20px;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--ej-hairline);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1159,34 +1140,44 @@ onUnmounted(() => {
 .conversation-header h3 {
   margin: 0;
   font-size: 18px;
-  color: #333;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--ej-ink);
 }
 
 .unread-total {
-  background: #ff4d4f;
-  color: white;
   padding: 2px 8px;
+  border: 1px solid var(--ej-ink);
   border-radius: 10px;
   font-size: 12px;
+  font-weight: 700;
 }
 
 .conversation-search {
-  padding: 15px 20px;
-  border-bottom: 1px solid #f0f0f0;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--ej-hairline);
 }
 
 .conversation-search input {
   width: 100%;
   padding: 10px 15px;
-  border: 1px solid #e0e0e0;
-  border-radius: 20px;
+  border: 1px solid var(--ej-line);
+  border-radius: 999px;
   outline: none;
-  font-size: 14px;
-  transition: border-color 0.3s;
+  font-size: 13px;
+  color: var(--ej-ink);
+  background: var(--ej-canvas);
+  transition: border-color 0.2s, background 0.2s, box-shadow 0.25s;
+}
+
+.conversation-search input::placeholder {
+  color: var(--ej-muted);
 }
 
 .conversation-search input:focus {
-  border-color: var(--ej-accent);
+  border-color: var(--ej-ink);
+  background: var(--ej-surface);
+  box-shadow: 3px 3px 0 #11110f14;
 }
 
 .conversation-items {
@@ -1199,24 +1190,17 @@ onUnmounted(() => {
   align-items: center;
   padding: 15px 20px;
   cursor: pointer;
-  transition: background 0.3s;
-  border-bottom: 1px solid #f5f5f5;
-}
-
-.conversation-item:hover {
-  background: #f8f9fa;
-}
-
-.conversation-item.active {
-  background: #e6f7ff;
+  transition: background 0.2s;
+  border-bottom: 1px solid var(--ej-hairline);
 }
 
 .conversation-avatar {
-  width: 50px;
-  height: 50px;
+  width: 48px;
+  height: 48px;
   border-radius: 50%;
   object-fit: cover;
   margin-right: 12px;
+  border: 1px solid var(--ej-ink);
 }
 
 .conversation-info {
@@ -1226,14 +1210,14 @@ onUnmounted(() => {
 
 .conversation-name {
   font-size: 15px;
-  font-weight: 500;
-  color: #333;
+  font-weight: 700;
+  color: var(--ej-ink);
   margin-bottom: 4px;
 }
 
 .conversation-last-msg {
   font-size: 13px;
-  color: #999;
+  color: var(--ej-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1248,15 +1232,15 @@ onUnmounted(() => {
 
 .conversation-time {
   font-size: 12px;
-  color: #999;
+  color: var(--ej-muted);
 }
 
 .unread-badge {
-  background: #ff4d4f;
-  color: white;
-  padding: 2px 6px;
+  padding: 1px 6px;
+  border: 1px solid var(--ej-ink);
   border-radius: 10px;
   font-size: 11px;
+  font-weight: 700;
   min-width: 18px;
   text-align: center;
 }
@@ -1264,9 +1248,7 @@ onUnmounted(() => {
 /* 聊天区域 */
 .chat-area {
   flex: 1;
-  background: white;
   border-radius: 20px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1278,14 +1260,14 @@ onUnmounted(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  color: #999;
+  color: var(--ej-muted);
 }
 
 .placeholder-icon {
   width: 80px;
   height: 80px;
   margin-bottom: 20px;
-  color: #ddd;
+  color: var(--ej-soft);
 }
 
 .placeholder-icon svg {
@@ -1295,7 +1277,7 @@ onUnmounted(() => {
 
 .chat-header {
   padding: 15px 20px;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--ej-hairline);
   display: flex;
   align-items: center;
   gap: 12px;
@@ -1305,20 +1287,20 @@ onUnmounted(() => {
   display: none;
   width: 36px;
   height: 36px;
-  border: none;
-  background: #f5f5f5;
+  border: 1px solid var(--ej-line);
+  background: var(--ej-canvas);
   border-radius: 50%;
   cursor: pointer;
   align-items: center;
   justify-content: center;
-  color: #666;
-  transition: all 0.2s;
+  color: var(--ej-ink);
+  transition: background 0.2s, border-color 0.2s;
   flex-shrink: 0;
 }
 
 .mobile-back-btn:hover {
-  background: #e8e8e8;
-  color: #333;
+  background: var(--studio-lime);
+  border-color: var(--ej-ink);
 }
 
 .mobile-back-btn svg {
@@ -1340,8 +1322,8 @@ onUnmounted(() => {
 
 .chat-user-name {
   font-size: 16px;
-  font-weight: 600;
-  color: #333;
+  font-weight: 700;
+  color: var(--ej-ink);
   cursor: pointer;
 }
 
@@ -1350,16 +1332,29 @@ onUnmounted(() => {
 }
 
 .chat-user-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 12px;
-  color: #999;
+  color: var(--ej-muted);
+}
+
+/* 在线状态用小圆点表达：在线为青柠色，离线为空心 */
+.chat-user-status::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1px solid var(--ej-ink);
+  background: transparent;
 }
 
 .chat-user-status.online {
-  color: #52c41a;
+  color: var(--ej-ink);
 }
 
-.chat-user-status.offline {
-  color: #999;
+.chat-user-status.online::before {
+  background: var(--studio-lime);
 }
 
 /* 消息列表 */
@@ -1373,13 +1368,13 @@ onUnmounted(() => {
 .loading-state {
   text-align: center;
   padding: 20px;
-  color: #999;
+  color: var(--ej-muted);
 }
 
 .empty-state {
   text-align: center;
   padding: 40px 20px;
-  color: #999;
+  color: var(--ej-muted);
 }
 
 .empty-state .tip {
@@ -1399,18 +1394,31 @@ onUnmounted(() => {
   text-decoration: underline;
 }
 
+/* 时间分隔：两侧细线中间是日期 */
 .time-divider {
-  text-align: center;
+  display: flex;
+  align-items: center;
+  gap: 12px;
   padding: 15px 0;
-  font-size: 12px;
-  color: #999;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--ej-muted);
+}
+
+.time-divider::before,
+.time-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--ej-hairline);
 }
 
 .message-recalled {
   text-align: center;
   padding: 10px 0;
   font-size: 12px;
-  color: #999;
+  color: var(--ej-muted);
 }
 
 .message-item {
@@ -1430,6 +1438,7 @@ onUnmounted(() => {
   border-radius: 50%;
   object-fit: cover;
   flex-shrink: 0;
+  border: 1px solid var(--ej-ink);
 }
 
 .msg-content {
@@ -1444,9 +1453,10 @@ onUnmounted(() => {
   word-break: break-word;
 }
 
+/* 对方的气泡用暖灰纸色，与聊天区的米白底区分开；自己的气泡见 styles/theme.css */
 .message-item.other .msg-bubble {
-  background: #f5f5f5;
-  color: #333;
+  background: var(--ej-canvas);
+  color: var(--ej-ink);
   border-top-left-radius: 4px;
 }
 
@@ -1495,7 +1505,7 @@ onUnmounted(() => {
 
 .msg-time {
   font-size: 11px;
-  color: #999;
+  color: var(--ej-muted);
   margin-top: 5px;
   padding: 0 5px;
 }
@@ -1506,8 +1516,8 @@ onUnmounted(() => {
 
 /* 输入区域 */
 .input-area {
-  padding: 15px 20px;
-  border-top: 1px solid #f0f0f0;
+  padding: 14px 20px;
+  border-top: 1px solid var(--ej-hairline);
   display: flex;
   align-items: flex-end;
   gap: 10px;
@@ -1515,7 +1525,7 @@ onUnmounted(() => {
 
 .input-tools {
   display: flex;
-  gap: 5px;
+  gap: 4px;
 }
 
 .tool-btn {
@@ -1524,15 +1534,16 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
+  border: 1px solid transparent;
   border-radius: 50%;
   cursor: pointer;
-  color: #666;
-  transition: all 0.3s;
+  color: var(--ej-ink);
+  transition: background 0.2s, border-color 0.2s;
 }
 
 .tool-btn:hover {
-  background: #f0f0f0;
-  color: var(--ej-accent);
+  background: var(--studio-lime);
+  border-color: var(--ej-ink);
 }
 
 .tool-btn svg {
@@ -1540,11 +1551,20 @@ onUnmounted(() => {
   height: 22px;
 }
 
+/* 输入框与 AI 助手的输入区同一种外观：暖灰底，聚焦时墨线描边加偏移阴影 */
 .input-wrapper {
   flex: 1;
-  background: #f5f5f5;
+  background: var(--ej-canvas);
+  border: 1px solid var(--ej-line);
   border-radius: 20px;
   padding: 10px 15px;
+  transition: border-color 0.2s, background 0.2s, box-shadow 0.25s;
+}
+
+.input-wrapper:focus-within {
+  background: var(--ej-surface);
+  border-color: var(--ej-ink);
+  box-shadow: 3px 3px 0 #11110f14;
 }
 
 .input-wrapper textarea {
@@ -1555,7 +1575,12 @@ onUnmounted(() => {
   resize: none;
   font-size: 14px;
   line-height: 1.5;
+  color: var(--ej-ink);
   max-height: 100px;
+}
+
+.input-wrapper textarea::placeholder {
+  color: var(--ej-muted);
 }
 
 /* 上传进度 */
@@ -1602,7 +1627,9 @@ onUnmounted(() => {
 }
 
 .send-btn:disabled {
-  background: #c0c4cc;
+  background: var(--ej-soft);
+  color: var(--ej-muted);
+  border-color: var(--ej-line);
   cursor: not-allowed;
 }
 
@@ -1618,7 +1645,7 @@ onUnmounted(() => {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.8);
+  background: #11110fe0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1634,27 +1661,30 @@ onUnmounted(() => {
   object-fit: contain;
 }
 
-/* 右键菜单 */
+/* 右键菜单：与全站下拉菜单一致的纸面 + 墨线 + 偏移阴影 */
 .context-menu {
   position: fixed;
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  padding: 6px;
+  background: var(--ej-surface);
+  border: 1px solid var(--ej-ink);
+  border-radius: 14px;
+  box-shadow: 4px 4px 0 #11110f26;
   z-index: 9999;
-  min-width: 100px;
+  min-width: 112px;
   overflow: hidden;
 }
 
 .menu-item {
-  padding: 10px 16px;
+  padding: 9px 14px;
+  border-radius: 9px;
   cursor: pointer;
   font-size: 14px;
-  color: #333;
+  color: var(--ej-ink);
   transition: background 0.2s;
 }
 
 .menu-item:hover {
-  background: #f5f5f5;
+  background: var(--studio-lime);
 }
 
 /* 表情选择器 */
@@ -1667,36 +1697,41 @@ onUnmounted(() => {
   bottom: 45px;
   left: 0;
   width: 320px;
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  max-width: calc(100vw - 40px);
+  background: var(--ej-surface);
+  border: 1px solid var(--ej-ink);
+  border-radius: 16px;
+  box-shadow: 4px 4px 0 #11110f26;
   z-index: 1000;
   overflow: hidden;
 }
 
 .emoji-tabs {
   display: flex;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--ej-hairline);
   padding: 8px 10px;
   gap: 5px;
 }
 
 .emoji-tab {
-  padding: 6px 12px;
+  padding: 5px 12px;
   font-size: 13px;
-  color: #666;
+  color: var(--ej-muted);
   cursor: pointer;
-  border-radius: 15px;
-  transition: all 0.2s;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  transition: background 0.2s, border-color 0.2s;
 }
 
 .emoji-tab:hover {
-  background: #f5f5f5;
+  background: var(--ej-canvas);
+  color: var(--ej-ink);
 }
 
 .emoji-tab.active {
-  background: var(--ej-accent);
-  color: white;
+  background: var(--studio-lime);
+  border-color: var(--ej-ink);
+  color: var(--ej-ink);
 }
 
 .emoji-list {
@@ -1721,7 +1756,7 @@ onUnmounted(() => {
 }
 
 .emoji-item:hover {
-  background: #f0f0f0;
+  background: var(--studio-lime-soft);
 }
 
 /* 平板适配 */

@@ -50,13 +50,19 @@ class BoundedDeliveryTests(unittest.TestCase):
         reply=bounded_evidence_reply(state,'limit')
         self.assertEqual(reply['citations'],[source]); self.assertIn('[r:web1]',reply['final_reply'])
         self.assertIn('当前未完成全部要求',reply['final_reply'])
+        self.assertTrue(reply['final_reply'].startswith('limit'))
+        self.assertNotIn(source['excerpt'], reply['final_reply'])
+        self.assertNotIn(source['title'], reply['final_reply'])
+        self.assertIsNone(reply['article_cards'])
+        self.assertEqual(reply['delivery_evidence']['citations'], [source])
 
     def test_limit_does_not_turn_irrelevant_or_failed_results_into_evidence(self):
         from app.graph.main_agent import bounded_evidence_reply
         state={'task_results':{'r':{'status':'succeeded','citations':[{'id':'bad','excerpt':'unrelated'}],
             'retrieval_report':{'quality':{'adequacy':'none'}}}}}
         reply=bounded_evidence_reply(state,'limit')
-        self.assertIsNone(reply['citations']); self.assertEqual(reply['final_reply'],'limit')
+        self.assertIsNone(reply['citations']); self.assertTrue(reply['final_reply'].startswith('limit'))
+        self.assertIn('当前未完成全部要求', reply['final_reply'])
 
 
 class FrameDatabase:
@@ -69,6 +75,42 @@ class FrameDatabase:
 
 
 class StreamDeliveryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_direct_answer_sequence_survives_disconnect_and_cursor_replay(self):
+        import json
+        database, admission = FrameDatabase(), SimpleNamespace(release=AsyncMock())
+        repository = SimpleNamespace(get=AsyncMock(return_value={'status': 'running', 'execution_token': 't',
+            'deadline': datetime.utcnow() + timedelta(minutes=1)}), fail=AsyncMock())
+        delivery = StreamDelivery(database, admission, repository)
+        ready, resume = asyncio.Event(), asyncio.Event()
+        def frame(value):
+            return 'data:__ANSWER__:' + json.dumps(value, ensure_ascii=False) + '\n\n'
+        async def source():
+            yield frame({'type': 'start', 'mode': 'direct'})
+            yield frame({'type': 'delta', 'seq': 0, 'content': '实时'})
+            ready.set()
+            await resume.wait()
+            yield frame({'type': 'delta', 'seq': 1, 'content': '回答'})
+            yield frame({'type': 'end', 'chunks': 2})
+            yield 'data:__REPLY__:{"content":"实时回答"}\n\n'
+            yield 'data:[DONE]\n\n'
+        delivery.start('r', 't', source(), 'ticket')
+        await ready.wait()
+        reader = delivery.follow('r', 't')
+        while '"seq": 0' not in await anext(reader):
+            pass
+        await reader.aclose()
+        self.assertIn(('r', 't'), delivery.tasks)
+        resume.set()
+        await asyncio.gather(*list(delivery.tasks.values()))
+        replay = ''.join([f async for f in delivery.follow('r', 't', after=2)])
+        self.assertNotIn('"type": "start"', replay)
+        self.assertNotIn('"seq": 0', replay)
+        self.assertIn('"seq": 1', replay)
+        self.assertIn('"chunks": 2', replay)
+        self.assertIn('实时回答', replay)
+        repository.fail.assert_not_awaited()
+        admission.release.assert_awaited_once_with('ticket')
+
     async def test_disconnect_does_not_cancel_producer_and_cursor_replays_remaining_frames(self):
         database = FrameDatabase()
         admission = SimpleNamespace(release=AsyncMock())

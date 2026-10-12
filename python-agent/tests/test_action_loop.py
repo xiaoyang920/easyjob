@@ -9,6 +9,7 @@ os.environ["AGENT_SERVICE_KEY"] = "offline-service-key-32-bytes-long!!"
 import asyncio
 import json
 import unittest
+from grounding_fakes import setUpModule, tearDownModule
 from unittest.mock import AsyncMock, patch
 
 from langgraph.checkpoint.memory import InMemorySaver
@@ -233,7 +234,14 @@ class ActionLoopTests(unittest.IsolatedAsyncioTestCase):
         source = evidence("source")
         source["rag_context"] = "x" * 15000 + "尾部 [source:1]"
         model, control = llm([retrieve()])
-        with patch.object(agent, "get_llm", return_value=model), patch.object(agent.settings, "MAIN_CONTEXT_MAX_CHARS", 16000), \
+        # Keep the initial request inside the guard as the decision schema grows;
+        # the retrieved document must overflow it without being truncated.
+        from app.utils.context_budget import json_text
+        from langchain_core.utils.function_calling import convert_to_openai_tool
+        initial = create_initial_state(7, "find", [])
+        baseline = sum(len(json_text(m.content)) for m in agent.main_message_renderer(initial)([]))
+        baseline += len(json_text(convert_to_openai_tool(MainDecision)))
+        with patch.object(agent, "get_llm", return_value=model), patch.object(agent.settings, "MAIN_CONTEXT_MAX_CHARS", baseline + 4000), \
              patch.object(actions, "retrieve_evidence", AsyncMock(return_value=source)):
             result, _ = await run_updates(builder._build_graph().compile(checkpointer=InMemorySaver()), create_initial_state(7, "find", []))
         self.assertIn("处理预算", result["final_reply"])

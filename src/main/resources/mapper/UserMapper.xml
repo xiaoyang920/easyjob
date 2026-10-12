@@ -62,4 +62,10 @@
         where uf.user_id = #{userId}
         order by uf.focus_time desc
     </select>
+    <update id="upgradeLegacyPassword">
+        UPDATE user_info SET password=#{encoded} WHERE user_id=#{userId} AND password=#{expected}
+    </update>
+    <update id="touchLogin">
+        UPDATE user_info SET last_login_time=NOW() WHERE user_id=#{userId}
+    </update>
 </mapper>

@@ -1,9 +1,24 @@
 import { createAuthRenewal } from './authRenewal'
 import { clearAccountStorage } from './searchHistory'
-import { eventBus, EVENT_AUTH_EXPIRED } from './eventBus'
+import { eventBus, EVENT_AUTH_CHANGED, EVENT_AUTH_EXPIRED } from './eventBus'
 
 class SessionExpired extends Error {}
 let logoutPending: Promise<void> | null = null
+
+type AuthIdentity = { token: string; userId: string; email?: string; nickName?: string; avatar?: string | null }
+
+/** Install the complete identity before notifying pages, for both login and registration. */
+export function acceptAuthSession(data: AuthIdentity) {
+  if (!data || typeof data.token !== 'string' || !data.token || typeof data.userId !== 'string' || !data.userId)
+    throw new Error('登录信息不完整，请重新登录')
+  clearAccountStorage()
+  localStorage.setItem('token', data.token)
+  localStorage.setItem('userId', data.userId)
+  localStorage.setItem('email', data.email || '')
+  localStorage.setItem('nickName', data.nickName || '')
+  localStorage.setItem('avatar', data.avatar || '')
+  eventBus.emit(EVENT_AUTH_CHANGED)
+}
 
 export function expireSession(token: string | null) {
   if (!token || localStorage.getItem('token') !== token) return

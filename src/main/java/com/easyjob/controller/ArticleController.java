@@ -35,7 +35,7 @@ public class ArticleController {
     @Autowired private ArticleReaderIdentity readerIdentity;
     @Autowired private com.easyjob.service.ArticleAccessService articleAccess;
     @Autowired private com.easyjob.service.ArticleRevisionService revisions;
-    public record SubmitRequest(String expectedRevisionId) {}
+    public record SubmitRequest(String expectedRevisionId,Long expectedLockVersion) {}
     public record ReadingLevelRequest(Integer level) {}
     @PutMapping("/{articleId}/reading-level")
     public ResponseVO<?> readingLevel(@PathVariable Long articleId,@RequestBody ReadingLevelRequest request) {
@@ -44,10 +44,7 @@ public class ArticleController {
     }
 
     private Long optionalUser(HttpServletRequest request) {
-        try {
-            String token = jwtUtil.getTokenFromAuthorization(request.getHeader("Authorization"));
-            return token != null && jwtUtil.validateToken(token) ? jwtUtil.getUserIdFromToken(token) : null;
-        } catch (Exception ignored) { return null; }
+        return jwtUtil.resolveOptionalUserId(request.getHeader("Authorization"));
     }
 
     /**
@@ -151,11 +148,11 @@ public class ArticleController {
      */
     @PostMapping("/{articleId}/publish")
     public ResponseVO<?> publish(@PathVariable Long articleId,@RequestBody SubmitRequest request) {
-        return ResponseVO.success(revisions.submit(UserContext.getUserId(),articleId,request.expectedRevisionId()));
+        return ResponseVO.success(revisions.submit(UserContext.getUserId(),articleId,request.expectedRevisionId(),request.expectedLockVersion()));
     }
     @GetMapping("/{articleId}/revisions") public ResponseVO<?> history(@PathVariable Long articleId){return ResponseVO.success(revisions.history(UserContext.getUserId(),articleId));}
     @GetMapping("/{articleId}/revisions/{revisionId}") public ResponseVO<?> revision(@PathVariable Long articleId,@PathVariable Long revisionId){return ResponseVO.success(revisions.authorDetail(UserContext.getUserId(),articleId,revisionId));}
-    @PostMapping("/{articleId}/revisions/{revisionId}/restore") public ResponseVO<?> restore(@PathVariable Long articleId,@PathVariable Long revisionId,@RequestBody SubmitRequest request){return ResponseVO.success(revisions.restore(UserContext.getUserId(),articleId,revisionId,request.expectedRevisionId()));}
+    @PostMapping("/{articleId}/revisions/{revisionId}/restore") public ResponseVO<?> restore(@PathVariable Long articleId,@PathVariable Long revisionId,@RequestBody SubmitRequest request){return ResponseVO.success(revisions.restore(UserContext.getUserId(),articleId,revisionId,request.expectedRevisionId(),request.expectedLockVersion()));}
     @PostMapping("/{articleId}/revisions/{revisionId}/withdraw") public ResponseVO<?> withdraw(@PathVariable Long articleId,@PathVariable Long revisionId){revisions.withdraw(UserContext.getUserId(),articleId,revisionId);return ResponseVO.success("已撤回审核");}
     @PostMapping("/{articleId}/revisions/{revisionId}/discard") public ResponseVO<?> discard(@PathVariable Long articleId,@PathVariable Long revisionId){revisions.discard(UserContext.getUserId(),articleId,revisionId);return ResponseVO.success("修改版本已丢弃，公开内容未改变");}
     @GetMapping("/work") public ResponseVO<?> work(@RequestParam(required=false) Integer state,@RequestParam(defaultValue="1") int page,@RequestParam(defaultValue="10") int size){return ResponseVO.success(revisions.work(UserContext.getUserId(),state,page,size));}

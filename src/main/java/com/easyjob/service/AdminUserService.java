@@ -7,7 +7,7 @@ import com.easyjob.config.ChatWebSocketHandler;
 import com.easyjob.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.jdbc.core.JdbcTemplate;
+import com.easyjob.mapper.AdminUserMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -17,23 +17,22 @@ import java.util.*;
 /** Explicit management fields; account credentials are never read or returned here. */
 @Service @RequiredArgsConstructor @Slf4j
 public class AdminUserService {
-    private final JdbcTemplate jdbc;
+    private final AdminUserMapper store;
     private final AdminConsoleService admin;
     private final ReadingGrowthService growth;
     private final RedisComponent redis;
     private final ArticleWebSocketHandler articleSockets;
     private final ChatWebSocketHandler chatSockets;
-    private static final String PROFILE = "CAST(user_id AS CHAR) AS userId,nick_name AS nickName,person_introduction AS personIntroduction,role,CAST(status AS UNSIGNED) AS status";
     public record Profile(String nickName, String personIntroduction, Integer role, Integer status) {}
     public record Update(Profile expectedProfile, String nickName, String personIntroduction, Integer role,
                          Integer status, Long readingSeconds, String expectedReadingMillis, String reason) {}
 
     public Map<String,Object> detail(Long actor, Long id) {
         admin.requireAdmin(actor); validateId(id);
-        var rows=jdbc.queryForList("SELECT "+PROFILE+" FROM user_info WHERE user_id=?",id);
+        var rows=store.findProfile(id);
         if(rows.isEmpty()) throw new BusinessException(404,"用户不存在");
         var result=new LinkedHashMap<>(rows.getFirst());
-        var progress=jdbc.queryForList("SELECT total_millis,earned_level FROM user_reading_progress WHERE user_id=?",id);
+        var progress=store.findProgress(id);
         long millis=progress.isEmpty()?0:((Number)progress.getFirst().get("total_millis")).longValue();
         int earned=progress.isEmpty()?0:((Number)progress.getFirst().get("earned_level")).intValue();
         var rules=growth.rules();
@@ -45,7 +44,7 @@ public class AdminUserService {
     @Transactional public void update(Long actor, Long id, Update body) {
         admin.requireAdmin(actor); validateId(id); validate(body);
         // Stable ordering also prevents crossed administrator edits from taking inverse locks.
-        var locked=jdbc.queryForList("SELECT "+PROFILE+" FROM user_info WHERE user_id IN (?,?) ORDER BY user_id FOR UPDATE",actor,id);
+        var locked=store.lockActorAndUser(actor,id);
         var operator=locked.stream().filter(r->actor.toString().equals(r.get("userId"))).findFirst().orElse(null);
         if(operator==null || number(operator,"role")!=2 || number(operator,"status")!=1)
             throw new BusinessException(403,"管理员权限已变化，请重新登录");
@@ -61,8 +60,8 @@ public class AdminUserService {
         var newValues=new LinkedHashMap<String,Object>(); newValues.put("profile",after);
         boolean readingChanged=false;
         if(body.readingSeconds()!=null) {
-            jdbc.update("INSERT INTO user_reading_progress(user_id) VALUES (?) ON DUPLICATE KEY UPDATE user_id=user_id",id);
-            var progress=jdbc.queryForMap("SELECT total_millis,earned_level FROM user_reading_progress WHERE user_id=? FOR UPDATE",id);
+            store.ensureProgress(id);
+            var progress=store.lockProgress(id);
             long millis=((Number)progress.get("total_millis")).longValue();
             if(!Long.toString(millis).equals(body.expectedReadingMillis()))
                 throw new BusinessException(409,"阅读时长已变化，请重新加载后再校正");
@@ -71,17 +70,15 @@ public class AdminUserService {
             readingChanged=millis!=body.readingSeconds()*1000 || oldLevel!=newLevel;
             oldValues.put("readingMillis",Long.toString(millis)); oldValues.put("readingLevel",oldLevel);
             newValues.put("readingMillis",Long.toString(body.readingSeconds()*1000)); newValues.put("readingLevel",newLevel);
-            if(readingChanged) jdbc.update("UPDATE user_reading_progress SET total_millis=?,earned_level=?,active_session=NULL,updated_at=NOW(3) WHERE user_id=?",body.readingSeconds()*1000,newLevel,id);
+            if(readingChanged) store.correctProgress(body.readingSeconds()*1000,newLevel,id);
         }
         if(before.equals(after) && !readingChanged) return;
-        if(!before.equals(after)) jdbc.update("UPDATE user_info SET nick_name=?,person_introduction=?,role=?,status=?,auth_version=auth_version+? WHERE user_id=?",
-                after.nickName(),after.personIntroduction(),after.role(),after.status(),authChanged?1:0,id);
+        if(!before.equals(after)) store.updateProfile(after.nickName(),after.personIntroduction(),after.role(),after.status(),authChanged?1:0,id);
         String oldLabel=label(before),newLabel=label(after);
         if(readingChanged) {oldLabel+=" · 校正前 "+oldValues.get("readingMillis")+"ms";newLabel+=" · 校正后 "+newValues.get("readingMillis")+"ms";}
-        jdbc.update("INSERT INTO admin_operation_log(admin_user_id,action,target_type,target_id,before_value,after_value,reason,details_json) VALUES (?,'user_update','user',?,?,?,?,?)",
-                actor,id,shorten(oldLabel),shorten(newLabel),body.reason().strip(),JSON.toJSONString(Map.of("before",oldValues,"after",newValues)));
+        store.insertAudit(actor,id,shorten(oldLabel),shorten(newLabel),body.reason().strip(),JSON.toJSONString(Map.of("before",oldValues,"after",newValues)));
         boolean nameChanged=!Objects.equals(before.nickName(),after.nickName());
-        var articles=nameChanged?jdbc.queryForList("SELECT article_id FROM article_info WHERE user_id=?",Long.class,id):List.<Long>of();
+        var articles=nameChanged?store.findArticleIds(id):List.<Long>of();
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override public void afterCommit() {
                 // The SQL change and auth version are committed even if cache invalidation is unavailable.

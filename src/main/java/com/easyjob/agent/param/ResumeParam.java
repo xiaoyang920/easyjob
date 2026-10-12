@@ -6,6 +6,7 @@ import lombok.Data;
 public class ResumeParam {
     private String runId;
     private String draftHash;
+    private java.util.Map<String,String> editedDraft;
     
     /**
      * 会话ID

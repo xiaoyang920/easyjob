@@ -77,3 +77,26 @@ test('old account 401 cannot replay task under a different account', async () =>
   assert.equal(calls, 1)
   assert.equal(auth.values.get('token'), 'other-login')
 })
+
+test('registration installs a complete identity without a second login and keeps isolated search histories', async () => {
+  const auth = await fixture(() => { throw new Error('automatic login must not make another request') })
+  auth.values.set('avatar', '/old-account.png')
+  auth.values.set('private-draft', 'old account only')
+  auth.values.set('easyjob:search-history:v1:user:7', '["Redis"]')
+  auth.acceptAuthSession({ token: token(3600), userId: '9007199254740993', email: 'new@example.invalid', nickName: '新读者', avatar: null })
+  assert.equal(auth.values.get('userId'), '9007199254740993')
+  assert.equal(auth.values.get('email'), 'new@example.invalid')
+  assert.equal(auth.values.get('nickName'), '新读者')
+  assert.equal(auth.values.get('avatar'), '')
+  assert.equal(auth.values.get('private-draft'), undefined)
+  assert.equal(auth.values.get('easyjob:search-history:v1:user:7'), '["Redis"]')
+  assert.equal(await auth.ensureAccessToken(), auth.values.get('token'))
+})
+
+test('an incomplete registration response cannot replace the current login identity', async () => {
+  const auth = await fixture(() => { throw new Error('unexpected request') })
+  const before = [...auth.values]
+  for (const data of [undefined, {}, { token: '', userId: '8' }, { token: 'token', userId: '' }])
+    assert.throws(() => auth.acceptAuthSession(data), /登录信息不完整/)
+  assert.deepEqual([...auth.values], before)
+})

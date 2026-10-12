@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.easyjob.mapper.AgentDraftMapper">
+    <update id="recordSavedDraft">
+        UPDATE agent_run
+        SET draft_article_id=#{articleId},draft_hash=#{draftHash},updated_at=UTC_TIMESTAMP(6)
+        WHERE run_id=#{runId}
+    </update>
+    <select id="lockRun" resultType="map">
+        SELECT *, deadline&gt;UTC_TIMESTAMP(6) AS alive
+        FROM agent_run
+        WHERE run_id=#{runId} FOR UPDATE
+    </select>
+    <select id="lockConversation" resultType="map">
+        SELECT user_id,status
+        FROM ai_conversation
+        WHERE conversation_id=#{conversationId} FOR UPDATE
+    </select>
+    <select id="findRunConversation" resultType="map">
+        SELECT conversation_id
+        FROM agent_run
+        WHERE run_id=#{runId} AND user_id=#{userId}
+    </select>
+</mapper>

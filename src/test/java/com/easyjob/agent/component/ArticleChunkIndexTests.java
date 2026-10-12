@@ -4,18 +4,18 @@ import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch.core.BulkResponse;
 import com.easyjob.agent.service.ZhipuEmbeddingService;
 import com.easyjob.dto.ArticleVectorMessage;
+import com.easyjob.constants.RabbitMqConstants;
 import com.easyjob.entity.Article;
 import com.easyjob.exception.BusinessException;
 import com.easyjob.listener.ArticleVectorListener;
 import com.easyjob.mapper.ArticleMapper;
 import com.easyjob.mapper.ArticleTagMapper;
 import org.junit.jupiter.api.Test;
-import org.springframework.jdbc.core.ConnectionCallback;
-import org.springframework.jdbc.core.JdbcTemplate;
+import com.easyjob.component.ArticleIndexLock;
+import com.easyjob.mapper.ArticleIndexLockMapper;
+import org.apache.ibatis.session.SqlSession;
+import org.apache.ibatis.session.SqlSessionFactory;
 import org.springframework.test.util.ReflectionTestUtils;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.util.Collections;
 import java.util.List;
 import java.util.function.Function;
@@ -34,27 +34,25 @@ class ArticleChunkIndexTests {
         ArticleVectorMessage message = new ArticleVectorMessage(); message.setArticleId(42L); return message;
     }
     private record Fixture(ArticleVectorListener listener, ArticleMapper mapper, EsVectorStore store,
-                           Connection connection, PreparedStatement release, com.easyjob.component.EsComponent text) {}
+                           SqlSession connection, ArticleIndexLockMapper release, com.easyjob.component.EsComponent text) {}
     private Fixture fixture(boolean acquired) throws Exception {
         var mapper = mock(ArticleMapper.class);
         var tags = mock(ArticleTagMapper.class);
         var store = mock(EsVectorStore.class);
-        var jdbc = mock(JdbcTemplate.class);
-        var connection = mock(Connection.class);
-        var lock = mock(PreparedStatement.class); var release = mock(PreparedStatement.class);
-        var result = mock(ResultSet.class);
-        when(connection.prepareStatement("SELECT GET_LOCK(?, 10)")).thenReturn(lock);
-        when(connection.prepareStatement("SELECT RELEASE_LOCK(?)")).thenReturn(release);
-        when(lock.executeQuery()).thenReturn(result); when(result.next()).thenReturn(true);
-        when(result.getInt(1)).thenReturn(acquired ? 1 : 0);
-        when(jdbc.execute(any(ConnectionCallback.class))).thenAnswer(call -> ((ConnectionCallback<?>) call.getArgument(0)).doInConnection(connection));
+        var sessions=mock(SqlSessionFactory.class);
+        var connection=mock(SqlSession.class);
+        var release=mock(ArticleIndexLockMapper.class);
+        when(sessions.openSession(true)).thenReturn(connection);
+        when(connection.getMapper(ArticleIndexLockMapper.class)).thenReturn(release);
+        when(release.acquire("easyjob_rag_42")).thenReturn(acquired?1:0);
+        when(release.release("easyjob_rag_42")).thenReturn(1);
         when(tags.getTagsByArticleId(42L)).thenReturn(List.of());
         var listener = new ArticleVectorListener();
         ReflectionTestUtils.setField(listener, "articleMapper", mapper);
         ReflectionTestUtils.setField(listener, "articleTagMapper", tags);
         ReflectionTestUtils.setField(listener, "esVectorStore", store);
         ReflectionTestUtils.setField(listener, "documentChunkService", new DocumentChunkService());
-        ReflectionTestUtils.setField(listener, "jdbc", jdbc);
+        ReflectionTestUtils.setField(listener, "articleIndexLock", new ArticleIndexLock(sessions));
         var text = mock(com.easyjob.component.EsComponent.class);
         ReflectionTestUtils.setField(listener, "esComponent", text);
         return new Fixture(listener, mapper, store, connection, release, text);
@@ -67,7 +65,7 @@ class ArticleChunkIndexTests {
         verify(f.store).saveChunks(anyList());
         verify(f.store).retainChunks(eq("42"), anyList());
         verify(f.store, never()).deleteByArticleId(anyString());
-        verify(f.release).execute();
+        verify(f.release).release("easyjob_rag_42");
     }
     @Test void completedDeliveryDoesNotRepeatEmbedding() throws Exception {
         var f = fixture(true); var outbox = mock(ArticleIndexOutbox.class);
@@ -115,7 +113,7 @@ class ArticleChunkIndexTests {
         assertThrows(BusinessException.class, () -> f.listener.handleVectorMessage(message()));
         verify(f.store).saveChunks(anyList());
         verify(f.store, never()).retainChunks(anyString(), anyList());
-        verify(f.release).execute();
+        verify(f.release).release("easyjob_rag_42");
     }
     @Test void unavailableLockDoesNotStartEmbeddingOrIndexing() throws Exception {
         var f = fixture(false);
@@ -137,14 +135,14 @@ class ArticleChunkIndexTests {
         verify(f.store).deleteByArticleId("42");
         verify(f.store, never()).saveChunks(anyList());
         verify(f.store, never()).retainChunks(anyString(), anyList());
-        verify(f.release).execute();
+        verify(f.release).release("easyjob_rag_42");
     }
     @Test void emptyHtmlChangedDuringIndexingCannotDeleteNewerChunks() throws Exception {
         var f = fixture(true);
         when(f.mapper.selectById(42L)).thenReturn(article("<p><br></p>"), article("<p>new body</p>"));
         assertThrows(BusinessException.class, () -> f.listener.handleVectorMessage(message()));
         verifyNoInteractions(f.store);
-        verify(f.release).execute();
+        verify(f.release).release("easyjob_rag_42");
     }
     @Test void partialBulkFailureIsPropagatedToRabbitRetry() throws Exception {
         var store = new EsVectorStore();
@@ -157,6 +155,74 @@ class ArticleChunkIndexTests {
         var chunks = new DocumentChunkService().chunk("42", "RAG", "<p>text</p>", 7L, List.of());
         assertThrows(BusinessException.class, () -> store.saveChunks(chunks));
         verify(client).bulk(any(Function.class));
+    }
+
+    private ArticleVectorMessage countMessage(String job) {
+        var message = message(); message.setAction(RabbitMqConstants.ACTION_COUNTS); message.setIndexJobId(job);
+        return message;
+    }
+
+    @Test void countJobsReadLatestAbsoluteValuesWithoutReadingBodyOrEmbedding() throws Exception {
+        var f = fixture(true); var outbox = mock(ArticleIndexOutbox.class);
+        ReflectionTestUtils.setField(f.listener, "indexOutbox", outbox);
+        var current = article(""); current.setLikeCount(8); current.setCollectCount(2);
+        when(f.mapper.selectInteractionCounts(42L)).thenReturn(current);
+        f.listener.handleVectorMessage(countMessage("job"));
+        var order = inOrder(f.mapper, f.text, f.store, outbox);
+        order.verify(f.mapper).selectInteractionCounts(42L);
+        order.verify(f.text).syncInteractionCounts("42", 8, 2);
+        order.verify(f.store).syncInteractionCounts("42", 8, 2);
+        order.verify(outbox).complete("job", 42L);
+        verify(f.mapper, never()).selectById(anyLong());
+        verify(f.store, never()).saveChunks(anyList());
+        verify(f.text, never()).saveDoc(any(Article.class));
+        verify(f.release).release("easyjob_rag_42");
+    }
+
+    @Test void countFailureIsRetriedWithLatestDatabaseStateIncludingCancellations() throws Exception {
+        var f = fixture(true); var outbox = mock(ArticleIndexOutbox.class);
+        ReflectionTestUtils.setField(f.listener, "indexOutbox", outbox);
+        var before = article(""); before.setLikeCount(8); before.setCollectCount(2);
+        var after = article(""); after.setLikeCount(7); after.setCollectCount(1);
+        when(f.mapper.selectInteractionCounts(42L)).thenReturn(before, after);
+        doThrow(new BusinessException("partial vector failure")).when(f.store).syncInteractionCounts("42", 8, 2);
+        assertThrows(BusinessException.class, () -> f.listener.handleVectorMessage(countMessage("job")));
+        verify(outbox, never()).complete(anyString(), anyLong());
+        f.listener.handleVectorMessage(countMessage("job"));
+        verify(f.text).syncInteractionCounts("42", 7, 1);
+        verify(f.store).syncInteractionCounts("42", 7, 1);
+        verify(outbox).complete("job", 42L);
+        verify(f.release, times(2)).release("easyjob_rag_42");
+    }
+
+    @Test void textCountFailureDoesNotCompleteOrStartVectorUpdate() throws Exception {
+        var f = fixture(true); var outbox = mock(ArticleIndexOutbox.class);
+        ReflectionTestUtils.setField(f.listener, "indexOutbox", outbox);
+        when(f.mapper.selectInteractionCounts(42L)).thenReturn(article(""));
+        doThrow(new BusinessException("ES offline")).when(f.text).syncInteractionCounts("42", 0, 0);
+        assertThrows(BusinessException.class, () -> f.listener.handleVectorMessage(countMessage("job")));
+        verifyNoInteractions(f.store);
+        verify(outbox, never()).complete(anyString(), anyLong());
+    }
+
+    @Test void lateCountsCannotCreateDocumentsForRemovedOrPrivateArticles() throws Exception {
+        var f = fixture(true); var outbox = mock(ArticleIndexOutbox.class);
+        ReflectionTestUtils.setField(f.listener, "indexOutbox", outbox);
+        var hidden = article(""); hidden.setStatus(0);
+        when(f.mapper.selectInteractionCounts(42L)).thenReturn(hidden, null);
+        f.listener.handleVectorMessage(countMessage("hidden"));
+        f.listener.handleVectorMessage(countMessage("removed"));
+        verifyNoInteractions(f.store, f.text);
+        verify(outbox).complete("hidden", 42L);
+        verify(outbox).complete("removed", 42L);
+    }
+
+    @Test void duplicateCompletedCountMessageSkipsAllDatabaseAndIndexWork() throws Exception {
+        var f = fixture(true); var outbox = mock(ArticleIndexOutbox.class);
+        ReflectionTestUtils.setField(f.listener, "indexOutbox", outbox);
+        when(outbox.completed("job", 42L)).thenReturn(true);
+        f.listener.handleVectorMessage(countMessage("job"));
+        verifyNoInteractions(f.store, f.text, f.mapper);
     }
     @Test void invalidVectorNeverReachesBulkWrite() {
         var store = new EsVectorStore();

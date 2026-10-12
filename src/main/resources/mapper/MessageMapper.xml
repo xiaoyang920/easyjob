@@ -47,4 +47,7 @@
         LIMIT #{size}
     </select>
 
+    <select id="findClientMessage" resultType="com.easyjob.entity.Message">
+        SELECT * FROM message WHERE sender_id=#{uid} AND client_message_id=#{key}
+    </select>
 </mapper>

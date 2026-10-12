@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.easyjob.mapper.AdminStatisticsMapper">
+    <select id="configuredLevels" resultType="map">
+        SELECT level
+        FROM reading_level_rule
+        ORDER BY level
+    </select>
+    <select id="levelDistribution" resultType="map">
+        SELECT GREATEST(COALESCE(p.earned_level,0),COALESCE((SELECT MAX(level)
+        FROM reading_level_rule
+        WHERE min_seconds&lt;=COALESCE(p.total_millis,0) DIV 1000),0)) AS level,COUNT(*) AS amount
+        FROM user_info u
+        LEFT
+        JOIN user_reading_progress p ON p.user_id=u.user_id
+        WHERE 1=1
+        <if test="source != 'all'"> AND u.data_source=#{source}</if>
+
+        GROUP BY level
+    </select>
+    <select id="countUnpublished" resultType="Long">
+        SELECT COUNT(*)
+        FROM article_revision r
+        LEFT
+        JOIN article_info a ON a.article_id=r.article_id
+        WHERE r.deleted=0 AND r.is_current=1 AND r.state IN(0,1,3,4) AND (a.article_id IS NULL OR (a.deleted=0 AND a.status=0))
+        <if test="source != 'all'"> AND r.data_source=#{source}</if>
+
+    </select>
+    <select id="articleDistribution" resultType="map">
+        SELECT status,COUNT(*) AS amount
+        FROM article_info
+        WHERE deleted=0
+        <if test="source != 'all'"> AND data_source=#{source}</if>
+
+        GROUP BY status
+    </select>
+    <select id="distinctReaders" resultType="Long">
+        SELECT COUNT(DISTINCT d.user_id)
+        FROM user_reading_daily d
+        JOIN user_info u ON u.user_id=d.user_id
+        WHERE d.read_day&gt;=#{start} AND d.read_day&lt;#{end} AND d.total_millis&gt;0
+        <if test="source != 'all'"> AND u.data_source=#{source}</if>
+
+    </select>
+    <select id="dailyReading" resultType="map">
+        SELECT CAST(d.read_day AS CHAR) AS day,SUM(d.total_millis) AS millis,COUNT(*) AS readers
+        FROM user_reading_daily d
+        JOIN user_info u ON u.user_id=d.user_id
+        WHERE d.read_day&gt;=#{start} AND d.read_day&lt;#{end} AND d.total_millis&gt;0
+        <if test="source != 'all'"> AND u.data_source=#{source}</if>
+
+        GROUP BY d.read_day
+    </select>
+    <select id="dailyPublications" resultType="map">
+        SELECT CAST(DATE(publish_time) AS CHAR) AS day,COUNT(*) AS amount
+        FROM article_info
+        WHERE deleted=0 AND status IN (1,2) AND publish_time&gt;=#{start} AND publish_time&lt;#{end}
+        <if test="source != 'all'"> AND data_source=#{source}</if>
+
+        GROUP BY day
+    </select>
+    <select id="dailyUsers" resultType="map">
+        SELECT CAST(DATE(join_time) AS CHAR) AS day,COUNT(*) AS amount
+        FROM user_info
+        WHERE join_time&gt;=#{start} AND join_time&lt;#{end}
+        <if test="source != 'all'"> AND data_source=#{source}</if>
+
+        GROUP BY day
+    </select>
+</mapper>

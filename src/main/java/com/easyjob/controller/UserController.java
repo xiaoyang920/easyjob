@@ -8,9 +8,11 @@ import com.easyjob.entity.UserFocus;
 import com.easyjob.exception.BusinessException;
 import com.easyjob.service.UserFocusService;
 import com.easyjob.service.UserService;
+import com.easyjob.utils.JwtUtil;
 import com.easyjob.utils.UserContext;
 import com.easyjob.vo.ResponseVO;
 import com.easyjob.vo.UserSpaceVO;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -32,14 +34,16 @@ public class UserController {
     @Autowired
     private RedisComponent redisComponent;
     @Autowired private com.easyjob.service.ReadingGrowthService readingGrowth;
+    @Autowired private JwtUtil jwtUtil;
 
     /**
      * 获取用户信息
+     * 个人空间对所有人公开（拦截器已排除），邮箱和最近登录 IP 只返回给本人。
      * @param userId
      * @return
      */
     @GetMapping("/space/{userId}")
-    public ResponseVO<?> getUserInfo(@PathVariable Long userId) {
+    public ResponseVO<?> getUserInfo(@PathVariable Long userId, HttpServletRequest request) {
         UserSpaceVO userSpaceVO=null;
         try {
              userSpaceVO = redisComponent.getUserSpaceVO(userId);
@@ -51,6 +55,10 @@ public class UserController {
             redisComponent.saveUserSpaceVO(userId, userSpaceVO);
         }
         userSpaceVO.setReadingProgress(readingGrowth.summary(userId));
+        if (!userId.equals(jwtUtil.resolveOptionalUserId(request.getHeader("Authorization")))) {
+            userSpaceVO.setEmail(null);
+            userSpaceVO.setLastLoginIp(null);
+        }
         return ResponseVO.success(userSpaceVO);
     }
     /**

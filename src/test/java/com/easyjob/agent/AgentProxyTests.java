@@ -26,6 +26,38 @@ import static org.mockito.Mockito.*;
 
 class AgentProxyTests {
     @Test
+    void pagedHistoryPreservesStableIdsAndForwardsOnlyAuthenticatedIdentity() {
+        UserContext.setUserId(7L);
+        AiConversationService service = new AiConversationService();
+        ReflectionTestUtils.setField(service, "serviceAuth", new AgentServiceAuth("offline-service-key-32-bytes-long!!"));
+        RestTemplate client = (RestTemplate) ReflectionTestUtils.getField(service, "restTemplate");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(client).build();
+        server.expect(requestTo("http://localhost:8000/conversations/11/messages?user_id=7&limit=20&around=9007199254740993"))
+                .andExpect(header("X-Agent-User", "7"))
+                .andRespond(withSuccess("{\"data\":{\"items\":[{\"itemId\":\"message:9007199254740993\",\"turnId\":\"9007199254740993\",\"agentEvents\":[{\"status\":\"error\"}]}],\"hasOlder\":true}}", MediaType.APPLICATION_JSON));
+        var result = service.historyPage(11L, 20, null, null, 9007199254740993L);
+        var first = (java.util.Map<?, ?>) ((java.util.List<?>) result.get("items")).getFirst();
+        assertEquals("9007199254740993", first.get("turnId"));
+        assertEquals("message:9007199254740993", first.get("itemId"));
+        assertNotNull(first.get("agentEvents"));
+        server.verify();
+    }
+
+    @Test
+    void questionIndexForwardsSnapshotAndKeysetCursor() {
+        UserContext.setUserId(7L);
+        AiConversationService service = new AiConversationService();
+        ReflectionTestUtils.setField(service, "serviceAuth", new AgentServiceAuth("offline-service-key-32-bytes-long!!"));
+        RestTemplate client = (RestTemplate) ReflectionTestUtils.getField(service, "restTemplate");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(client).build();
+        server.expect(requestTo("http://localhost:8000/conversations/11/questions?user_id=7&limit=200&after=21&snapshot=99"))
+                .andExpect(header("X-Agent-User", "7"))
+                .andRespond(withSuccess("{\"data\":{\"items\":[],\"snapshot\":\"99\",\"hasMore\":false}}", MediaType.APPLICATION_JSON));
+        assertEquals("99", service.questionIndex(11L, 200, 21L, 99L).get("snapshot"));
+        server.verify();
+    }
+
+    @Test
     void globalRunOverviewUsesAuthenticatedUserWithoutForwardingClientIdentity() {
         AgentService service = new AgentService();
         ReflectionTestUtils.setField(service, "serviceAuth", new AgentServiceAuth("offline-service-key-32-bytes-long!!"));
@@ -215,6 +247,49 @@ class AgentProxyTests {
                 .andExpect(method(HttpMethod.DELETE)).andRespond(withSuccess());
         service.getContext(11L);
         service.clearContext(11L);
+        server.verify();
+    }
+
+    @Test
+    void failedHistoryKeepsRunIdentityActivitiesAndOriginalClock() throws Exception {
+        UserContext.setUserId(7L);
+        AiConversationService service = new AiConversationService();
+        ReflectionTestUtils.setField(service, "serviceAuth", new AgentServiceAuth("offline-service-key-32-bytes-long!!"));
+        RestTemplate client = (RestTemplate) ReflectionTestUtils.getField(service, "restTemplate");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(client).build();
+        server.expect(requestTo("http://localhost:8000/conversations/11/messages?user_id=7"))
+                .andRespond(withSuccess("""
+                    {"data":[{"role":"user","content":"继续","messageId":"123"},
+                    {"role":"assistant","content":"本次处理失败","runId":"failed-run","runStatus":"failed",
+                    "runStartedAt":"2026-10-11T01:00:00Z","runFinishedAt":"2026-10-11T01:00:20Z",
+                    "recoverable":false,"agentEvents":[{"kind":"activity","id":"search","status":"done"}]}]}
+                    """, MediaType.APPLICATION_JSON));
+        var messages = service.getContext(11L);
+        assertEquals(123L, messages.get(0).getMessageId());
+        var failure = messages.get(1);
+        assertEquals("failed-run", failure.getRunId());
+        assertEquals("failed", failure.getRunStatus());
+        assertEquals("2026-10-11T01:00:20Z", failure.getRunFinishedAt());
+        assertEquals(false, failure.getRecoverable());
+        assertEquals("done", failure.getAgentEvents().get(0).get("status"));
+        String encoded = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(messages);
+        assertTrue(encoded.contains("\"runId\":\"failed-run\""));
+        assertTrue(encoded.contains("\"agentEvents\""));
+        server.verify();
+    }
+
+    @Test
+    void inaccessibleHistoryKeeps404WithoutLeakingUpstreamPayload() {
+        UserContext.setUserId(7L);
+        AiConversationService service = new AiConversationService();
+        ReflectionTestUtils.setField(service, "serviceAuth", new AgentServiceAuth("offline-service-key-32-bytes-long!!"));
+        var server = MockRestServiceServer.bindTo((RestTemplate) ReflectionTestUtils.getField(service, "restTemplate")).build();
+        server.expect(requestTo("http://localhost:8000/conversations/11/messages?user_id=7"))
+                .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators
+                        .withStatus(org.springframework.http.HttpStatus.NOT_FOUND).body("private-upstream-detail"));
+        var error = assertThrows(org.springframework.web.server.ResponseStatusException.class, () -> service.getContext(11L));
+        assertEquals(404, error.getStatusCode().value());
+        assertFalse(error.getReason().contains("private-upstream-detail"));
         server.verify();
     }
 }

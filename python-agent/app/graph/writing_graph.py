@@ -22,11 +22,13 @@ class WritingInput(TypedDict):
     current_task: dict
     dependency_context: str
     citations: list[dict]
+    evidence_contents: dict
     dependency_cards: list[dict]
     execution_mode: str
     capabilities: list[str]
     user_profile: dict
     active_constraints: list[dict]
+    target_draft: dict
 
 
 class WritingOutput(TypedDict):
@@ -36,12 +38,14 @@ class WritingOutput(TypedDict):
 
 
 class WritingState(WritingInput, WritingOutput):
+    grounding_audit: dict
     draft: dict
     pending_article_id: int
     decision: str
     revision: str
     draft_html: str
     draft_hash: str
+    approved_base_hash: str
 
 
 class StagedWritingOutput(TypedDict):

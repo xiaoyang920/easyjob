@@ -1,6 +1,5 @@
 package com.easyjob.agent.component;
 
-import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.easyjob.dto.ArticleVectorMessage;
 import com.easyjob.entity.Article;
 import com.easyjob.listener.ArticleVectorListener;
@@ -27,8 +26,7 @@ public class RagChunkReindexRunner implements ApplicationRunner {
         long after = 0;
         int count = 0;
         while (true) {
-            var page = articles.selectList(new QueryWrapper<Article>().eq("status", 1).eq("deleted", 0)
-                    .gt("article_id", after).orderByAsc("article_id").last("LIMIT 100"));
+            var page = articles.findReindexPage(after);
             if (page.isEmpty()) break;
             for (Article article : page) {
                 indexer.handleVectorMessage(new ArticleVectorMessage(article.getArticleId(), "UPDATE"));

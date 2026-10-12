@@ -55,12 +55,14 @@ class PreviewTests(unittest.TestCase):
 
 
 class LiveGraphPreviewTests(unittest.IsolatedAsyncioTestCase):
-    async def test_same_structured_model_call_streams_before_completion_and_commits_after_gate(self):
+    async def test_candidate_tokens_stay_private_until_gate_and_settlement(self):
         release = asyncio.Event()
+        started = asyncio.Event()
         model = ChatOpenAI(model='offline', api_key='offline-test')
         async def model_stream(self, messages, **kwargs):
             yield ChatGenerationChunk(message=AIMessageChunk(content='', tool_call_chunks=[
                 {'name':'MainDecision','args':'{"action":"answer","reply":"第一段', 'id':'call-1','index':0}]))
+            started.set()
             await release.wait()
             yield ChatGenerationChunk(message=AIMessageChunk(content='', tool_call_chunks=[
                 {'name':None,'args':'第二段"}', 'id':None,'index':0}]))
@@ -71,19 +73,26 @@ class LiveGraphPreviewTests(unittest.IsolatedAsyncioTestCase):
             graph=builder._build_graph().compile(checkpointer=InMemorySaver())
             source=main._stream_source(graph,create_initial_state(7,'解释一个概念',[]),11,7,config)
             frames=[]
+            async def collect():
+                async for frame in source:
+                    frames.append(frame)
+            collector = asyncio.create_task(collect())
             try:
                 async with asyncio.timeout(5):
-                    while True:
-                        frame=await anext(source);frames.append(frame)
-                        if '__PREVIEW__:' in frame:break
+                    await started.wait()
                 service.finish.assert_not_awaited()
-                self.assertIn('第一段',frames[-1])
+                self.assertTrue(any('__AGENT_EVENT__:' in f for f in frames))
+                self.assertNotIn('第一段', ''.join(frames))
                 self.assertNotIn('__REPLY__:', ''.join(frames))
                 release.set()
-                frames.extend([frame async for frame in source])
+                await collector
             finally:
-                release.set();await source.aclose()
+                release.set()
+                if not collector.done():
+                    collector.cancel()
+                await asyncio.gather(collector, return_exceptions=True)
+                await source.aclose()
         service.finish.assert_awaited_once()
         previews=[json.loads(f.removeprefix('data:__PREVIEW__:').strip()) for f in frames if f.startswith('data:__PREVIEW__:')]
-        self.assertEqual(''.join(p['content'] for p in previews),'第一段第二段')
+        self.assertEqual(previews, [])
         self.assertTrue(any('__REPLY__:' in f and '第一段第二段' in f for f in frames))
