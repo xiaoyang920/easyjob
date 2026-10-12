@@ -19,20 +19,21 @@ async def cleanup(f):
     for u in f['users']:
         email=await db.fetch_val('SELECT email FROM user_info WHERE user_id=:id',{'id':u['id']})
         assert email is None or email==u['email'],'Fixture user identity changed'
-        articles=await db.fetch_all('SELECT title FROM article_info WHERE user_id=:id',{'id':u['id']})
+        articles=await db.fetch_all("SELECT title FROM article_info WHERE user_id=:id UNION ALL SELECT JSON_UNQUOTE(JSON_EXTRACT(payload,'$.title')) AS title FROM article_revision WHERE author_id=:id",{'id':u['id']})
         assert all(a['title'].startswith(f['marker']) for a in articles),'Unexpected article on fixture user'
     # Mark articles deleted through the business endpoint before physical cleanup.
     async with httpx.AsyncClient(base_url=API,timeout=20,trust_env=False) as client:
         for u in f['users']:
-            if not await db.fetch_val('SELECT COUNT(*) FROM article_info WHERE user_id=:id',{'id':u['id']}):continue
+            active=await db.fetch_all('SELECT article_id FROM article_info WHERE user_id=:id AND deleted=0 UNION SELECT article_id FROM article_revision WHERE author_id=:id AND deleted=0',{'id':u['id']})
+            if not active:continue
             result=(await client.post('/api/auth/login',json={'email':u['email'],'password':f['password']})).json()
             assert result['code']==200,'Fixture cleanup login failed'
             token=result['data']['token'];client.cookies.clear()
-            for a in await db.fetch_all('SELECT article_id FROM article_info WHERE user_id=:id AND deleted=0',{'id':u['id']}):
+            for a in active:
                 result=(await client.delete('/api/article/'+str(a['article_id']),headers={'Authorization':'Bearer '+token})).json()
                 assert result['code']==200,'Fixture article cleanup failed'
     for u in f['users']:
-        articles=await db.fetch_all('SELECT article_id,title FROM article_info WHERE user_id=:id',{'id':u['id']})
+        articles=await db.fetch_all("SELECT article_id,title FROM article_info WHERE user_id=:id UNION SELECT article_id,JSON_UNQUOTE(JSON_EXTRACT(payload,'$.title')) AS title FROM article_revision WHERE author_id=:id",{'id':u['id']})
         for a in articles:
             assert a['title'].startswith(f['marker']),'Unexpected article on fixture user'
             async with db.connection() as connection:
@@ -122,7 +123,9 @@ async def run(args):
             await db.execute('DELETE FROM recommendation_feedback WHERE user_id=:uid',{'uid':reader['id']})
             checks.append('200-record cap permits updates but prevents extra feedback')
             draft=await call('POST','/api/article/create',author,{'title':marker+'-review','content':'<p>review fixture</p>','categoryId':str(cid),'status':1});f['pendingArticle']=draft['articleId']
-            revision=await db.fetch_val('SELECT latest_revision_id FROM article_info WHERE article_id=:id',{'id':int(draft['articleId'])})
+            assert await db.fetch_val('SELECT COUNT(*) FROM article_info WHERE article_id=:id',{'id':int(draft['articleId'])})==0
+            revision=await db.fetch_val('SELECT revision_id FROM article_revision WHERE article_id=:id AND is_current=1 AND state=1',{'id':int(draft['articleId'])})
+            assert revision is not None,'Submitted draft must have a current pending revision'
             await call('POST','/api/admin/reviews/'+str(revision),operator,{'decision':'approve'},403)
             if not args.seed_browser:await call('POST','/api/admin/reviews/'+str(revision),reviewer,{'decision':'reject','reason':'isolated permission check'})
             checks.append('review mutations require reviewer/admin capability')

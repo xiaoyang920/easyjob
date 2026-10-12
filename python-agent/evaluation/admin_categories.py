@@ -83,14 +83,19 @@ async def run():
             for intent in [0,1]:
                 created=await request('POST','/api/article/create',ordinary,{'title':marker+f'-article-{intent}','content':'<p>category migration fixture</p>','contentType':1,'categoryId':source['categoryId'],'status':intent})
                 article_ids.append(int(created['articleId']))
-                assert await db.fetch_val('SELECT data_source FROM article_info WHERE article_id=:id',{'id':article_ids[-1]})=='evaluation'
+                assert await db.fetch_val('SELECT data_source FROM article_revision WHERE article_id=:id AND is_current=1',{'id':article_ids[-1]})=='evaluation'
+                assert await db.fetch_val('SELECT COUNT(*) FROM article_info WHERE article_id=:id',{'id':article_ids[-1]})==0
             pending=await db.fetch_one('SELECT revision_id,content_hash,CAST(payload AS CHAR) AS payload FROM article_revision WHERE article_id=:id AND state=1',{'id':article_ids[1]})
+            published=await request('POST','/api/article/create',ordinary,{'title':marker+'-published','content':'<p>published category fixture</p>','categoryId':source['categoryId'],'status':1})
+            article_ids.append(int(published['articleId']))
+            published_revision=await db.fetch_val('SELECT revision_id FROM article_revision WHERE article_id=:id AND is_current=1',{'id':article_ids[-1]})
+            await request('POST',f'/api/admin/reviews/{published_revision}',admin,{'decision':'approve','reason':''})
             await request('POST',f"/api/admin/categories/{source['categoryId']}/migrate",admin,{'expectedVersion':0,'targetId':target['categoryId'],'targetVersion':999},409)
-            assert await db.fetch_val('SELECT COUNT(*) FROM article_info WHERE category_id=:id',{'id':int(source['categoryId'])})==2
+            assert await db.fetch_val('SELECT COUNT(*) FROM article_info WHERE category_id=:id',{'id':int(source['categoryId'])})==1
             moved=await request('POST',f"/api/admin/categories/{source['categoryId']}/migrate",admin,{'expectedVersion':0,'targetId':target['categoryId'],'targetVersion':0})
-            assert moved['articleCount']==2 and (await category(source['categoryId']))['status']==0
+            assert moved['articleCount']==1 and (await category(source['categoryId']))['status']==0
             assert (await category(target['categoryId']))['version']=='1'
-            assert await db.fetch_val('SELECT COUNT(*) FROM article_info WHERE category_id=:id',{'id':int(target['categoryId'])})==2
+            assert await db.fetch_val('SELECT COUNT(*) FROM article_info WHERE category_id=:id',{'id':int(target['categoryId'])})==1
             checks.append('migration is atomic with source/target versions and covers drafts/pending articles')
             for aid in article_ids:
                 editor=await request('GET',f'/api/article/{aid}/edit',ordinary)
@@ -100,8 +105,9 @@ async def run():
             assert after['content_hash']==pending['content_hash'] and after['payload']==pending['payload']
             assert await db.fetch_val('SELECT category_id FROM article_info WHERE article_id=:id',{'id':article_ids[1]})==int(target['categoryId'])
             editor=await request('GET',f'/api/article/{article_ids[0]}/edit',ordinary)
-            await request('PUT',f'/api/article/{article_ids[0]}',ordinary,{'title':marker+'-article-0','content':'<p>old editor category resolves to new target</p>','categoryId':source['categoryId'],'status':0,'expectedRevisionId':editor['revisionId']})
-            assert await db.fetch_val('SELECT category_id FROM article_info WHERE article_id=:id',{'id':article_ids[0]})==int(target['categoryId'])
+            saved=await request('PUT',f'/api/article/{article_ids[0]}',ordinary,{'title':marker+'-article-0','content':'<p>old editor category resolves to new target</p>','categoryId':source['categoryId'],'status':0,'expectedRevisionId':editor['revisionId'],'expectedLockVersion':editor['lockVersion']})
+            assert saved['categoryId']==target['categoryId']
+            assert await db.fetch_val('SELECT COUNT(*) FROM article_info WHERE article_id=:id',{'id':article_ids[0]})==0
             assert (await update(source['categoryId'],marker+'-source',status=1))['code']==409
             checks.append('old editor/approval routes to target without rewriting immutable snapshots or reactivating source')
             cached=await request('GET',f'/api/article/detail/{article_ids[1]}',ordinary)
@@ -116,8 +122,10 @@ async def run():
         finally:
             for aid in article_ids:
                 row=await db.fetch_one('SELECT user_id,title,deleted FROM article_info WHERE article_id=:id',{'id':aid})
-                assert row and row['user_id']==users[1]['id'] and row['title'].startswith(marker),'Article identity changed; refusing cleanup'
-                if not row['deleted']:await request('DELETE',f'/api/article/{aid}',users[1]['token'])
+                revisions=await db.fetch_all("SELECT author_id,deleted,JSON_UNQUOTE(JSON_EXTRACT(payload,'$.title')) AS title FROM article_revision WHERE article_id=:id",{'id':aid})
+                assert revisions and all(r['author_id']==users[1]['id'] and r['title'].startswith(marker) for r in revisions),'Revision identity changed; refusing cleanup'
+                assert row is None or (row['user_id']==users[1]['id'] and row['title'].startswith(marker)),'Article identity changed; refusing cleanup'
+                if (row and not row['deleted']) or any(not r['deleted'] for r in revisions):await request('DELETE',f'/api/article/{aid}',users[1]['token'])
                 # Remove only our immutable snapshots and queued jobs; late index messages see a deleted/missing article.
                 for table in ['article_review_log','article_revision','article_index_outbox','article_tag_relation','notification']:
                     await db.execute(f'DELETE FROM {table} WHERE article_id=:id',{'id':aid})

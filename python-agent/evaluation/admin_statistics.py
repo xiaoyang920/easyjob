@@ -31,6 +31,10 @@ async def cleanup(fixtures):
         articles=await db.fetch_all('SELECT article_id,title FROM article_info WHERE user_id=:uid',{'uid':uid})
         if any(not r['title'].startswith('[统计测试]') for r in articles):
             raise RuntimeError('Unexpected article on fixture owner; refusing deletion')
+        drafts=await db.fetch_all("SELECT JSON_UNQUOTE(JSON_EXTRACT(payload,'$.title')) AS title FROM article_revision WHERE author_id=:uid",{'uid':uid})
+        if any(not r['title'].startswith('[统计测试]') for r in drafts):
+            raise RuntimeError('Unexpected revision on fixture owner; refusing deletion')
+        await db.execute('DELETE FROM article_revision WHERE author_id=:uid',{'uid':uid})
         await db.execute('DELETE FROM article_info WHERE user_id=:uid',{'uid':uid})
         await db.execute('DELETE FROM user_reading_daily WHERE user_id=:uid',{'uid':uid})
         await db.execute('DELETE FROM user_reading_progress WHERE user_id=:uid',{'uid':uid})
@@ -55,6 +59,20 @@ def workbook_rows(content,sheet=2):
                 values.append(value)
             rows.append(values)
         return rows
+
+async def article_counts(source='all'):
+    """Count private workspaces and public projections as separate populations."""
+    published=await db.fetch_all('SELECT article_id,status,data_source FROM article_info WHERE deleted=0')
+    workspaces=await db.fetch_all('SELECT article_id,data_source FROM article_revision WHERE deleted=0 AND is_current=1 AND state IN(0,1,3,4)')
+    # A published article's working copy does not add a second article.
+    public_ids={r['article_id'] for r in published if r['status'] in (1,2)}
+    deleted_ids={r['article_id'] for r in await db.fetch_all('SELECT article_id FROM article_info WHERE deleted<>0')}
+    included=lambda row: source=='all' or row['data_source']==source
+    return {
+        '未公开':len({r['article_id'] for r in workspaces if included(r) and r['article_id'] not in public_ids|deleted_ids}),
+        '已发布':sum(r['status']==1 for r in published if included(r)),
+        '已下架':sum(r['status']==2 for r in published if included(r)),
+    }
 
 async def run(args):
     assert db.url.hostname in {'localhost','127.0.0.1','::1'},'Local database only'
@@ -92,14 +110,20 @@ async def run(args):
                 await call('/api/admin/statistics?'+urlencode({'source':source}),token,400)
             today=(await call('/api/admin/statistics?days=7',token))['to']
             today=date.fromisoformat(today);yesterday=today-timedelta(days=1)
-            for state in [0,2]:
+            for state in [1,2]:
                 aid=ids.next_id()
                 await db.execute("""INSERT INTO article_info(article_id,user_id,title,summary,content,content_type,view_count,like_count,collect_count,comment_count,share_count,status,is_top,is_essence,is_original,publish_time,create_time,update_time,deleted,required_level)
-                    VALUES(:id,:uid,:title,'statistics probe','<p>isolated fixture</p>',1,0,0,0,0,0,:state,0,0,1,IF(:state=2,NOW(),NULL),NOW(),NOW(),0,0)""",{'id':aid,'uid':uid,'title':f'[统计测试] {marker} {state}','state':state})
+                    VALUES(:id,:uid,:title,'statistics probe','<p>isolated fixture</p>',1,0,0,0,0,0,:state,0,0,1,NOW(),NOW(),NOW(),0,0)""",{'id':aid,'uid':uid,'title':f'[统计测试] {marker} {state}','state':state})
+            draft=await client.post('/api/article/create',headers={'Authorization':f'Bearer {ordinary}'},json={
+                'title':f'[统计测试] {marker} draft','content':'<p>private statistics fixture</p>','contentType':1,'status':0})
+            draft_result=draft.json();assert draft_result['code']==200,draft_result.get('message')
+            draft_id=int(draft_result['data']['articleId'])
+            assert await db.fetch_val('SELECT COUNT(*) FROM article_info WHERE article_id=:id',{'id':draft_id})==0
+            assert await db.fetch_val('SELECT COUNT(*) FROM article_revision WHERE article_id=:id AND author_id=:uid AND is_current=1 AND state=0 AND deleted=0',{'id':draft_id,'uid':uid})==1
             for day,millis in [(today,60000),(yesterday,120000)]:
                 await db.execute('INSERT INTO user_reading_daily(user_id,read_day,total_millis) VALUES (:uid,:day,:millis)',{'uid':uid,'day':day,'millis':millis})
             await db.execute('INSERT INTO user_reading_progress(user_id,total_millis,earned_level) VALUES (:uid,3600000,1)',{'uid':uid})
-            checks=['ordinary statistics/export forbidden','invalid/unbounded ranges rejected']
+            checks=['ordinary statistics/export forbidden','invalid/unbounded ranges rejected','new private draft exists only in article_revision']
             for days in [7,30,90]:
                 report=await call(f'/api/admin/statistics?days={days}&source=all',token)
                 assert len(report['daily'])==days and report['to']==str(today)
@@ -116,7 +140,8 @@ async def run(args):
                 sql_total=await db.fetch_val('SELECT SUM(d.total_millis) FROM user_reading_daily d JOIN user_info u ON u.user_id=d.user_id WHERE d.read_day>=:start AND d.read_day<=:end AND d.total_millis>0',{'start':report['from'],'end':report['to']})
                 assert report['periodReadingSeconds']==float(sql_total)/1000
                 assert sum(r['count'] for r in report['levels'])==await db.fetch_val('SELECT COUNT(*) FROM user_info')
-                assert sum(r['count'] for r in report['articles'])==await db.fetch_val('SELECT COUNT(*) FROM article_info WHERE deleted=0')
+                expected_articles=await article_counts()
+                assert {r['name']:r['count'] for r in report['articles']}==expected_articles,(report['articles'],expected_articles)
                 assert report['periodReadingSeconds']>=180
                 exported=await call(f'/api/admin/statistics/export?days={days}&source=all',token)
                 assert exported.status_code==200 and exported.headers['content-type'].startswith('application/vnd.openxmlformats')
@@ -131,7 +156,8 @@ async def run(args):
             for source,label in [('business','真实业务'),('evaluation','评测样例')]:
                 report=await call(f'/api/admin/statistics?days=7&source={source}',token)
                 assert report['source']==source
-                assert sum(r['count'] for r in report['articles'])==await db.fetch_val('SELECT COUNT(*) FROM article_info WHERE deleted=0 AND data_source=:source',{'source':source})
+                expected_articles=await article_counts(source)
+                assert {r['name']:r['count'] for r in report['articles']}==expected_articles,(source,report['articles'],expected_articles)
                 assert sum(r['count'] for r in report['levels'])==await db.fetch_val('SELECT COUNT(*) FROM user_info WHERE data_source=:source',{'source':source})
                 exported=await call(f'/api/admin/statistics/export?days=7&source={source}',token)
                 explanation={r[0]:r[1] for r in workbook_rows(exported.content,1)[1:]}
