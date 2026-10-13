@@ -182,17 +182,17 @@ class ReadinessTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_retention_preserves_active_runs_and_is_bounded(self):
         database=SimpleNamespace(fetch_all=AsyncMock(return_value=[]),execute=AsyncMock())
-        service=Operations(database); await service.cleanup()
+        service=Operations(database)
+        with patch('app.rpc.blog_client.maintenance', AsyncMock(return_value={})) as blog:
+            await service.cleanup()
         queries=[call.args[0] for call in database.fetch_all.await_args_list]
         self.assertTrue(any("NOT IN ('running','awaiting_approval')" in q for q in queries))
-        self.assertTrue(all('LIMIT 500' in q or 'LIMIT 100' in q for q in queries))
-        database.execute.assert_awaited_once()
-        receipt_cleanup = database.execute.await_args.args[0]
-        self.assertIn('article_read_receipt', receipt_cleanup)
-        self.assertIn('LIMIT 500', receipt_cleanup)
-        self.assertIn('INTERVAL 2 DAY', receipt_cleanup)
-        self.assertIn('r.draft_article_id IS NULL', queries[0])
-        self.assertIn("('succeeded','failed','cancelled','expired')", queries[1])
+        self.assertTrue(all(any(f'LIMIT {n}' in q for n in (20,100,500)) for q in queries))
+        database.execute.assert_not_awaited()
+        blog.assert_awaited_once_with('cleanup')
+        self.assertFalse(any('article_read' in q or 'article_index_outbox' in q for q in queries))
+        self.assertTrue(any('r.draft_article_id IS NULL' in q for q in queries))
+        self.assertTrue(any("('succeeded','failed','cancelled','expired')" in q for q in queries))
 
     async def test_quality_metrics_are_bounded_and_do_not_expose_conversation_content(self):
         import json

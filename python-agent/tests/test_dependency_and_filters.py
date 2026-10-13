@@ -56,12 +56,12 @@ class StrictFiltersTests(unittest.IsolatedAsyncioTestCase):
         service = FilterResolver()
         for filters, rows in [(QueryFilters(author_name='重名'), [{'user_id': 1}, {'user_id': 2}]),
                               (QueryFilters(category_names=['不存在']), [])]:
-            service._db = SimpleNamespace(fetch_all=AsyncMock(return_value=rows))
+            service.reader = AsyncMock(return_value=rows)
             with self.assertRaises(FilterResolutionError): await service.resolve(filters)
 
     async def test_topic_word_is_soft_but_an_explicit_tag_is_required(self):
         service = FilterResolver()
-        service._db = SimpleNamespace(fetch_all=AsyncMock(return_value=[]))
+        service.reader = AsyncMock(return_value=[])
         self.assertEqual((await service.resolve(QueryFilters(tags=['Redis']))).soft_terms, ['Redis'])
         with self.assertRaises(FilterResolutionError): await service.resolve(QueryFilters(required_tags=['Redis']))
 

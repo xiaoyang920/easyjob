@@ -1,4 +1,5 @@
 from app.clients.mysql_client import db
+from app.rpc.blog_client import public_read
 from app.services.query_rewrite import QueryFilters, ResolvedFilters
 
 
@@ -8,7 +9,7 @@ class FilterResolutionError(ValueError):
 
 class FilterResolver:
     def __init__(self):
-        self._db = db
+        self.reader = public_read
     async def resolve(self,filters: QueryFilters)->ResolvedFilters:
         resolved_tags, tag_soft_terms = await self._resolve_tags(filters.tags)
         category_ids, category_soft_terms = await self._find_category_ids(filters.category_names)
@@ -30,15 +31,7 @@ class FilterResolver:
         """把用户词汇规范化成 article_tag.tag_name 里真实存在的 canonical tag。"""
         if not tags:
             return [], []
-        placeholders,params = self._in_params("tags",tags)
-        rows = await self._db.fetch_all(
-            f"""
-            SELECT tag_name
-            FROM article_tag
-            WHERE tag_name IN ({placeholders})
-            """,
-            params
-        )
+        rows = await self.reader('tags', names=tags)
         matched = {str(r["tag_name"]) for r in rows}
         canonical = [tag for tag in tags if tag in matched]
         unmatched = [tag for tag in tags if tag not in matched]
@@ -47,15 +40,7 @@ class FilterResolver:
         """只接受能稳定解析成唯一 category_id 的分类名。"""
         if not category_names:
             return [], []
-        placeholders,params = self._in_params("category_names",category_names)
-        rows = await self._db.fetch_all(
-            f"""
-            SELECT  category_id, category_name
-            FROM category
-            WHERE category_name IN ({placeholders})
-            """,
-            params
-        )
+        rows = await self.reader('categories', names=category_names)
         matched = {}
         for row in rows:
             matched.setdefault(str(row["category_name"]), []).append(int(row["category_id"]))
@@ -68,14 +53,7 @@ class FilterResolver:
         if not author_name:
             return [], []
 
-        rows = await self._db.fetch_all(
-            """
-            SELECT user_id, nick_name
-            FROM user_info
-            WHERE nick_name = :author_name
-            """,
-            {"author_name": author_name},
-        )
+        rows = await self.reader('authors', name=author_name)
         if len(rows) != 1:
             return [], [author_name]
         return [int(rows[0]["user_id"])], []

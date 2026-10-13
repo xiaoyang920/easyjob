@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, UTC
 
 import asyncio
+import sys
 from uuid import UUID, uuid4
 from fastapi import FastAPI, Depends, HTTPException, Query, Path
 from typing import Literal
@@ -44,6 +45,7 @@ run_service = RunService(conversation_service, memory_service)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    rpc_server = None
     log.info("Agent Token budgets: total=%d main_output=%d worker_output=%d safety=%d compact_trigger=%d compact_target=%d recent=%d summary=%d",
              settings.MAIN_CONTEXT_MAX_TOKENS, settings.MAIN_OUTPUT_MAX_TOKENS, settings.WORKER_OUTPUT_MAX_TOKENS,
              settings.CONTEXT_SAFETY_TOKENS, settings.CONTEXT_COMPACT_TRIGGER_TOKENS, settings.CONTEXT_COMPACT_TARGET_TOKENS, settings.HISTORY_RECENT_TOKENS,
@@ -57,12 +59,11 @@ async def lifespan(app: FastAPI):
         await check_jobs_schema(mysql_client.db)
         await check_article_conversation_schema(mysql_client.db)
         await check_delivery_schema(mysql_client.db)
-        await check_optimization_schema(mysql_client.db)
         await check_heartbeat_schema(mysql_client.db)
         await check_maintenance_schema(mysql_client.db)
         await check_task_recovery_schema(mysql_client.db)
-        from app.services.revision_migration import check_revision_workspace_schema
-        await check_revision_workspace_schema(mysql_client.db)
+        from app.migrate import check_service_boundaries
+        await check_service_boundaries(mysql_client.db)
         if len(settings.AGENT_SERVICE_KEY.encode()) < 32:
             raise RuntimeError("请为 Java 和 Python 配置相同的 AGENT_SERVICE_KEY，至少32字节")
         from app.clients.es_client import BaseEsClient
@@ -79,14 +80,29 @@ async def lifespan(app: FastAPI):
             await mcp_manager.connect(server_configs)
             tool_registry.refresh()
         background_worker.start()
+        if settings.INTERNAL_TRANSPORT not in ('http', 'triple'):
+            raise RuntimeError('AGENT_INTERNAL_TRANSPORT 必须是 http 或 triple')
+        if settings.AGENT_RPC_ENABLED:
+            from app.rpc.server import start_server
+            rpc_server = await start_server(sys.modules[__name__])
+        from app.rpc.discovery import catalog
+        if catalog.enabled and (not settings.AGENT_RPC_ENABLED or settings.INTERNAL_TRANSPORT != 'triple'):
+            raise RuntimeError('服务发现模式需要启用 Triple RPC')
+        await catalog.start()
         yield
     finally:
+        if rpc_server is not None:
+            await rpc_server.stop(3)
         await stream_delivery.shutdown()
         await background_worker.shutdown()
         await run_service.shutdown()
         await close_graph()
         await mcp_manager.shutdown()
         await mysql_client.shutdown()
+        from app.rpc.blog_client import close_client
+        from app.rpc.discovery import catalog
+        await catalog.close()
+        await close_client()
         from app.services.main_context import context_service
         await context_service._redis.client.aclose()
 

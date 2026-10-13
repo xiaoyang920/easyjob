@@ -6,7 +6,6 @@ from html.parser import HTMLParser
 from fastapi import HTTPException
 from markdown_it import MarkdownIt
 
-from app.clients.mysql_client import db
 from app.config import settings
 from app.utils.token_utils import count_tokens, truncate_to_token_budget
 
@@ -75,19 +74,17 @@ def article_text(content: str, content_type: int = 1) -> str:
 
 
 class ArticleContextService:
-    def __init__(self, database=None):
-        self.db = database if database is not None else db
+    def __init__(self, reader=None):
+        from app.rpc.blog_client import public_read
+        self.reader = reader or public_read
 
     async def load(self, origin_article_id: int, *, max_tokens: int | None = None) -> dict:
         if isinstance(origin_article_id, bool) or origin_article_id <= 0:
             raise HTTPException(status_code=422, detail="来源文章 ID 必须为正整数")
-        row = await self.db.fetch_one("""SELECT a.article_id, a.title, a.content, a.content_type, a.update_time,
-            a.cover_image, a.view_count, a.like_count, u.nick_name AS author_name
-            FROM article_info a LEFT JOIN user_info u ON u.user_id = a.user_id
-            WHERE a.article_id = :aid AND a.status = 1 AND a.deleted = 0 AND a.required_level = 0""", {"aid": origin_article_id})
-        if not row:
+        rows = await self.reader('published', ids=[origin_article_id])
+        if not rows:
             raise HTTPException(status_code=404, detail="文章不存在、已下架或无权阅读")
-        article = dict(row._mapping)
+        article = rows[0]
         raw = article.get("content") or ""
         text = article_text(raw, int(article.get("content_type") or 1))
         budget = max_tokens if max_tokens is not None else getattr(settings, "ARTICLE_CONTEXT_MAX_TOKENS", 8192)
@@ -102,7 +99,7 @@ class ArticleContextService:
             "content": content, "completeness": completeness,
             "full_content_tokens": total_tokens, "content_tokens": count_tokens(content),
             "source_hash": hashlib.sha256(raw.encode("utf-8")).hexdigest(),
-            "updated_at": updated.isoformat() if updated is not None else None,
+            "updated_at": updated.isoformat() if hasattr(updated, 'isoformat') else updated,
             "url": f"/article/{article['article_id']}",
             "author_name": article.get("author_name") or "",
             "cover_image": article.get("cover_image") or "",

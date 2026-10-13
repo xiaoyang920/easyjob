@@ -67,7 +67,7 @@ class Operations:
 
     async def metrics(self):
         result = {}
-        for name, table in [('runs', 'agent_run'), ('memory_jobs', 'agent_background_job'), ('article_jobs', 'article_index_outbox')]:
+        for name, table in [('runs', 'agent_run'), ('memory_jobs', 'agent_background_job')]:
             rows = await self.db.fetch_all(f'SELECT status,COUNT(*) AS count FROM {table} GROUP BY status')
             result[name] = {r._mapping['status']: r._mapping['count'] for r in rows}
         rows = await self.db.fetch_all("""SELECT state,COUNT(*) AS count FROM agent_execution_lease
@@ -76,9 +76,17 @@ class Operations:
         result['limits'] = {'global': settings.EXECUTION_GLOBAL_LIMIT, 'per_user': settings.EXECUTION_USER_LIMIT,
                             'queue': settings.EXECUTION_QUEUE_LIMIT, 'wait_seconds': settings.EXECUTION_WAIT_SECONDS,
                             'run_tokens': settings.RUN_TOTAL_TOKEN_BUDGET}
-        for name, table in [('memory_oldest_pending_seconds', 'agent_background_job'), ('article_oldest_pending_seconds', 'article_index_outbox')]:
+        for name, table in [('memory_oldest_pending_seconds', 'agent_background_job')]:
             result[name] = await self.db.fetch_val(f"""SELECT COALESCE(MAX(TIMESTAMPDIFF(SECOND,created_at,UTC_TIMESTAMP(6))),0)
                 FROM {table} WHERE status IN ('pending','dispatched','running')""")
+        from app.rpc.blog_client import maintenance
+        try:
+            blog = await maintenance('metrics')
+            result['article_jobs'] = {r['status']: r['count'] for r in blog['article_jobs']}
+            result['article_oldest_pending_seconds'] = blog['article_oldest_pending_seconds']
+        except Exception:
+            result['article_jobs'] = None
+            result['article_oldest_pending_seconds'] = None
         result['recent_quality'] = await self.recent_quality()
         return result
 
@@ -128,6 +136,8 @@ class Operations:
                 'scope': 'bounded persisted samples; terminal failure metrics may be missing; stage durations exclude approval wait'}
 
     async def cleanup(self):
+        from app.services.draft_commit import reconcile
+        await reconcile(self.db)
         if not self.expiry_at or monotonic() - self.expiry_at >= 10:
             from app.services.run_repository import RunRepository
             from fastapi import HTTPException
@@ -169,7 +179,7 @@ class Operations:
                     WHERE f.event_id IN ({keys}) AND r.status NOT IN ('running','awaiting_approval')
                     AND f.created_at<TIMESTAMPADD(DAY,-:days,UTC_TIMESTAMP(6))""",args)
             sizes=[len(frames)]
-            for table in ('agent_background_job','article_index_outbox'):
+            for table in ('agent_background_job',):
                 eligible="(status='completed' AND updated_at<TIMESTAMPADD(DAY,-30,UTC_TIMESTAMP(6))) OR (status='dead' AND updated_at<TIMESTAMPADD(DAY,-90,UTC_TIMESTAMP(6)))"
                 rows=await self.db.fetch_all(f'SELECT job_id FROM {table} WHERE {eligible} LIMIT 500')
                 sizes.append(len(rows))
@@ -178,18 +188,8 @@ class Operations:
                     keys=','.join(f':j{i}' for i in range(len(rows)))
                     await self.db.execute(f'DELETE FROM {table} WHERE job_id IN ({keys}) AND ({eligible})',args)
             if max(sizes)<500:break
-        # Preserve the one current reading session; clean only superseded sessions.
-        sessions=await self.db.fetch_all("""SELECT s.session_id FROM reading_session s
-            LEFT JOIN user_reading_progress p ON p.user_id=s.user_id
-            WHERE s.last_heartbeat<TIMESTAMPADD(DAY,-30,UTC_TIMESTAMP(6))
-            AND (p.active_session IS NULL OR p.active_session<>s.session_id) ORDER BY s.last_heartbeat LIMIT 500""")
-        if sessions:
-            args={f's{i}':r._mapping['session_id'] for i,r in enumerate(sessions)}
-            keys=','.join(f':s{i}' for i in range(len(sessions)))
-            await self.db.execute(f"""DELETE s FROM reading_session s LEFT JOIN user_reading_progress p ON p.user_id=s.user_id
-                WHERE s.session_id IN ({keys}) AND s.last_heartbeat<TIMESTAMPADD(DAY,-30,UTC_TIMESTAMP(6))
-                AND (p.active_session IS NULL OR p.active_session<>s.session_id)""",args)
-        await self.db.execute('DELETE FROM article_read_receipt WHERE read_day<DATE_SUB(UTC_DATE(),INTERVAL 2 DAY) LIMIT 500')
+        from app.rpc.blog_client import maintenance
+        await maintenance('cleanup')
         self.cleanup_at = monotonic()
 
 

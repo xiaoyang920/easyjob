@@ -30,6 +30,8 @@
         <java.version>21</java.version>
         <easyjob.build.directory>${project.basedir}/target</easyjob.build.directory>
         <spring-ai.version>1.1.0</spring-ai.version>
+        <dubbo.version>3.3.6</dubbo.version>
+        <protobuf.version>3.25.5</protobuf.version>
     </properties>
     
     <dependencyManagement>
@@ -45,6 +47,16 @@
     </dependencyManagement>
     
     <dependencies>
+        <dependency>
+            <groupId>org.apache.dubbo</groupId>
+            <artifactId>dubbo</artifactId>
+            <version>${dubbo.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.google.protobuf</groupId>
+            <artifactId>protobuf-java</artifactId>
+            <version>${protobuf.version}</version>
+        </dependency>
         <dependency>
             <groupId>com.alibaba</groupId>
             <artifactId>easyexcel</artifactId>
@@ -194,6 +206,20 @@
     <build>
         <directory>${easyjob.build.directory}</directory>
         <plugins>
+            <plugin>
+                <groupId>org.apache.dubbo</groupId>
+                <artifactId>dubbo-maven-plugin</artifactId>
+                <version>${dubbo.version}</version>
+                <configuration>
+                    <protoSourceDir>${project.basedir}/contracts</protoSourceDir>
+                </configuration>
+                <executions>
+                    <execution>
+                        <phase>generate-sources</phase>
+                        <goals><goal>compile</goal></goals>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>

@@ -23,6 +23,9 @@ jobs:
       rabbit:
         image: rabbitmq:4.1
         ports: ['5672:5672']
+      consul:
+        image: hashicorp/consul:1.20.6
+        ports: ['8500:8500']
     env:
       EASYJOB_CI: '1'
       TZ: Asia/Shanghai
@@ -39,6 +42,7 @@ jobs:
       MAIL_HOST: 127.0.0.1
       MAIL_USERNAME: ci@example.invalid
       LANGFUSE_TRACING_ENABLED: 'false'
+      SERVICE_DISCOVERY_ENABLED: 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -81,6 +85,10 @@ jobs:
         env:
           EASYJOB_INTERACTION_DB_TEST: '1'
         run: mvn -B -Dtest=ArticleInteractionMysqlTests test
+      - name: Start Agent-owned query service without model calls or workers
+        run: |
+          mkdir -p logs
+          python tests/integration/agent-query-peer.py > logs/integration-agent.log 2>&1 &
       - name: Build and start Java with dummy credentials and model dispatch disabled
         run: |
           mkdir -p temp logs
@@ -103,6 +111,21 @@ jobs:
           else:
               print(Path('logs/integration-java.log').read_text(errors='replace')[-30000:])
               raise RuntimeError('Java startup failed')
+          PY
+          mvn -B -f gateway/pom.xml -DskipTests package
+          java -jar gateway/target/easyjob-gateway-0.0.1-SNAPSHOT.jar > logs/integration-gateway.log 2>&1 &
+          python - <<'PY'
+          import json,time,urllib.request
+          from pathlib import Path
+          for _ in range(45):
+              try:
+                  with urllib.request.urlopen('http://127.0.0.1:8090/api/article/list',timeout=3) as response:
+                      if json.load(response).get('code')==200: break
+              except (OSError,ValueError): pass
+              time.sleep(2)
+          else:
+              print(Path('logs/integration-gateway.log').read_text(errors='replace')[-20000:])
+              raise RuntimeError('Gateway startup failed')
           PY
       - name: Real API, SQL and workbook regression
         working-directory: python-agent
@@ -138,5 +161,7 @@ jobs:
             temp/playwright-report/
             temp/playwright-results/
             logs/integration-java.log
+            logs/integration-agent.log
+            logs/integration-gateway.log
             logs/integration-elasticsearch.log
           retention-days: 7

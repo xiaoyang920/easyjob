@@ -20,6 +20,7 @@ public class AgentService {
     @Value("${agent.python-url:http://localhost:8000}")
     private String pythonUrl = "http://localhost:8000";
     @Autowired private AgentServiceAuth serviceAuth;
+    @Autowired(required=false) private com.easyjob.agent.rpc.AgentRpcClient rpc;
     private final RestTemplate restTemplate;
     public AgentService() {
         var factory = new SimpleClientHttpRequestFactory();
@@ -39,6 +40,7 @@ public class AgentService {
         return body;
     }
     private String post(String path, Long uid, Map<String, Object> body) {
+        if (rpc != null) return JSON.toJSONString(rpc.post(path, uid, body));
         var headers = serviceAuth.headers(uid);
         headers.setContentType(MediaType.APPLICATION_JSON);
         try {
@@ -63,6 +65,7 @@ public class AgentService {
         return new ResponseStatusException(status.is5xxServerError() ? HttpStatus.BAD_GATEWAY : status, message);
     }
     private Flux<String> stream(String path, Long uid, Map<String, Object> body) {
+        if (rpc != null) return rpc.stream(path, uid, body);
         var headers = serviceAuth.headers(uid);
         return WebClient.create(pythonUrl).post().uri(path).headers(h -> h.addAll(headers))
                 .bodyValue(body).retrieve()
@@ -110,6 +113,7 @@ public class AgentService {
         return JSON.parseObject(post("/chat/" + cid + "/cancel?user_id=" + uid, uid, null));
     }
     public Map<String,Object> runStatus(String runId, Long uid) {
+        if (rpc != null) return (Map<String,Object>) rpc.runStatus(uid, runId);
         try {
             return JSON.parseObject(restTemplate.exchange(pythonUrl + "/runs/" + runId, HttpMethod.GET,
                     new HttpEntity<>(serviceAuth.headers(uid)), String.class).getBody());
@@ -126,6 +130,7 @@ public class AgentService {
         return stream("/runs/" + runId + "/recover", uid, Map.of());
     }
     public Map<String,Object> runOverview(Long uid) {
+        if (rpc != null) return (Map<String,Object>) rpc.overview(uid);
         try {
             return JSON.parseObject(restTemplate.exchange(pythonUrl + "/run-overview", HttpMethod.GET,
                     new HttpEntity<>(serviceAuth.headers(uid)), String.class).getBody());
@@ -135,6 +140,7 @@ public class AgentService {
     }
 
     public Map<String,Object> conversationRun(Long cid, Long uid) {
+        if (rpc != null) return (Map<String,Object>) rpc.conversationRun(uid, cid);
         String path = "/conversations/" + cid + "/run";
         try {
             return JSON.parseObject(restTemplate.exchange(pythonUrl + path, HttpMethod.GET,
@@ -146,6 +152,7 @@ public class AgentService {
     public Flux<String> runEvents(String runId, Long uid, long after) {
         UUID.fromString(runId);
         if (after < 0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "事件游标无效");
+        if (rpc != null) return rpc.events(uid, runId, after);
         String path = "/runs/" + runId + "/events?after=" + after;
         return WebClient.create(pythonUrl).get().uri(path).headers(h -> h.addAll(serviceAuth.headers(uid)))
                 .retrieve().onStatus(HttpStatusCode::isError, response ->
@@ -153,6 +160,7 @@ public class AgentService {
                 .bodyToFlux(String.class);
     }
     public Map<String,Object> memoryRequest(Long uid, HttpMethod method, String path, Map<String,Object> body) {
+        if (rpc != null) return (Map<String,Object>) rpc.memory(uid, method, path, body);
         var headers = serviceAuth.headers(uid);
         headers.setContentType(MediaType.APPLICATION_JSON);
         try {

@@ -17,6 +17,10 @@ load_dotenv(_env_dir / ".env")
 class Settings:
     AGENT_SERVICE_KEY: str = os.getenv("AGENT_SERVICE_KEY", "")
     JAVA_AGENT_URL: str = os.getenv("JAVA_AGENT_URL", "http://localhost:8080")
+    INTERNAL_TRANSPORT: str = os.getenv("AGENT_INTERNAL_TRANSPORT", "triple").strip().lower()
+    AGENT_RPC_ENABLED: bool = os.getenv("AGENT_RPC_ENABLED", "true").lower() in ("true", "1", "yes")
+    AGENT_RPC_BIND: str = os.getenv("AGENT_RPC_BIND", "127.0.0.1:50051")
+    BLOG_RPC_TARGET: str = os.getenv("BLOG_RPC_TARGET", "127.0.0.1:20881")
     RUN_TIMEOUT_SECONDS: int = int(os.getenv("AGENT_RUN_TIMEOUT_SECONDS", "300"))
     EXECUTOR_HEARTBEAT_SECONDS: int = 10
     EXECUTOR_LEASE_SECONDS: int = 45

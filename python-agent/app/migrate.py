@@ -530,7 +530,8 @@ async def main():
         await apply_platform_completion(db)
         from app.services.revision_migration import apply_revision_workspace_migration
         await apply_revision_workspace_migration(db)
-        print("001..020: applied (legacy data preserved)")
+        await apply_service_boundaries(db)
+        print("001..021: applied (legacy data preserved)")
     finally:
         await db.disconnect()
 
@@ -676,6 +677,36 @@ async def apply_platform_completion(database):
             await connection.execute('INSERT INTO agent_schema_migration(version,checksum) VALUES (:v,:c)', {'v':migration.name,'c':checksum})
         finally:
             await connection.fetch_val("SELECT RELEASE_LOCK('easyjob_agent_schema')")
+
+
+async def apply_service_boundaries(database):
+    migration = MIGRATION.with_name('021_service_boundaries.sql')
+    checksum = hashlib.sha256(migration.read_bytes()).hexdigest()
+    async with database.connection() as connection:
+        if await connection.fetch_val("SELECT GET_LOCK('easyjob_agent_schema',10)") != 1:
+            raise RuntimeError('无法取得迁移锁')
+        try:
+            previous = await connection.fetch_val('SELECT checksum FROM agent_schema_migration WHERE version=:v', {'v':migration.name})
+            if previous:
+                if previous != checksum: raise RuntimeError('服务边界迁移校验和发生变化')
+                return
+            for sql in migration.read_text(encoding='utf-8').split(';'):
+                sql = sql.strip()
+                if not sql: continue
+                if sql.startswith('ALTER TABLE agent_run ADD COLUMN data_source'):
+                    if await connection.fetch_val("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='agent_run' AND column_name='data_source'"): continue
+                await connection.execute(sql)
+            await connection.execute('INSERT INTO agent_schema_migration(version,checksum) VALUES (:v,:c)', {'v':migration.name,'c':checksum})
+        finally:
+            await connection.fetch_val("SELECT RELEASE_LOCK('easyjob_agent_schema')")
+
+
+async def check_service_boundaries(database):
+    count=await database.fetch_val("""SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE()
+        AND ((table_name='agent_run' AND column_name='data_source')
+          OR (table_name='agent_admin_audit' AND column_name IN ('command_id','actor_id','kind','target')))""")
+    if count!=5:
+        raise RuntimeError('服务边界迁移未就绪，请执行 python scripts/migrate-service-boundaries.py')
 
 
 if __name__ == "__main__":

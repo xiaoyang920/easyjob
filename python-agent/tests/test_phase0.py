@@ -1,3 +1,4 @@
+from rpc_fakes import public_reader
 """Offline regression: real LangGraph checkpoints, mocked external services."""
 import os
 os.environ["LANGFUSE_TRACING_ENABLED"] = "false"
@@ -115,12 +116,12 @@ class RagTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_mysql_verification_removes_unpublished_candidates(self):
         database = SimpleNamespace(fetch_all=AsyncMock(return_value=[row(article_id=1, title="published", content="<p>current public</p>")]))
-        with patch.object(search_worker, "db", database):
+        with patch.object(search_worker, "public_read", public_reader(database)):
             result = await search_worker._verify_candidates_from_mysql([
                 article_chunk(aid="1", html="<p>current public</p>", content="current public", title="published"), article_chunk(aid="2"),
             ])
         self.assertEqual([doc["content"] for doc in result], ["current public"])
-        self.assertIn("a.status = 1 AND a.deleted = 0", database.fetch_all.call_args.args[0])
+        self.assertEqual("published", database.fetch_all.call_args.args[0])
 
     async def test_citation_numbers_match_model_context_and_deduplicate(self):
         documents = [{"article_id": "1", "title": "A", "content": "text"}] * 2

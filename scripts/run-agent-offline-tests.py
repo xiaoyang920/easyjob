@@ -4,9 +4,11 @@ import sys
 import traceback
 import unittest
 import socket
+import os
 from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
+os.environ['SERVICE_DISCOVERY_ENABLED'] = 'false'
 sys.path.insert(0, str(root / 'python-agent'))
 sys.path.insert(0, str(root / 'python-agent' / 'tests'))
 attempts = []

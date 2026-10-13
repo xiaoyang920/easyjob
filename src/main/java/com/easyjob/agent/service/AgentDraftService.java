@@ -16,17 +16,21 @@ public class AgentDraftService {
     public static final int SUMMARY_MAX_LENGTH = 500;
     private final AgentDraftMapper store;
     private final ArticleRevisionService revisions;
-    public AgentDraftService(AgentDraftMapper store, ArticleRevisionService revisions) {
-        this.store=store;this.revisions=revisions;
+    private final com.easyjob.agent.security.DraftSavePermit permits;
+    public AgentDraftService(AgentDraftMapper store, ArticleRevisionService revisions, com.easyjob.agent.security.DraftSavePermit permits) {
+        this.store=store;this.revisions=revisions;this.permits=permits;
     }
     public record DraftRequest(String runId, String executionToken, Long articleId,
         String title, String summary, String markdown, String html, String draftHash,
-        String baseDraftHash, String expectedRevisionId, Long expectedLockVersion) {
+        String baseDraftHash, String expectedRevisionId, Long expectedLockVersion, String savePermit) {
+        public DraftRequest(String runId,String executionToken,Long articleId,String title,String summary,String markdown,String html,String draftHash,String baseDraftHash,String expectedRevisionId,Long expectedLockVersion) {
+            this(runId,executionToken,articleId,title,summary,markdown,html,draftHash,baseDraftHash,expectedRevisionId,expectedLockVersion,null);
+        }
         public DraftRequest(String runId,String executionToken,Long articleId,String title,String summary,String markdown,String html,String draftHash,String baseDraftHash,String expectedRevisionId) {
-            this(runId,executionToken,articleId,title,summary,markdown,html,draftHash,baseDraftHash,expectedRevisionId,null);
+            this(runId,executionToken,articleId,title,summary,markdown,html,draftHash,baseDraftHash,expectedRevisionId,null,null);
         }
         public DraftRequest(String runId,String executionToken,Long articleId,String title,String summary,String markdown,String html,String draftHash) {
-            this(runId,executionToken,articleId,title,summary,markdown,html,draftHash,null,null);
+            this(runId,executionToken,articleId,title,summary,markdown,html,draftHash,null,null,null,null);
         }
     }
     public static String contentHash(DraftRequest draft) {
@@ -43,7 +47,11 @@ public class AgentDraftService {
     public static String cleanHtml(String html) {
         return com.easyjob.utils.HtmlContentSanitizer.clean(html, true);
     }
-    @Transactional
+    public Map<String,String> receipt(long uid,String runId) {
+        var found=store.receipt(runId,uid);
+        return found==null || found.isEmpty()?null:Map.of("articleId",found.get("article_id").toString(),"draftHash",found.get("draft_hash").toString());
+    }
+    @Transactional(timeout=20)
     public Map<String, String> save(long userId, DraftRequest draft) {
         if (draft.runId() == null || draft.executionToken() == null || draft.articleId() == null || draft.articleId() <= 0
                 || draft.title() == null || draft.title().isBlank() || draft.title().codePointCount(0, draft.title().length()) > 50
@@ -53,21 +61,18 @@ public class AgentDraftService {
                 || !contentHash(draft).equals(draft.draftHash())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Draft contract failed");
         }
-        var rows = store.findRunConversation(draft.runId(),userId);
-        if (rows.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
-        Long cid = ((Number)rows.getFirst().get("conversation_id")).longValue();
-        var conversations = store.lockConversation(cid);
-        if (conversations.isEmpty() || ((Number) conversations.getFirst().get("user_id")).longValue() != userId
-                || ((Number) conversations.getFirst().get("status")).intValue() != 1) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
-        var run = store.lockRun(draft.runId());
-        String baseHash=draft.baseDraftHash()==null?draft.draftHash():draft.baseDraftHash();
-        if (!baseHash.equals(run.get("draft_hash")) && !(run.get("draft_article_id")!=null && draft.draftHash().equals(run.get("draft_hash"))))
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Approval version changed");
-        if (run.get("draft_article_id") != null) return Map.of("articleId", run.get("draft_article_id").toString());
-        if (!"running".equals(run.get("status")) || !draft.executionToken().equals(run.get("execution_token"))
-                || !(Boolean.TRUE.equals(run.get("alive")) || run.get("alive") instanceof Number n && n.intValue() == 1)) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Run cancelled or expired");
+        var previous=receipt(userId,draft.runId());
+        if(previous!=null) {
+            if(!previous.get("draftHash").equals(draft.draftHash()) || !previous.get("articleId").equals(draft.articleId().toString()))
+                throw new ResponseStatusException(HttpStatus.CONFLICT,"Save identity changed");
+            return Map.of("articleId",previous.get("articleId"));
         }
+        permits.verify(userId,draft);
+        store.reserve(draft.runId(),userId,draft.articleId(),draft.draftHash());
+        var reserved=store.lockReceipt(draft.runId());
+        if(((Number)reserved.get("user_id")).longValue()!=userId || !draft.draftHash().equals(reserved.get("draft_hash"))
+            || ((Number)reserved.get("article_id")).longValue()!=draft.articleId()) throw new ResponseStatusException(HttpStatus.CONFLICT);
+        if(((Number)reserved.get("completed")).intValue()==1) return Map.of("articleId",draft.articleId().toString());
         if(draft.expectedRevisionId()!=null) {
             if(revisions==null)throw new IllegalStateException("Missing revision service");
             revisions.updateAgentDraft(userId,draft.articleId(),draft.expectedRevisionId(),draft.expectedLockVersion(),draft.title(),draft.summary(),cleanHtml(draft.html()));
@@ -78,7 +83,7 @@ public class AgentDraftService {
             request.setContent(cleanHtml(draft.html()));request.setContentType(1);request.setStatus(0);
             revisions.create(userId,draft.articleId(),request);
         }
-        store.recordSavedDraft(draft.articleId(),draft.draftHash(),draft.runId());
+        store.complete(draft.runId());
         return Map.of("articleId", draft.articleId().toString());
     }
 }

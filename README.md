@@ -5,8 +5,10 @@
 ## 项目结构
 
 - `src/`：Spring Boot 业务服务，文章、用户、通知、审核、权限及运维接口。
+- `gateway/`：独立 Spring Cloud Gateway，统一入口、JWT 初检、Redis 限流及熔断。
 - `frontend/`：Vue 3、TypeScript、Element Plus 前端。
 - `python-agent/`：FastAPI、LangGraph Agent，动态任务编排、混合检索、长期记忆及草稿审批。
+- `contracts/`：Java 与 Python 共用的 Protobuf RPC 契约。
 - `python-agent/migrations/`：数据库增量迁移。
 - `python-agent/evaluation/`：路由、检索和端到端评测；使用方式见该目录的 README。
 - `scripts/`：本地启动、维护和回归检查脚本。
@@ -21,14 +23,24 @@
 
 - Java：复制 `src/main/resources/application-example.yml` 为同目录的 `application.yml`，配置数据库、缓存、消息队列、模型服务和 JWT 密钥。
 - Python：复制 `python-agent/.env.example` 为 `.env`，补充数据库配置、模型密钥、文件上传路径；参考 `agent-runtime.env.example` 设置运行预算与 `REDIS_STACK_*`。
-- Java 与 Python 必须使用相同的 `AGENT_SERVICE_KEY`（至少 32 字节），可通过进程环境变量提供。Java 的 `agent.python-url` 默认为 `http://localhost:8000`。
+- Java 与 Python 必须使用相同的 `AGENT_SERVICE_KEY`（至少 32 字节），可通过进程环境变量提供。兼容 HTTP 模式下，Java 的 `agent.python-url` 默认为 `http://localhost:8000`。
 - Java 的 `file.upload.path` 与 Python 的 `FILE_UPLOAD_PATH` 应指向同一个上传目录。
 
 迁移脚本升级已有业务数据库，不能代替基础业务表的初始化。升级前先备份数据库，在 Python 环境安装依赖后执行 `python -m app.migrate`；Agent 启动时会检查所需字段。
 
 ## 本地启动
 
-先启动依赖服务并准备业务数据库，再分别启动三个服务：
+浏览器通过独立网关访问 Java 的 HTTP/SSE/WebSocket 接口。网关通过 **Consul** 发现 Java；Java 与 Python 通过 Consul 获取健康实例，使用 **Dubbo 3 Triple + gRPC / Protobuf** 双向通信，共享契约在 `contracts/easyjob_rpc.proto`。数据库仍在同一个 MySQL 实例，运行时代码按服务管理各自表，不跨服务直接读写。边界、部署参数及故障行为见 [服务拆分说明](docs/service-boundaries.md)。
+
+默认内部端口：Python `127.0.0.1:50051`、Java `127.0.0.1:20881`。两端使用同一个 `AGENT_SERVICE_KEY` 校验服务身份，用户身份由 Java 登录态提供。跨机器部署需配置 `AGENT_RPC_TARGET`、`BLOG_RPC_TARGET` 和监听地址，并使用受控内网及 TLS 终止代理；默认没有启用传输加密。不要把内部端口公开到互联网。
+
+迁移范围包括聊天、停止恢复、事件重放、历史分页、记忆管理、公开文章查询、草稿保存、推荐画像及后台指标。草稿保存采用 Agent 持久化意图、短期签名许可与 Java 本地事务回执，网络超时后查询回执确认结果。RPC 写操作没有自动重试，也不会在失败时自动切换 HTTP。关闭页面只断开事件订阅；保存已开始时停止按钮显示“正在保存”，完成后可在草稿箱查看。
+
+修改契约后执行 `python scripts/generate-rpc.py` 更新 Python 文件；Maven 构建自动生成 Java 文件。`python scripts/generate-rpc.py --check` 检查生成文件一致性。设置 `RPC_TEST_PYTHON` 为 Python 可执行文件路径后运行 `mvn -Dtest=RpcTransportTests,RpcInteropTests test`，可验证真实双向通信，无需数据库或模型密钥。CI 同样执行该测试。
+
+服务拆分模式使用 Triple，Python 的受认证 HTTP 入口保留供诊断与兼容调用。启用 Consul 时必须启用两端 RPC，不要将 `AGENT_INTERNAL_TRANSPORT` 切为 HTTP 或关闭 `AGENT_RPC_ENABLED`。
+
+先启动依赖服务和 Consul 并准备业务数据库，再分别启动服务（手动运行需为两端设置 `SERVICE_DISCOVERY_ENABLED=true`）：
 
 ```sh
 # 项目根目录
@@ -39,16 +51,19 @@ pip install -r requirements.txt
 python -m app.migrate
 uvicorn app.main:app --host 127.0.0.1 --port 8000
 
+# gateway 目录；JWT_SECRET_KEY 与 Java 完全相同
+mvn spring-boot:run
+
 # frontend 目录
 npm ci
 npm run dev
 ```
 
-前端地址为 `http://localhost:3000`，Java 为 `8080`，Python 为 `8000`。Vite 已配置 `/api`、`/uploads` 与 WebSocket 代理。
+前端为 `http://127.0.0.1:3000`，网关为 `8090`，Java 为 `8080`，Python 为 `8000`，Consul 为 `8500`。Vite 将 `/api`、`/uploads` 与 WebSocket 代理到网关。
 
 ### Windows 一键启动
 
-本机直接双击项目根目录的 **`启动项目.cmd`**。它会按顺序启动或复用 MySQL、Docker 中的缓存 Redis 与 Checkpoint Redis、Elasticsearch、RabbitMQ、Java 后端、Python Agent 和前端，全部检查通过后打开 `http://127.0.0.1:3000`。
+本机直接双击项目根目录的 **`启动项目.cmd`**。它会启动或复用 MySQL、缓存 Redis、Checkpoint Redis、Consul、Elasticsearch、RabbitMQ、Java、Python、网关和前端，全部检查通过后打开 `http://127.0.0.1:3000`。已有数据库本次升级先执行 `python scripts/migrate-service-boundaries.py` 应用增量迁移 021。
 
 第一次准备环境时仍需安装上述软件、创建 Python 虚拟环境并安装依赖、执行 `npm ci`、填写 Java/Python 本地配置并准备业务数据库。启动脚本使用本机现有安装目录；其他电脑可在 `scripts/start-local.ps1` 的参数中指定实际路径。缺少的 `temp/application-runtime.yml` 会由现有本地配置生成，已有配置保持原样，密码和密钥不打印到终端。
 
@@ -85,7 +100,7 @@ npm run build
 python -m unittest discover -s tests
 ```
 
-GitHub Actions 运行 Java 单元测试、前端测试及构建、Python 单元测试。另有 `integration.yml` 启动独立 MySQL、Redis、RabbitMQ，初始化仅含结构的测试数据库，应用迁移，运行真实 Java 接口、SQL/Excel 对照与 Chromium 页面回归。该任务使用虚拟模型密钥、关闭索引投递及消费者，不启动 Agent 生成；实际模型效果评测仍需显式配置服务和密钥。
+GitHub Actions 运行 Java、网关、前端及 Python 回归。另有 `integration.yml` 启动独立 MySQL、Redis、RabbitMQ，初始化仅含结构的测试数据库，应用迁移，运行真实 Java 接口、SQL/Excel 对照与 Chromium 页面回归。该任务使用虚拟模型密钥、关闭索引投递及消费者，只启动 Agent 的真实 SQL 查询 peer，不执行模型生成；实际模型效果评测仍需显式配置服务和密钥。
 
 Agent 检索支持完整查询跳过额外改写、容量及过期受控的查询向量缓存。流式传输合并临时文本增量，第一段文字和控制事件立即发送；最终交付仍经过质量校验。失败的只读委派任务可在对话中选择“继续未完成任务”，最多恢复一次，复用来源版本有效的已完成子任务。取消及草稿审批不使用此入口。升级需执行包含 `015_task_recovery.sql` 的数据库迁移；运行参数见 `python-agent/.env.example`，成本和独立进程故障测试见 `python-agent/evaluation/README.md`。
 

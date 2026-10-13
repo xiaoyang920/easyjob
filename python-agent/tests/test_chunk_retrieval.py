@@ -1,3 +1,4 @@
+from rpc_fakes import public_reader
 """Chunk corpus, public version verification and evidence assembly without network access."""
 import os
 os.environ["DEEPSEEK_API_KEY"] = "offline-test"
@@ -75,13 +76,13 @@ class ChunkRetrievalTests(unittest.IsolatedAsyncioTestCase):
         stale = article_chunk(html="<p>old</p>", user_id=7, category_id=2, publish_time=now.isoformat(), tags=["Java"])
         candidates = [chunk, chunk, stale, article_chunk(aid="99"), {**chunk, "title": "old title"},
                       {**chunk, "category_id": 8}, {**chunk, "tags": ["Old"]}, {**chunk, "publish_time": "2025-01-01T00:00:00"}]
-        with patch.object(search_worker, "db", database):
+        with patch.object(search_worker, "public_read", public_reader(database)):
             result = await search_worker._verify_candidates_from_mysql(candidates)
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]["content"], chunk["content"])
         self.assertEqual(result[0]["chunk_index"], 3)
         self.assertEqual(result[0]["section_path"], ["RAG", "Code"])
-        self.assertIn("a.status = 1 AND a.deleted = 0", database.fetch_all.call_args.args[0])
+        self.assertEqual("published", database.fetch_all.call_args.args[0])
 
     async def test_reranker_failure_still_limits_each_article_and_keeps_alternatives(self):
         ranker = RerankerService.__new__(RerankerService)
@@ -118,7 +119,7 @@ class ChunkRetrievalTests(unittest.IsolatedAsyncioTestCase):
         fused = await service.hybrid_search(["query"], ["query"], ResolvedFilters())
         self.assertAlmostEqual(fused[0]["rrf_score"], 2 / 61)
         database = SimpleNamespace(fetch_all=AsyncMock(return_value=[SimpleNamespace(_mapping={"article_id": 42, "title": "RAG", "content": html})]))
-        with patch.object(search_worker, "db", database):
+        with patch.object(search_worker, "public_read", public_reader(database)):
             verified = await search_worker._verify_candidates_from_mysql(fused)
         ranker = RerankerService.__new__(RerankerService)
         ranker.client = SimpleNamespace(post=AsyncMock(return_value=SimpleNamespace(

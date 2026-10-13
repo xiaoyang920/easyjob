@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.easyjob.mapper.AgentBlogQueryMapper">
+  <select id="userSources" resultType="map">SELECT user_id,data_source FROM user_info WHERE user_id IN <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach></select>
+  <select id="published" resultType="map">
+    SELECT a.article_id,a.title,a.content,a.content_type,a.update_time,a.cover_image,a.view_count,a.like_count,
+      a.user_id,a.category_id,a.publish_time,u.nick_name AS author_name,
+      (SELECT JSON_ARRAYAGG(t.tag_name) FROM article_tag_relation r JOIN article_tag t ON t.tag_id=r.tag_id WHERE r.article_id=a.article_id) AS current_tags
+    FROM article_info a LEFT JOIN user_info u ON a.user_id=u.user_id
+    WHERE a.status=1 AND a.deleted=0 AND a.required_level=0 AND a.article_id IN
+    <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+  </select>
+  <select id="tags" resultType="map">SELECT tag_name FROM article_tag WHERE tag_name IN <foreach collection="names" item="n" open="(" separator="," close=")">#{n}</foreach></select>
+  <select id="categories" resultType="map">SELECT category_id,category_name FROM category WHERE category_name IN <foreach collection="names" item="n" open="(" separator="," close=")">#{n}</foreach></select>
+  <select id="authors" resultType="map">SELECT user_id,nick_name FROM user_info WHERE nick_name=#{name} LIMIT 2</select>
+  <select id="userArticles" resultType="map">SELECT article_id,title,summary,create_time,view_count,like_count,collect_count FROM article_info WHERE user_id=#{uid} AND status=1 AND deleted=0 AND required_level=0 ORDER BY create_time DESC,article_id DESC LIMIT #{limit} OFFSET #{offset}</select>
+  <select id="comments" resultType="map">SELECT c.content,u.nick_name,c.create_time FROM comment c JOIN user_info u ON c.user_id=u.user_id JOIN article_info a ON a.article_id=c.article_id WHERE c.article_id=#{aid} AND c.status=0 AND a.status=1 AND a.deleted=0 AND a.required_level=0 ORDER BY c.create_time DESC LIMIT #{limit}</select>
+  <select id="trending" resultType="map">SELECT tag_name,use_count FROM article_tag ORDER BY use_count DESC LIMIT #{limit}</select>
+  <select id="scan" resultType="map">SELECT article_id FROM article_info WHERE article_id&gt;#{cursor} ORDER BY article_id LIMIT 20</select>
+  <select id="article" resultType="map">SELECT * FROM article_info WHERE article_id=#{id}</select>
+  <select id="lockArticle" resultType="map">SELECT * FROM article_info WHERE article_id=#{id} FOR UPDATE</select>
+  <select id="activeJobs" resultType="int">SELECT COUNT(*) FROM article_index_outbox WHERE article_id=#{id} AND status IN ('pending','running','dispatched','dead')</select>
+  <insert id="repair">INSERT INTO article_index_outbox(job_id,article_id,action,routing_key,available_at,created_at,updated_at) VALUES(#{job},#{id},'UPDATE','article.update',UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))</insert>
+  <insert id="repairViews">INSERT INTO article_view_sync(article_id,target_count,available_at) VALUES(#{id},#{count},UTC_TIMESTAMP(6)) ON DUPLICATE KEY UPDATE target_count=GREATEST(target_count,VALUES(target_count)),updated_at=UTC_TIMESTAMP(6)</insert>
+  <select id="jobCounts" resultType="map">SELECT status,COUNT(*) AS count FROM article_index_outbox GROUP BY status</select>
+  <select id="oldestJob" resultType="long">SELECT COALESCE(MAX(TIMESTAMPDIFF(SECOND,created_at,UTC_TIMESTAMP(6))),0) FROM article_index_outbox WHERE status IN ('pending','dispatched','running')</select>
+  <delete id="cleanJobs">DELETE FROM article_index_outbox WHERE (status='completed' AND updated_at&lt;TIMESTAMPADD(DAY,-30,UTC_TIMESTAMP(6))) OR (status='dead' AND updated_at&lt;TIMESTAMPADD(DAY,-90,UTC_TIMESTAMP(6))) LIMIT 500</delete>
+  <select id="oldSessions" resultType="string">SELECT s.session_id FROM reading_session s LEFT JOIN user_reading_progress p ON p.user_id=s.user_id WHERE s.last_heartbeat&lt;TIMESTAMPADD(DAY,-30,UTC_TIMESTAMP(6)) AND (p.active_session IS NULL OR p.active_session&lt;&gt;s.session_id) ORDER BY s.last_heartbeat LIMIT 500</select>
+  <delete id="cleanSessions">DELETE s FROM reading_session s LEFT JOIN user_reading_progress p ON p.user_id=s.user_id WHERE s.session_id IN <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach> AND s.last_heartbeat&lt;TIMESTAMPADD(DAY,-30,UTC_TIMESTAMP(6)) AND (p.active_session IS NULL OR p.active_session&lt;&gt;s.session_id)</delete>
+  <delete id="cleanReads">DELETE FROM article_read_receipt WHERE read_day&lt;DATE_SUB(UTC_DATE(),INTERVAL 2 DAY) LIMIT 500</delete>
+</mapper>

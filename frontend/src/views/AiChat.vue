@@ -1252,6 +1252,11 @@ async function handleCancel() {
   try {
     // 1. 通知后端取消
     const response = await request.post(`/agent/chat/${session.conversationId}/cancel`)
+    if (response.data?.status === 'saving') {
+      session.cancelling = false
+      ElMessage.info(response.data.message || '草稿正在保存，完成后可在草稿箱查看')
+      return
+    }
     if (response.data?.status === 'draft_saved') {
       const msg = [...(session.liveMessages.length ? session.liveMessages : session.messages)].reverse().find(item => item.role === 'assistant')
       if (msg) {

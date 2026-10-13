@@ -1,3 +1,4 @@
+from rpc_fakes import public_reader
 """Scoring regressions, not measurements of the production model or retrieval quality."""
 import json
 import os
@@ -140,7 +141,7 @@ class EvaluationRunnerTests(unittest.IsolatedAsyncioTestCase):
                                seed=42, timeout=1, warmup=0, repeats=1, rewrite=False)
         results = []
         with patch("app.config.get_llm", return_value=model), patch.object(settings, "ZHIPUAI_API_KEY", "offline"), \
-             patch.object(mysql, "db", database), patch.object(search_worker, "db", database), \
+             patch.object(mysql, "db", database), patch.object(search_worker, "public_read", public_reader(database)), \
              patch("app.services.query_rewrite.QueryRewriteService", return_value=rewrite), \
              patch("app.services.filter_resolver.FilterResolver", return_value=SimpleNamespace(resolve=AsyncMock(return_value=ResolvedFilters()))), \
              patch("app.services.retrieval_service.RetrievalService", side_effect=lambda: retrieval), \

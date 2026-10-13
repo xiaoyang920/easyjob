@@ -85,11 +85,13 @@ class RunRepository:
         return dict(row._mapping) if row else None
 
     async def create(self, cid, uid, request_id, input_hash):
+        from app.services.service_queries import user_source
+        source = await user_source(uid)
         # Retry the whole rolled-back transaction, never the INSERT alone or
         # the graph execution. The request ID and input hash remain unchanged.
         for attempt in range(CREATE_TRANSACTION_ATTEMPTS):
             try:
-                return await self._create_once(cid, uid, request_id, input_hash)
+                return await self._create_once(cid, uid, request_id, input_hash, source)
             except OperationalError as exc:
                 if not exc.args or exc.args[0] != 1213 or attempt + 1 == CREATE_TRANSACTION_ATTEMPTS:
                     raise
@@ -97,7 +99,7 @@ class RunRepository:
                             attempt + 2, CREATE_TRANSACTION_ATTEMPTS)
                 await asyncio.sleep(0.05 * (2 ** attempt) + random.uniform(0, 0.05))
 
-    async def _create_once(self, cid, uid, request_id, input_hash):
+    async def _create_once(self, cid, uid, request_id, input_hash, source='business'):
         async with self.db.transaction():
             # Take the existing parent row lock before the first consistent
             # read. Same-conversation contenders therefore see their predecessor's
@@ -116,11 +118,11 @@ class RunRepository:
             if active:
                 # Lock only an existing primary-key record. Re-read its current
                 # status because fail() can terminate an executor independently.
-                current = await self.db.fetch_one("""SELECT status, draft_article_id,
+                current = await self.db.fetch_one("""SELECT status, draft_article_id,JSON_EXTRACT(result_json,'$.draft_commit') AS draft_commit,
                     (deadline<=UTC_TIMESTAMP(6) OR (status='running' AND executor_lease_until<=UTC_TIMESTAMP(6))) AS expired FROM agent_run
                     WHERE run_id=:rid FOR UPDATE""", {"rid": active._mapping["run_id"]})
                 if current and current._mapping["status"] in ("running", "awaiting_approval"):
-                    if not current._mapping["expired"] or current._mapping["draft_article_id"] is not None:
+                    if not current._mapping["expired"] or current._mapping["draft_article_id"] is not None or current._mapping.get('draft_commit'):
                         raise HTTPException(409, "当前会话已有运行或待处理审批")
                     # Expiration fences old executors; a committed draft must
                     # still be reconciled instead of opening a new run.
@@ -129,11 +131,11 @@ class RunRepository:
                     await self.release_admission(active._mapping['run_id'])
             run_id, token = str(uuid4()), str(uuid4())
             await self.db.execute("""INSERT INTO agent_run
-                (run_id,conversation_id,user_id,request_id,input_hash,execution_token,status,deadline,executor_lease_until)
+                (run_id,conversation_id,user_id,request_id,input_hash,execution_token,status,deadline,executor_lease_until,data_source)
                 VALUES (:rid,:cid,:uid,:req,:hash,:token,'running',
-                        TIMESTAMPADD(SECOND,:ttl,UTC_TIMESTAMP(6)),TIMESTAMPADD(SECOND,:lease,UTC_TIMESTAMP(6)))""",
+                        TIMESTAMPADD(SECOND,:ttl,UTC_TIMESTAMP(6)),TIMESTAMPADD(SECOND,:lease,UTC_TIMESTAMP(6)),:source)""",
                 {"rid": run_id, "cid": cid, "uid": uid, "req": request_id,
-                 "hash": input_hash, "token": token, "ttl": settings.RUN_TIMEOUT_SECONDS, "lease": settings.EXECUTOR_LEASE_SECONDS})
+                 "hash": input_hash, "token": token, "ttl": settings.RUN_TIMEOUT_SECONDS, "lease": settings.EXECUTOR_LEASE_SECONDS, "source":source})
             return await self.get(run_id), True
 
     async def assert_executor(self, run_id, token):
@@ -240,7 +242,8 @@ class RunRepository:
         # A committed draft is a successful side effect, even if delivery failed.
         # Reconciliation returns it rather than executing generation again.
         await self.db.execute("""UPDATE agent_run SET status='failed',updated_at=UTC_TIMESTAMP(6)
-            WHERE run_id=:rid AND execution_token=:token AND status='running' AND draft_article_id IS NULL""",
+            WHERE run_id=:rid AND execution_token=:token AND status='running' AND draft_article_id IS NULL
+            AND JSON_EXTRACT(result_json,'$.draft_commit') IS NULL""",
             {"rid": run_id, "token": token})
         await self.release_admission(run_id)
 
@@ -253,6 +256,8 @@ class RunRepository:
                 FROM agent_run WHERE run_id=:rid AND user_id=:uid AND conversation_id=:cid FOR UPDATE""",
                 {'rid': run_id, 'uid': uid, 'cid': cid})
             if not row or row._mapping['status'] not in ('running', 'awaiting_approval') or not row._mapping['expired'] or row._mapping['draft_article_id'] is not None:
+                return False
+            if await self.db.fetch_val("SELECT JSON_EXTRACT(result_json,'$.draft_commit') FROM agent_run WHERE run_id=:rid", {'rid':run_id}):
                 return False
             await self.db.execute("""UPDATE agent_run SET status='expired',updated_at=UTC_TIMESTAMP(6)
                 WHERE run_id=:rid""", {'rid': run_id})
@@ -269,6 +274,8 @@ class RunRepository:
             run = dict(row._mapping)
             if run["draft_article_id"]:
                 return {"status": "draft_saved", "draftArticleId": str(run["draft_article_id"])}
+            if json.loads(run.get('result_json') or '{}').get('draft_commit'):
+                return {"status": "saving", "message": "草稿正在保存，完成后可在草稿箱查看"}
             if run["status"] in ("running", "awaiting_approval"):
                 await self.db.execute("UPDATE agent_run SET status='cancelled',updated_at=UTC_TIMESTAMP(6) WHERE run_id=:rid",
                                       {"rid": run["run_id"]})

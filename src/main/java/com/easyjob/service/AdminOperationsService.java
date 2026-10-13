@@ -41,6 +41,7 @@ public class AdminOperationsService {
     @Transactional public void retry(Long uid,String queue,String id) {
         admin.requirePermission(uid,"operations.manage");boolean knownQueue=QUEUES.contains(queue==null?"":queue);
         if(!knownQueue || id==null || !id.matches(queue.equals("article")?"[a-f0-9-]{36}":"[a-f0-9]{64}"))throw new BusinessException(400,"任务标识无效");
+        if(queue.equals("memory")) { store.retryMemory(uid,id); return; }
         var rows=store.lockJob(queue,id);
         if(rows.isEmpty())throw new BusinessException(404,"任务不存在");var row=rows.getFirst();
         if(!"dead".equals(row.get("status")))throw new BusinessException(409,"只能重试已终止的失败任务，请刷新状态");
@@ -50,7 +51,7 @@ public class AdminOperationsService {
     }
     @Transactional public void reconcile(Long uid,String kind) {
         admin.requirePermission(uid,"operations.manage");if(!KINDS.contains(kind==null?"":kind))throw new BusinessException(400,"对账类型无效");
-        int changed=store.scheduleReconciliation(kind);
+        int changed=store.scheduleReconciliation(kind,uid);
         if(changed==0)throw new BusinessException(409,"对账已在等待或执行中，请稍后刷新");
         store.insertReconcileAudit(uid,uid,kind);
     }

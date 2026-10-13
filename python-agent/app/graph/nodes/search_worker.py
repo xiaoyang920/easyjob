@@ -16,7 +16,7 @@ from app.skills.registry import skill_registry
 log = get_logger(__name__)
 
 from app.config import settings
-from app.clients.mysql_client import db
+from app.rpc.blog_client import public_read
 from app.graph.state import AgentState
 from app.graph.tool_executor import run_tool_agent
 from app.services.observability import trace_node
@@ -65,17 +65,8 @@ async def _verify_candidates_from_mysql(candidates: list[dict], *, article_ids=N
                                    if str(c.get("article_id") or "").isdigit()))
     if not article_ids:
         return []
-    placeholders = ", ".join(f":id{i}" for i in range(len(article_ids)))
-    rows = await db.fetch_all(
-        f"""SELECT a.article_id, a.title, a.content, a.cover_image, a.view_count, a.like_count,
-                   a.user_id, a.category_id, a.publish_time, u.nick_name AS author_name,
-                   (SELECT JSON_ARRAYAGG(t.tag_name) FROM article_tag_relation r
-                    JOIN article_tag t ON t.tag_id = r.tag_id WHERE r.article_id = a.article_id) AS current_tags
-            FROM article_info a LEFT JOIN user_info u ON a.user_id = u.user_id
-            WHERE a.article_id IN ({placeholders}) AND a.status = 1 AND a.deleted = 0 AND a.required_level = 0""",
-        {f"id{i}": aid for i, aid in enumerate(article_ids)},
-    )
-    metadata = {str(row._mapping["article_id"]): dict(row._mapping) for row in rows}
+    rows = await public_read('published', ids=article_ids)
+    metadata = {str(row["article_id"]): dict(row) for row in rows}
     verified = []
     for candidate in candidates:
         meta = metadata.get(str(candidate.get("article_id")))
@@ -97,7 +88,11 @@ async def _verify_candidates_from_mysql(candidates: list[dict], *, article_ids=N
                 indexed_time = datetime.fromisoformat(candidate["publish_time"]) if candidate.get("publish_time") else None
             except (ValueError, TypeError):
                 continue
-            if indexed_time != meta.get("publish_time"):
+            current_time = meta.get('publish_time')
+            if isinstance(current_time, str):
+                current_time = datetime.fromisoformat(current_time)
+                meta['publish_time'] = current_time
+            if indexed_time != current_time:
                 continue
         if "current_tags" in meta:
             current_tags = meta["current_tags"] or []

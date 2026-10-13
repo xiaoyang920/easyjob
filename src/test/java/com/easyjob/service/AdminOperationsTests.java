@@ -40,13 +40,13 @@ class AdminOperationsTests {
     }
     @Test void retiredExtractionCannotBeRevived() {
         var mid="a".repeat(64);
-        when(store.lockJob("memory",mid)).thenReturn(List.of(Map.of("status","dead","target_id",2L,"kind","memory_extract")));
+        doThrow(new BusinessException(409,"任务类型已停用")).when(store).retryMemory(1L,mid);
         assertThrows(BusinessException.class,()->service.retry(1L,"memory",mid));
         verify(store,never()).retryJob(anyString(),anyString());
     }
     @Test void reconcileCannotStealActiveLeaseOrAcceptUnknownKind() {
         assertThrows(BusinessException.class,()->service.reconcile(1L,"unknown"));
         assertThrows(BusinessException.class,()->service.reconcile(1L,"article"));
-        verify(store).scheduleReconciliation("article");
+        verify(store).scheduleReconciliation("article",1L);
     }
 }

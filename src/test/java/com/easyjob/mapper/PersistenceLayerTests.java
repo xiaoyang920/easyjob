@@ -36,8 +36,8 @@ class PersistenceLayerTests {
         assertEquals(List.of(),violations,"Use Mapper XML for handwritten persistence statements");
     }
     @Test void operationQueuesOnlyUseLiteralTablesAndStateValuesRemainBound() throws Exception {
-        String name="AdminOperationsMapper";var config=mapper(name);
-        for(var queue:List.of("article","memory")) {
+        String name="AdminBlogOperationsMapper";var config=mapper(name);
+        for(var queue:List.of("article")) {
             var params=new HashMap<String,Object>();params.put("queue",queue);params.put("state","dead");params.put("size",20);params.put("offset",0);
             String table=queue.equals("article")?"article_index_outbox":"agent_background_job";
             assertTrue(sql(config,name,"findJobs",params).contains("FROM "+table+" WHERE status=?"));
@@ -53,6 +53,10 @@ class PersistenceLayerTests {
         String sql=sql(config,"ArticleSearchMapper","findCurrentArticles",Map.of("ids",List.of(42L,43L)));
         assertTrue(sql.contains("status=1 AND deleted=0"));assertTrue(sql.contains("article_id IN"));
         assertFalse(sql.contains("42") || sql.contains("43"));
+    }
+    @Test void agentCommentQueryOnlyExposesNormalCommentsOnPublicArticles() throws Exception {
+        String query=sql(mapper("AgentBlogQueryMapper"),"AgentBlogQueryMapper","comments",Map.of("aid",42L,"limit",20));
+        assertTrue(query.contains("c.status=0"));assertTrue(query.contains("a.status=1 AND a.deleted=0 AND a.required_level=0"));
     }
     @Test void advisoryLocksBypassBothQueryCaches() throws Exception {
         var config=mapper("ArticleIndexLockMapper");

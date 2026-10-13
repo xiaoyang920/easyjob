@@ -1,6 +1,6 @@
 """Recheck visibility and source freshness before approval or final delivery."""
 import hashlib
-from app.clients.mysql_client import db
+from app.rpc.blog_client import public_read
 
 
 async def verify_public_evidence(citations):
@@ -14,9 +14,7 @@ async def verify_public_evidence(citations):
                 if c.get("articleId") and c.get("sourceHash")}
     if not expected:
         return
-    placeholders = ",".join(f":id{i}" for i in range(len(expected)))
-    rows = await db.fetch_all(f"""SELECT article_id,content FROM article_info WHERE article_id IN ({placeholders})
-        AND status=1 AND deleted=0 AND required_level=0""", {f"id{i}": aid for i, aid in enumerate(expected)})
-    actual = {str(r._mapping["article_id"]): hashlib.sha256((r._mapping["content"] or "").encode()).hexdigest() for r in rows}
+    rows = await public_read('published', ids=list(expected))
+    actual = {str(r["article_id"]): hashlib.sha256((r["content"] or "").encode()).hexdigest() for r in rows}
     if actual != expected:
         raise ValueError("证据已更新、下架或删除，需要重新检索")

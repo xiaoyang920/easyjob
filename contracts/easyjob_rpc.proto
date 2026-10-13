@@ -1,0 +1,97 @@
+syntax = "proto3";
+package com.easyjob.rpc.v1;
+option java_package = "com.easyjob.rpc.v1";
+option java_multiple_files = true;
+
+// The identity is issued by an authenticated service, never by an LLM or browser.
+// Do not log requests: this field contains the internal service credential.
+message Identity { int64 user_id = 1; string service_key = 2; }
+// Preserve int64 IDs exactly; google.protobuf.Struct represents numbers as doubles.
+message Value {
+  oneof kind {
+    string text = 1; sint64 integer = 2; double decimal = 3;
+    bool boolean = 4; bool null_value = 5; Object object = 6; Array array = 7;
+  }
+}
+message Object { map<string, Value> fields = 1; }
+message Array { repeated Value items = 1; }
+message Error { int32 status = 1; string message = 2; }
+message Reply { oneof result { Value data = 1; Error error = 2; } }
+message Frame { oneof content { string data = 1; bool heartbeat = 2; Error error = 3; } }
+message UserRequest { Identity identity = 1; }
+message ChatRequest {
+  Identity identity = 1;
+  optional int64 conversation_id = 2;
+  optional int64 origin_article_id = 3;
+  string message = 4;
+  repeated string image_paths = 5;
+  string request_id = 6;
+}
+message ResumeRequest {
+  Identity identity = 1; int64 conversation_id = 2; string action = 3;
+  string run_id = 4; string draft_hash = 5; optional Object edited_draft = 6;
+}
+message ConversationRequest { Identity identity = 1; int64 conversation_id = 2; }
+message RunRequest { Identity identity = 1; string run_id = 2; int64 after = 3; }
+message ConversationsRequest {
+  Identity identity = 1; string scope = 2; int32 limit = 3;
+  optional string last_update_time = 4; optional int64 last_id = 5;
+  optional int64 origin_article_id = 6;
+}
+message HistoryRequest {
+  Identity identity = 1; int64 conversation_id = 2; optional int32 limit = 3;
+  optional int64 before = 4; optional int64 after = 5; optional int64 around = 6;
+  optional int64 snapshot = 7;
+}
+message MemoryRequest {
+  Identity identity = 1; optional int64 before = 2; int32 limit = 3;
+  string kind = 4; int64 memory_id = 5; string version = 6; Object edit = 7;
+}
+message AgentQuery {
+  Identity identity = 1; string kind = 2; string state = 3; string name = 4;
+  int32 page = 5; int32 limit = 6; string start = 7; string end = 8; string source = 9;
+}
+service AgentRpc {
+  rpc Chat(ChatRequest) returns (Reply);
+  rpc ChatStream(ChatRequest) returns (stream Frame);
+  rpc Resume(ResumeRequest) returns (Reply);
+  rpc ResumeStream(ResumeRequest) returns (stream Frame);
+  rpc Cancel(ConversationRequest) returns (Reply);
+  rpc RunStatus(RunRequest) returns (Reply);
+  rpc RunEvents(RunRequest) returns (stream Frame);
+  rpc Recover(RunRequest) returns (stream Frame);
+  rpc RunOverview(UserRequest) returns (Reply);
+  rpc ConversationRun(ConversationRequest) returns (Reply);
+  rpc Conversations(ConversationsRequest) returns (Reply);
+  rpc Conversation(ConversationRequest) returns (Reply);
+  rpc Messages(HistoryRequest) returns (Reply);
+  rpc Questions(HistoryRequest) returns (Reply);
+  rpc DeleteConversation(ConversationRequest) returns (Reply);
+  rpc Memory(MemoryRequest) returns (Reply);
+  rpc EditProfile(MemoryRequest) returns (Reply);
+  rpc EditMemory(MemoryRequest) returns (Reply);
+  rpc DeleteMemory(MemoryRequest) returns (Reply);
+  rpc ServiceQuery(AgentQuery) returns (Reply);
+}
+message DraftRequest {
+  Identity identity = 1; string keyword = 2; int64 article_id = 3;
+  string run_id = 4; string execution_token = 5; string title = 6;
+  string summary = 7; string markdown = 8; string html = 9;
+  string draft_hash = 10; optional string base_draft_hash = 11;
+  optional string expected_revision_id = 12; optional int64 expected_lock_version = 13;
+  string save_permit = 14;
+}
+// Only bounded business queries are exposed; never accept SQL or table names from callers.
+message BlogQuery {
+  Identity identity = 1; string kind = 2; repeated int64 ids = 3;
+  repeated string names = 4; string name = 5; int64 target_id = 6;
+  int32 page = 7; int32 limit = 8; int64 cursor = 9; Object expected = 10;
+}
+service BlogRpc {
+  rpc ListDrafts(DraftRequest) returns (Reply);
+  rpc ReadDraft(DraftRequest) returns (Reply);
+  rpc SaveDraft(DraftRequest) returns (Reply);
+  rpc ReadPublic(BlogQuery) returns (Reply);
+  rpc Maintenance(BlogQuery) returns (Reply);
+  rpc DraftReceipt(DraftRequest) returns (Reply);
+}

@@ -10,6 +10,7 @@ from app.clients.mysql_client import db
 from app.clients.redis_client import RedisClient
 from app.config import get_llm, settings
 from app.utils.snowflake import snowflake
+from app.rpc.blog_client import public_read
 from app.utils.token_utils import count_tokens, truncate_to_token_budget
 from app.utils.context_budget import (messages_tokens, select_history, text_chunks,
     request_tokens, ensure_request_budget, ContextBudgetExceeded, split_history)
@@ -136,14 +137,28 @@ class ConversationService:
             self._metadata_select() + " WHERE " + " AND ".join(conditions)
             + " ORDER BY c.update_time DESC, c.conversation_id DESC LIMIT :lim", values,
         )
-        return [_to_camel_dict(dict(r._mapping)) for r in rows]
+        records = [dict(r._mapping) for r in rows]
+        await self._enrich_origins(records)
+        return [_to_camel_dict(r) for r in records]
 
     @staticmethod
     def _metadata_select() -> str:
         # A conversation stays in history after unpublishing; its source title
         # must not expose a private/deleted article through list or detail APIs.
-        return """SELECT c.*, a.title AS origin_article_title FROM ai_conversation c
-            LEFT JOIN article_info a ON a.article_id = c.origin_article_id AND a.status = 1 AND a.deleted = 0"""
+        return "SELECT c.* FROM ai_conversation c"
+
+    @staticmethod
+    async def _enrich_origins(records):
+        ids = list({int(r['origin_article_id']) for r in records if r.get('origin_article_id')})
+        metadata = {}
+        if ids:
+            try:
+                metadata = {int(r['article_id']): r['title'] for r in await public_read('published', ids=ids)}
+            except Exception:
+                # An unavailable blog never hides the user's conversation history.
+                pass
+        for record in records:
+            record['origin_article_title'] = metadata.get(record.get('origin_article_id'))
 
     async def get_conversation(self, conversation_id: int, user_id: int) -> dict:
         row = await db.fetch_one(
@@ -152,7 +167,9 @@ class ConversationService:
         )
         if not row:
             raise HTTPException(status_code=404, detail="会话不存在或无权访问")
-        return _to_camel_dict(dict(row._mapping))
+        record = dict(row._mapping)
+        await self._enrich_origins([record])
+        return _to_camel_dict(record)
 
     async def latest_article_conversation(self, user_id: int, origin_article_id: int) -> dict | None:
         rows = await self.list_conversations(user_id, limit=1, scope="article", origin_article_id=origin_article_id)

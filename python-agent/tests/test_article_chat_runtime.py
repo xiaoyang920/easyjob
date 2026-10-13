@@ -1,3 +1,4 @@
+from rpc_fakes import public_reader
 """Article origin is context, while each action owns its retrieval scope."""
 import os
 os.environ["DEEPSEEK_API_KEY"] = "offline-test"
@@ -31,9 +32,8 @@ from fakes import repository, RUN_ID, SERVICE_KEY, article_chunk
 
 
 def source(aid=42, title="当前文章", content="<p>自动配置根据条件创建 Bean。</p>"):
-    database = SimpleNamespace(fetch_one=AsyncMock(return_value=SimpleNamespace(_mapping={
-        "article_id": aid, "title": title, "content": content, "content_type": 1})))
-    return ArticleContextService(database)
+    return ArticleContextService(AsyncMock(return_value=[{
+        "article_id": aid, "title": title, "content": content, "content_type": 1}]))
 
 
 def conversations(origin=None):
@@ -99,16 +99,16 @@ class ArticleRunTests(unittest.IsolatedAsyncioTestCase):
         service = RunService(conv, memory(), repository(), articles=articles)
         req = main.ChatRequest(user_id=7, conversation_id=11, message="继续解释")
         _, _, first = await service.prepare_chat(req, None)
-        articles.db.fetch_one.return_value._mapping["content"] = "<p>更新后的规则。</p>"
+        articles.reader.return_value[0]["content"] = "<p>更新后的规则。</p>"
         _, _, second = await service.prepare_chat(req, None)
         self.assertNotEqual(first["article_context"]["source_hash"], second["article_context"]["source_hash"])
         self.assertIn("更新后的规则", second["task_results"]["article_context"]["result"])
         conv.create_conversation.assert_not_awaited()
-        self.assertEqual(articles.db.fetch_one.await_count, 2)
+        self.assertEqual(articles.reader.await_count, 2)
 
     async def test_hidden_article_fails_before_conversation_creation_or_message_append(self):
         conv, repo, articles = conversations(), repository(), source()
-        articles.db.fetch_one.return_value = None
+        articles.reader.return_value = []
         with self.assertRaises(HTTPException) as error:
             await RunService(conv, memory(), repo, articles=articles).prepare_chat(main.ChatRequest(user_id=7, message="q", origin_article_id=42), None)
         self.assertEqual(error.exception.status_code, 404)
@@ -127,7 +127,7 @@ class ArticleRunTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_unavailable_origin_does_not_lock_existing_chat_to_that_article(self):
         conv, articles = conversations(42), source()
-        articles.db.fetch_one.return_value = None
+        articles.reader.return_value = []
         _, _, state = await RunService(conv, memory(), repository(), articles=articles).prepare_chat(
             main.ChatRequest(user_id=7, conversation_id=11, message="解释 Redis"), None)
         self.assertEqual(state["article_context"]["availability"], "unavailable")
@@ -153,8 +153,8 @@ class ArticleGraphTests(unittest.IsolatedAsyncioTestCase):
         llm, control = model([MainDecision(action="answer", reply="根据条件创建 Bean。[article_context:1]")])
         with patch.object(agent, "get_llm", return_value=llm), \
              patch.object(actions, "retrieve_evidence", AsyncMock()) as retrieval, \
-             patch.object(evidence_verifier, "db", SimpleNamespace(fetch_all=AsyncMock(return_value=[
-                 SimpleNamespace(_mapping={"article_id": 42, "content": "<p>自动配置根据条件创建 Bean。</p>"})]))):
+             patch.object(evidence_verifier, "public_read", AsyncMock(return_value=[
+                 {"article_id": 42, "content": "<p>自动配置根据条件创建 Bean。</p>"}])):
             result, nodes = await execute(state)
         self.assertEqual(nodes, ["main_agent", "final_gate"])
         self.assertEqual(control.ainvoke.await_count, 1)
@@ -191,7 +191,7 @@ class ArticleGraphTests(unittest.IsolatedAsyncioTestCase):
         state = await article_state()
         state.update(final_reply="解释。[article_context:1]", citations=state["task_results"]["article_context"]["citations"])
         for rows in ([], [SimpleNamespace(_mapping={"article_id": 42, "content": "已修改"})]):
-            with self.subTest(rows=rows), patch.object(evidence_verifier, "db", SimpleNamespace(fetch_all=AsyncMock(return_value=rows))), self.assertRaises(ValueError):
+            with self.subTest(rows=rows), patch.object(evidence_verifier, "public_read", AsyncMock(return_value=[dict(r._mapping) for r in rows])), self.assertRaises(ValueError):
                 await runtime.final_gate(state)
 
 
@@ -218,10 +218,10 @@ class RetrievalScopeTests(unittest.IsolatedAsyncioTestCase):
     async def test_mysql_recheck_drops_candidates_outside_explicit_article_scope(self):
         html = "<p>current public evidence</p>"
         database = SimpleNamespace(fetch_all=AsyncMock(return_value=[SimpleNamespace(_mapping={"article_id": 42, "title": "RAG", "content": html})]))
-        with patch.object(search_worker, "db", database):
+        with patch.object(search_worker, "public_read", public_reader(database)):
             result = await search_worker._verify_candidates_from_mysql([article_chunk(), article_chunk(aid="43")], article_ids=[42])
         self.assertEqual([str(c["article_id"]) for c in result], ["42"])
-        self.assertEqual(database.fetch_all.await_args.args[1], {"id0": "42"})
+        self.assertEqual(database.fetch_all.await_args.args[1], {"ids": ["42"]})
 
     async def test_metadata_and_scoped_listing_require_authenticated_owner_identity(self):
         headers = {"X-Agent-Key": SERVICE_KEY, "X-Agent-User": "7"}

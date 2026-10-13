@@ -23,6 +23,7 @@ for name, value in {
     "AGENT_SERVICE_KEY": key,
     "REDIS_HOST": "localhost", "REDIS_PORT": "6379", "REDIS_DB": "3", "REDIS_PASSWORD": "",
     "REDIS_STACK_HOST": "localhost", "REDIS_STACK_PORT": "6380", "REDIS_STACK_DB": "0", "REDIS_STACK_PASSWORD": "",
+    "SERVICE_DISCOVERY_ENABLED": "true", "CONSUL_URL": "http://127.0.0.1:8500",
 }.items():
     set_key(str(runtime_env), name, value)
 host, port, database = values.get("MYSQL_HOST", "localhost"), values.get("MYSQL_PORT", "3306"), values.get("MYSQL_DB", "easyjob")
@@ -32,6 +33,7 @@ if rsa_key:
     mysql_url += "&serverRSAPublicKeyFile=" + quote(rsa_key, safe="")
 config = {
     "AGENT_SERVICE_KEY": key,
+    "SERVICE_DISCOVERY_ENABLED": True,
     "spring": {
         "datasource": {
             "url": mysql_url,
@@ -50,4 +52,11 @@ if bocha_key:
 output = root / "temp/application-runtime.yml"
 output.parent.mkdir(exist_ok=True)
 output.write_text(yaml.safe_dump(config, allow_unicode=True), encoding="utf-8")
+java_config = yaml.safe_load((root / 'src/main/resources/application.yml').read_text(encoding='utf-8'))
+jwt = java_config.get('easyjob', {}).get('jwt', {}).get('secret-key')
+if not jwt or str(jwt).startswith('${'):
+    jwt = local_values.get('JWT_SECRET_KEY') or values.get('JWT_SECRET_KEY')
+if not jwt or len(str(jwt).encode()) < 64:
+    raise SystemExit('Set the existing Java JWT_SECRET_KEY (at least 64 bytes) before starting the gateway.')
+(root / 'temp/gateway-runtime.yml').write_text(yaml.safe_dump({'easyjob': {'jwt': {'secret-key': jwt}}}), encoding='utf-8')
 print("Prepared local runtime configuration. Secrets stored only in ignored local files.")

@@ -1,14 +1,14 @@
 package com.easyjob.mapper;
+import com.easyjob.agent.rpc.AgentRpcClient;
+import org.springframework.stereotype.Component;
+import java.util.*;
 
-import org.apache.ibatis.annotations.Mapper;
-import org.apache.ibatis.annotations.Param;
-import java.util.List;
-import java.util.Map;
-
-/** Database access only. Caller owns business rules and transaction boundaries. */
-@Mapper
-public interface AdminAgentMetricsMapper {
-    List<Map<String,Object>> countStates(@Param("start") java.sql.Timestamp start, @Param("end") java.sql.Timestamp end, @Param("source") String source);
-    List<Map<String,Object>> findMetrics(@Param("start") java.sql.Timestamp start, @Param("end") java.sql.Timestamp end, @Param("source") String source);
-    List<Map<String,Object>> countDaily(@Param("start") java.sql.Timestamp start, @Param("end") java.sql.Timestamp end, @Param("source") String source);
+/** Remote data adapter; Agent statistics belong to Python, with no Java SQL over its tables. */
+@Component
+public class AdminAgentMetricsMapper {
+    private final AgentRpcClient rpc;
+    public AdminAgentMetricsMapper(AgentRpcClient rpc) { this.rpc=rpc; }
+    public List<Map<String,Object>> countStates(java.sql.Timestamp start,java.sql.Timestamp end,String source) { return rpc.serviceRows("metric_states",start,end,source); }
+    public List<Map<String,Object>> findMetrics(java.sql.Timestamp start,java.sql.Timestamp end,String source) { return rpc.serviceRows("metric_rows",start,end,source); }
+    public List<Map<String,Object>> countDaily(java.sql.Timestamp start,java.sql.Timestamp end,String source) { return rpc.serviceRows("metric_daily",start,end,source); }
 }

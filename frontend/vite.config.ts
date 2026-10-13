@@ -23,7 +23,7 @@ export default defineConfig({
     port: 3000,
     proxy: {
       '/api': {
-        target: 'http://localhost:8080',
+        target: process.env.VITE_API_PROXY || 'http://127.0.0.1:8090',
         changeOrigin: true,
         // SSE流式响应需要配置
         configure: (proxy) => {
@@ -37,11 +37,11 @@ export default defineConfig({
         }
       },
       '/uploads': {
-        target: 'http://localhost:8080',
+        target: process.env.VITE_API_PROXY || 'http://127.0.0.1:8090',
         changeOrigin: true,
       },
       '/ws': {
-        target: 'ws://localhost:8080',
+        target: (process.env.VITE_API_PROXY || 'http://127.0.0.1:8090').replace(/^http/, 'ws'),
         ws: true,
         changeOrigin: true,
       }

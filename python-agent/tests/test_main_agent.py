@@ -1,3 +1,4 @@
+from rpc_fakes import public_reader
 """Verify adaptive routing on the production graph without network calls."""
 import os
 os.environ["DEEPSEEK_API_KEY"] = "offline-test"
@@ -294,7 +295,7 @@ class MainAgentTests(unittest.IsolatedAsyncioTestCase):
         reranker = SimpleNamespace(rerank=AsyncMock(side_effect=lambda query, docs: docs))
         state = create_initial_state(7, "找几篇相关的", [{"role": "user", "content": "RAG"}])
         with patch.object(agent, "get_llm", return_value=model), \
-             patch.object(search_worker, "db", db), patch.object(evidence_verifier, "db", db), \
+             patch.object(search_worker, "public_read", public_reader(db)), patch.object(evidence_verifier, "public_read", public_reader(db)), \
              patch.object(search_worker, "query_rewrite_service", rewrite), \
              patch.object(search_worker, "filter_resolver_instance", resolver), \
              patch.object(search_worker, "retrieval_service_instance", retrieval), \

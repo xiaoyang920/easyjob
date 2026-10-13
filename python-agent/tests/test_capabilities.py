@@ -1,3 +1,4 @@
+from rpc_fakes import public_reader
 """Execution capabilities come from current server policy, never model labels."""
 import os
 os.environ["DEEPSEEK_API_KEY"] = "offline-test"
@@ -214,7 +215,7 @@ class CapabilityBoundaryTests(unittest.IsolatedAsyncioTestCase):
                      patch.object(search_worker.query_rewrite_service, "rewrite", AsyncMock(return_value=rewrite)), \
                      patch.object(search_worker.filter_resolver_instance, "resolve", AsyncMock(return_value=ResolvedFilters())), \
                      patch.object(search_worker.retrieval_service_instance, "hybrid_search", AsyncMock(return_value=[])) as retrieve, \
-                     patch.object(search_worker, "db", db), patch.object(search_worker, "activity", AsyncMock()), \
+                     patch.object(search_worker, "public_read", public_reader(db)), patch.object(search_worker, "activity", AsyncMock()), \
                      patch.object(search_worker, "do_search", AsyncMock()) as web:
                     result = await search_worker.retrieve_evidence(state)
                 self.assertEqual(result["status"], "insufficient_evidence")

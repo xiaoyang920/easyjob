@@ -8,6 +8,9 @@
 !README.md
 !python-agent/evaluation/README.md
 !python-agent/docs/main-evidence-assessment.md
+!/docs/
+/docs/*
+!/docs/service-boundaries.md
 !python-agent/app/skills/definitions/*.md
 
 # Local IDE and AI assistant state

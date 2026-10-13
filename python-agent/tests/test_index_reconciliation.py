@@ -2,7 +2,7 @@ import hashlib
 import unittest
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 from app.services.index_reconciliation import IndexReconciliation,article_difference,memory_difference
 
 def article(**values):
@@ -44,24 +44,51 @@ class DifferenceTests(unittest.TestCase):
         self.assertTrue(memory_difference(row,{**row,'user_id':3}))
 
 class RepairTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        stub=patch('app.services.index_reconciliation.maintenance', AsyncMock(return_value=None))
+        self.rpc=stub.start();self.addCleanup(stub.stop)
+        stub=patch('app.rpc.blog_client.maintenance', AsyncMock(return_value={}))
+        self.blog=stub.start();self.addCleanup(stub.stop)
+
     def database(self, row=None,existing=0):
         return SimpleNamespace(transaction=transaction,fetch_one=AsyncMock(return_value=record(row) if row else None),fetch_val=AsyncMock(return_value=existing),execute=AsyncMock(),fetch_all=AsyncMock(return_value=[]))
     async def test_repair_rechecks_version_and_never_overwrites_content(self):
-        old=article();database=self.database(article(content='changed'))
+        old=article();database=self.database();self.rpc.return_value=False
         self.assertFalse(await IndexReconciliation(database).article_repair(old,'document_version'))
+        self.rpc.assert_awaited_once_with('article_repair',target_id=7,name='document_version',expected=old)
         database.execute.assert_not_awaited()
+
     async def test_pending_and_dead_tasks_suppress_new_retries(self):
-        row=article();database=self.database(row,1)
-        self.assertFalse(await IndexReconciliation(database).article_repair(row,'missing_chunks'));database.execute.assert_not_awaited()
+        database=self.database();self.rpc.return_value=False
+        self.assertFalse(await IndexReconciliation(database).article_repair(article(),'missing_chunks'))
+        database.execute.assert_not_awaited()
+
     async def test_view_count_uses_coalesced_sync_instead_of_embeddings(self):
-        row=article();database=self.database(row)
-        self.assertTrue(await IndexReconciliation(database).article_repair(row,'view_count'))
-        self.assertIn('GREATEST',database.execute.await_args.args[0]);self.assertNotIn('outbox',database.execute.await_args.args[0])
+        database=self.database();self.rpc.return_value=True;prior=article()
+        self.assertTrue(await IndexReconciliation(database).article_repair(prior,'view_count'))
+        self.rpc.assert_awaited_once_with('article_repair',target_id=7,name='view_count',expected=prior)
+        database.execute.assert_not_awaited()
+    async def test_article_scan_fetches_each_body_separately_and_handles_concurrent_deletion(self):
+        database=self.database();self.rpc.side_effect=[[{'article_id':7},{'article_id':8}],None,None]
+        es=SimpleNamespace(options=lambda **kwargs:es,get=AsyncMock())
+        result=await IndexReconciliation(database).batch({'kind':'article','last_id':0},es)
+        self.assertEqual(result,(0,2,0,False))
+        self.assertEqual(self.rpc.await_args_list[1].kwargs,{'target_id':7})
+        self.assertEqual(self.rpc.await_args_list[2].kwargs,{'target_id':8})
+        es.get.assert_not_awaited()
+        database.execute.assert_not_awaited()
+
     async def test_orphan_repair_cannot_delete_newly_published_article(self):
-        database=self.database(article());self.assertFalse(await IndexReconciliation(database).article_repair(None,'orphan',7));database.execute.assert_not_awaited()
+        database=self.database();self.rpc.return_value=False
+        self.assertFalse(await IndexReconciliation(database).article_repair(None,'orphan',7))
+        database.execute.assert_not_awaited()
+
     async def test_orphan_repair_uses_existing_queue(self):
-        database=self.database();self.assertTrue(await IndexReconciliation(database).article_repair(None,'orphan',7))
-        self.assertIn('article_index_outbox',database.execute.await_args.args[0])
+        database=self.database();self.rpc.return_value=True
+        self.assertTrue(await IndexReconciliation(database).article_repair(None,'orphan',7))
+        self.rpc.assert_awaited_once_with('article_repair',target_id=7,name='orphan',expected=None)
+        database.execute.assert_not_awaited()
+
     async def test_stale_memory_snapshot_is_not_enqueued(self):
         row={'memory_id':8,'content':'old','user_id':1,'memory_type':'decision','status':'active'}
         database=self.database({**row,'status':'inactive'})
@@ -90,7 +117,8 @@ class RepairTests(unittest.IsolatedAsyncioTestCase):
         queries=[call.args[0] for call in database.execute.await_args_list]
         self.assertTrue(any("NOT IN ('running','awaiting_approval')" in q for q in queries))
         self.assertTrue(all('updated_at<' in q for q in queries if 'DELETE FROM agent_background_job' in q or 'DELETE FROM article_index_outbox' in q))
-        self.assertTrue(any('p.active_session<>s.session_id' in q for q in queries))
+        self.assertFalse(any('reading_session' in q or 'article_index_outbox' in q for q in queries))
+        self.blog.assert_awaited_once_with('cleanup')
 
     async def test_cleanup_batches_have_time_and_volume_boundaries(self):
         from app.services.operations import Operations

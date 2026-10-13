@@ -24,6 +24,9 @@ $desktop = 'C:\Program Files\Docker\Docker\Docker Desktop.exe'
 $image = 'redis/redis-stack@sha256:5d5154123426693540ea6c1d9e638eae2bf2024879c839db6fcfdd7717e817c7'
 $jar = Join-Path $root 'target\easyjob-0.0.1-SNAPSHOT.jar'
 $runtime = Join-Path $root 'temp\application-runtime.yml'
+$gatewayJar = Join-Path $root 'gateway\target\easyjob-gateway-0.0.1-SNAPSHOT.jar'
+$gatewayRuntime = Join-Path $root 'temp\gateway-runtime.yml'
+$consulImage = 'hashicorp/consul@sha256:200471c74bc0965cd20c81eacc31a209873d5d9e599fe637ceb856b0cbbc518d'
 
 function Write-Step([string]$Message) { Write-Host ('[{0:HH:mm:ss}] {1}' -f (Get-Date), $Message) }
 
@@ -98,6 +101,21 @@ function Test-Frontend {
         return $result.code -eq 200 -and $page.Content -match 'id="app"'
     } catch { return $false }
 }
+function Test-Gateway {
+    try { return (Invoke-RestMethod 'http://127.0.0.1:8090/api/article/list?page=1&size=1' -TimeoutSec 3).code -eq 200 }
+    catch { return $false }
+}
+function Test-Consul {
+    try { return [bool](Invoke-RestMethod 'http://127.0.0.1:8500/v1/status/leader' -TimeoutSec 3) }
+    catch { return $false }
+}
+function Test-GatewayJarFresh {
+    if (!(Test-Path -LiteralPath $gatewayJar -PathType Leaf)) { return $false }
+    $modified=(Get-Item -LiteralPath $gatewayJar).LastWriteTimeUtc
+    $files=@(Get-ChildItem -LiteralPath (Join-Path $root 'gateway\src') -File -Recurse)
+    $files+=Get-Item -LiteralPath (Join-Path $root 'gateway\pom.xml')
+    return @($files | Where-Object { $_.LastWriteTimeUtc -gt $modified }).Count -eq 0
+}
 
 function Start-RedisContainer([string]$Name, [int]$Port, [string]$Volume, [switch]$Checkpoint) {
     if (Test-Port $Port) { Write-Step "Redis :$Port already listening; verifying protocol below."; return }
@@ -126,6 +144,7 @@ function Test-JarFresh {
     $modified = (Get-Item -LiteralPath $jar).LastWriteTimeUtc
     $sources = @(Get-ChildItem -LiteralPath (Join-Path $root 'src\main') -Recurse -File)
     $sources += Get-Item -LiteralPath (Join-Path $root 'pom.xml')
+    $sources += Get-ChildItem -LiteralPath (Join-Path $root 'contracts') -Recurse -File
     return @($sources | Where-Object { $_.LastWriteTimeUtc -gt $modified }).Count -eq 0
 }
 
@@ -135,7 +154,7 @@ function Check-Prerequisites {
         (Join-Path $root 'src\main\resources\application.yml'), (Join-Path $root 'python-agent\.env'),
         (Join-Path $root 'frontend\node_modules\vite\bin\vite.js'))
     if (!$SkipBuild) { $required += $Maven }
-    if (!(Test-Port 6379) -or !(Test-Port 6380)) { $required += @($docker,$desktop) }
+    if (!(Test-Port 6379) -or !(Test-Port 6380) -or !(Test-Port 8500)) { $required += @($docker,$desktop) }
     foreach ($path in $required) {
         if (!(Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing prerequisite: $path. See README.md (Windows launcher)." }
     }
@@ -157,7 +176,7 @@ try {
     Check-Prerequisites
     if ($Check) {
         Write-Host 'Prerequisites found. Check mode does not start services, build, or change database/configuration.'
-        foreach ($port in @(3306,6379,6380,5672,9200,8080,8000,3000)) { Write-Host (':{0} listening={1}' -f $port,(Test-Port $port)) }
+        foreach ($port in @(3306,6379,6380,5672,9200,8500,8090,8080,8000,20881,50051,3000)) { Write-Host (':{0} listening={1}' -f $port,(Test-Port $port)) }
         Write-Host ('Java build needed when stopped: ' + !(Test-JarFresh))
         return
     }
@@ -166,7 +185,8 @@ try {
     $env:Path = "$JavaHome\bin;$(Split-Path -Parent $Node);$env:Path"
     $env:PYTHONUTF8 = '1'
     $env:PYTHONIOENCODING = 'utf-8'
-    Invoke-Logged 'python-dependencies' $python @('-c','import uvicorn, yaml, redis, httpx, databases, langgraph.checkpoint.redis') $root
+    $env:SERVICE_DISCOVERY_ENABLED = 'true'
+    Invoke-Logged 'python-dependencies' $python @('-c','import uvicorn, yaml, redis, httpx, databases, grpc, langgraph.checkpoint.redis') $root
 
     Write-Step '1/7 Checking MySQL.'
     if (!(Test-Port 3306)) {
@@ -176,7 +196,7 @@ try {
         catch { throw "Cannot start service $MySqlService. Start MySQL once as administrator, then run this launcher again." }
         Wait-Ready 'mysql' { Test-Port 3306 }
     }
-    if (!(Test-Path -LiteralPath $runtime)) {
+    if (!(Test-Path -LiteralPath $runtime) -or !(Test-Path -LiteralPath $gatewayRuntime)) {
         Write-Step 'Preparing missing local runtime configuration (secrets are not printed).'
         Invoke-Logged 'prepare-local' $python @('scripts\prepare-local.py') $root
     }
@@ -192,6 +212,18 @@ try {
         Start-RedisContainer 'easyjob-checkpoint-redis' 6380 'easyjob-checkpoint-data' -Checkpoint
     }
     Invoke-Logged 'dependency-health' $python @('scripts\local-dependency-health.py') $root
+    Write-Step 'Starting Consul service catalog.'
+    if (!(Test-Port 8500)) {
+        if (!(Test-Docker)) {
+            Start-Process -FilePath $desktop -WindowStyle Hidden | Out-Null
+            Wait-Ready 'Docker' { Test-Docker }
+        }
+        $containers=@(& $docker ps -a --format '{{.Names}}')
+        if ($containers -contains 'easyjob-consul') { & $docker start easyjob-consul | Out-Null }
+        else { & $docker run -d --name easyjob-consul --restart unless-stopped -p 127.0.0.1:8500:8500 -v easyjob-consul-data:/consul/data $consulImage agent -server '-bootstrap-expect=1' -ui '-client=0.0.0.0' | Out-Null }
+        if ($LASTEXITCODE -ne 0) { throw 'Consul failed to start.' }
+    }
+    Wait-Ready 'consul' { Test-Consul }
     if ($Migrate) {
         Write-Step 'Applying explicitly requested database migrations.'
         Invoke-Logged 'database-migration' $python @('-m','app.migrate') (Join-Path $root 'python-agent')
@@ -239,6 +271,17 @@ try {
     }
     Wait-Ready 'python' { Test-Agent } $agentProcess
 
+    Write-Step 'Starting API gateway.'
+    $gatewayProcess=$null
+    if (!(Test-Port 8090)) {
+        if (!$SkipBuild -and !(Test-GatewayJarFresh)) {
+            Invoke-Logged 'gateway-package' $Maven @('-B','-DskipTests','package') (Join-Path $root 'gateway')
+        }
+        if (!(Test-Path -LiteralPath $gatewayJar)) { throw 'Gateway JAR missing; build gateway/pom.xml first.' }
+        $gatewayProcess=Start-Hidden 'gateway' "$JavaHome\bin\java.exe" '-jar gateway\target\easyjob-gateway-0.0.1-SNAPSHOT.jar --spring.config.additional-location=file:./temp/gateway-runtime.yml' $root
+    }
+    Wait-Ready 'gateway' { Test-Gateway } $gatewayProcess
+
     Write-Step '7/7 Starting frontend.'
     $frontendProcess = $null
     if (!(Test-Port 3000)) {
@@ -247,7 +290,7 @@ try {
     Wait-Ready 'frontend' { Test-Frontend } $frontendProcess
     Write-Host ''
     Write-Host 'READY: http://127.0.0.1:3000' -ForegroundColor Green
-    Write-Host 'Java: :8080   Agent: :8000   Logs: logs/'
+    Write-Host 'Gateway: :8090   Consul: :8500   Java: :8080   Agent: :8000   RPC: :20881 / :50051   Logs: logs/'
     Write-Host 'Services run in the background. Closing this launcher does not stop them.'
     if ($OpenBrowser) { Start-Process 'http://127.0.0.1:3000' | Out-Null }
 } finally {

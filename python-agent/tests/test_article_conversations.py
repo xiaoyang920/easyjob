@@ -53,12 +53,12 @@ class ArticleConversationTests(unittest.IsolatedAsyncioTestCase):
                                                                         origin_article_title="Current title")]))
         service = ConversationService()
         cursor = datetime(2026, 10, 2)
-        with patch("app.services.conversation.db", database):
+        with patch("app.services.conversation.db", database), patch('app.services.conversation.public_read', AsyncMock(return_value=[{'article_id':42,'title':'Current title'}])):
             result = await service.list_conversations(7, cursor, 11, 10, scope="article", origin_article_id=42)
             sql, values = database.fetch_all.call_args.args
             self.assertIn("c.origin_article_id = :origin", sql)
             self.assertIn("c.message_count > 0", sql)
-            self.assertIn("a.status = 1 AND a.deleted = 0", sql)
+            self.assertNotIn('article_info', sql)
             self.assertIn("c.update_time = :t AND c.conversation_id < :lid", sql)
             self.assertIn("ORDER BY c.update_time DESC, c.conversation_id DESC", sql)
             self.assertEqual(values["origin"], 42)
@@ -104,14 +104,14 @@ class ArticleContextTests(unittest.IsolatedAsyncioTestCase):
                   "update_time": datetime(2026, 10, 2), "cover_image": None,
                   "author_name": "Writer", "view_count": 3, "like_count": 2}
         values.update(overrides)
-        database = SimpleNamespace(fetch_one=AsyncMock(return_value=row(**values)))
-        return ArticleContextService(database), database
+        reader = AsyncMock(return_value=[values])
+        return ArticleContextService(reader), reader
 
     async def test_live_public_source_and_raw_hash_are_shared_by_context_and_citation(self):
         raw = "<p>Visible &amp; current</p>"
         service, database = self.service(raw)
         context = await service.load(42)
-        self.assertIn("a.status = 1 AND a.deleted = 0", database.fetch_one.call_args.args[0])
+        database.assert_awaited_once_with('published', ids=[42])
         self.assertEqual(context["content"], "Visible & current")
         self.assertEqual(context["completeness"], "full")
         self.assertEqual(context["source_hash"], hashlib.sha256(raw.encode()).hexdigest())
@@ -120,14 +120,14 @@ class ArticleContextTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(evidence["citations"][0]["id"], "article_context:1")
         self.assertEqual(evidence["article_cards"][0]["articleId"], "42")
         # Another round must fetch current data rather than keep the old text.
-        database.fetch_one.return_value = row(article_id=42, title="Updated title", content="<p>New</p>")
+        database.return_value = [dict(article_id=42, title="Updated title", content="<p>New</p>")]
         changed = await service.load(42)
         self.assertEqual(changed["content"], "New")
         self.assertNotEqual(changed["source_hash"], context["source_hash"])
 
     async def test_missing_hidden_or_deleted_source_is_rejected_before_agent_input(self):
         service, database = self.service()
-        database.fetch_one.return_value = None
+        database.return_value = []
         with self.assertRaises(HTTPException) as missing:
             await service.load(42)
         self.assertEqual(missing.exception.status_code, 404)

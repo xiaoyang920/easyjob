@@ -23,6 +23,14 @@ from test_main_agent import llm
 
 
 class PrivateDraftTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        for name, value in [('reserve','signed-test-permit'),('complete',None),('abort',None)]:
+            stub = patch('app.services.draft_commit.'+name, AsyncMock(return_value=value))
+            stub.start(); self.addCleanup(stub.stop)
+        transport = patch.object(private_drafts.settings, 'INTERNAL_TRANSPORT', 'http')
+        transport.start()
+        self.addCleanup(transport.stop)
+
     def context(self, **kwargs):
         task = ExecutionTask(task_id='own', instruction='读取草稿', kind='search', actor='main',
                              retrieval_target='drafts', **kwargs)
@@ -156,3 +164,22 @@ class PrivateDraftTests(unittest.IsolatedAsyncioTestCase):
                 await draft_gateway.save_approved_draft(state, DraftOutput(title='旧稿', summary='', content='旧稿'))
         client.post.assert_awaited_once()
         client.get.assert_not_awaited()
+
+    async def test_triple_read_and_save_conflict_never_fallback_to_http(self):
+        from app.rpc import blog_client
+        document = {'articleId': '42', 'revisionId': '5', 'lockVersion': 3, 'state': 0, 'editable': True,
+                    'payload': {'title': '标题', 'content': '<p>正文</p>', 'contentType': 1}}
+        state = {'run_id': RUN_ID, 'execution_token': 'new', 'user_id': 7, 'pending_article_id': 42,
+                 'draft_html': '<p>正文</p>', 'draft_hash': 'approved',
+                 'target_draft': {'revision_id': '5', 'lock_version': 3}}
+        with patch.object(private_drafts.settings, 'INTERNAL_TRANSPORT', 'triple'), \
+             patch.object(blog_client, 'read_draft', AsyncMock(return_value=document)) as read, \
+             patch.object(blog_client, 'save_draft', AsyncMock(side_effect=blog_client.ServiceError(409))) as save, \
+             patch.object(private_drafts.httpx, 'AsyncClient') as http:
+            result = await private_drafts.retrieve_drafts(self.context(article_ids=[42]))
+            self.assertEqual(result['draft_document']['revision_id'], '5')
+            read.assert_awaited_once_with(7, 42)
+            with self.assertRaises(draft_gateway.DraftConflict):
+                await draft_gateway.save_approved_draft(state, DraftOutput(title='标题', summary='', content='正文'))
+            save.assert_awaited_once()
+            http.assert_not_called()

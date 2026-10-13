@@ -1,3 +1,4 @@
+from rpc_fakes import public_reader
 """Offline SQL control-path checks; live MySQL concurrency is a deployment gate."""
 import os
 os.environ["DEEPSEEK_API_KEY"] = "offline-test"
@@ -39,7 +40,7 @@ def database(run):
             return row(user_id=7, status=1)
         return row(**run) if run else None
     return SimpleNamespace(transaction=transaction, fetch_one=fetch,
-        fetch_val=AsyncMock(return_value=1), execute=AsyncMock()), calls
+        fetch_val=AsyncMock(side_effect=lambda sql,*a: None if 'draft_commit' in sql else 1), execute=AsyncMock()), calls
 
 
 def creation_database(active=None, previous=None, insert_errors=()):
@@ -75,6 +76,7 @@ def creation_database(active=None, previous=None, insert_errors=()):
     return db, calls
 
 
+@patch('app.services.service_queries.user_source', new=AsyncMock(return_value='business'))
 class RunCreationTests(unittest.IsolatedAsyncioTestCase):
     async def test_sweeper_rechecks_expiry_under_parent_and_existing_run_locks(self):
         for values, expected in (({'expired': True}, True), ({'expired': False}, False),
@@ -181,6 +183,7 @@ class RunCreationTests(unittest.IsolatedAsyncioTestCase):
         sleep.assert_not_awaited()
 
 
+@patch('app.services.service_queries.user_source', new=AsyncMock(return_value='business'))
 class RunArbitrationTests(unittest.IsolatedAsyncioTestCase):
     async def test_settlement_preserves_input_anchor_and_progress_for_approval_and_history(self):
         metadata = {'user_message_id': '123', 'progress': {'node': 'main_delegate'}}
@@ -255,7 +258,7 @@ class EvidenceTests(unittest.IsolatedAsyncioTestCase):
     async def test_unpublished_or_changed_source_cannot_pass_delivery_gate(self):
         citation = {"articleId": "42", "sourceHash": HASH}
         for rows in ([], [row(article_id=42, content="changed")] ):
-            with patch("app.services.evidence_verifier.db", SimpleNamespace(fetch_all=AsyncMock(return_value=rows))), self.assertRaises(ValueError):
+            with patch("app.services.evidence_verifier.public_read", AsyncMock(return_value=[dict(r._mapping) for r in rows])), self.assertRaises(ValueError):
                 await verify_public_evidence([citation])
 
     async def test_low_relevance_is_not_promoted_to_successful_evidence(self):

@@ -12,7 +12,8 @@ public class ArticlePreferenceService {
     public ArticlePreferenceService(ArticlePreferenceMapper store) { this.store = store; }
     public List<String> topics(Long uid) {
         if (uid == null) return List.of();
-        var rows = store.findTopics(uid);
+        List<Map<String,Object>> rows;
+        try { rows=store.findTopics(uid); } catch(RuntimeException unavailable) { return List.of(); }
         if (rows.isEmpty()) return List.of();
         var result = new LinkedHashMap<String,String>();
         for (String field : List.of("interests", "tech_stack")) {

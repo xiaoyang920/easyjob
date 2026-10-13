@@ -40,7 +40,7 @@ def public_run_result(raw):
     if raw is None:
         return None
     result = json.loads(raw) if isinstance(raw, str) else raw
-    return {key: value for key, value in result.items() if key not in ('progress', 'user_message_id')}
+    return {key: value for key, value in result.items() if key not in ('progress', 'user_message_id', 'draft_commit')}
 
 
 class RunService:

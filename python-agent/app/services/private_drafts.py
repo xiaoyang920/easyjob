@@ -12,20 +12,33 @@ async def retrieve_drafts(state):
     require_capability(state, "own_draft_read")
     task = state["current_task"]
     ids = task.get("article_ids", [])
-    headers = {"X-Agent-Key": settings.AGENT_SERVICE_KEY, "X-Agent-User": str(state["user_id"])}
-    async with httpx.AsyncClient(timeout=20) as client:
-        path = f"/internal/agent/drafts/{ids[0]}" if ids else "/internal/agent/drafts"
-        response = await client.get(settings.JAVA_AGENT_URL.rstrip("/") + path, headers=headers,
-                                    params={} if ids else {"keyword": task.get("search_query") or ""})
-    if response.status_code in (403, 404):
+    status = 200
+    if settings.INTERNAL_TRANSPORT == 'triple':
+        from app.rpc import blog_client
+        try:
+            data = await blog_client.read_draft(state['user_id'], ids[0]) if ids else await blog_client.list_drafts(
+                state['user_id'], task.get('search_query') or '')
+        except blog_client.ServiceError as exc:
+            status = exc.status
+            if status not in (403, 404):
+                raise ConnectionError('Private draft service unavailable') from None
+    else:
+        headers = {"X-Agent-Key": settings.AGENT_SERVICE_KEY, "X-Agent-User": str(state["user_id"])}
+        async with httpx.AsyncClient(timeout=20) as client:
+            path = f"/internal/agent/drafts/{ids[0]}" if ids else "/internal/agent/drafts"
+            response = await client.get(settings.JAVA_AGENT_URL.rstrip("/") + path, headers=headers,
+                                        params={} if ids else {"keyword": task.get("search_query") or ""})
+        status = response.status_code
+        if status not in (403, 404) and status < 500:
+            response.raise_for_status()
+            data = response.json()
+    if status in (403, 404):
         return {"status": "succeeded", "result": "未找到可读取的本人草稿；不能使用猜测的文章ID。",
                 "citations": [], "article_cards": []}
-    if response.status_code >= 500:
+    if status >= 500:
         # Return a recoverable tool_error through the action loop, without
         # leaking internal response details or falling back to public search.
         raise ConnectionError("Private draft service unavailable")
-    response.raise_for_status()
-    data = response.json()
     if not ids:
         return {"status": "succeeded", "result": "本人草稿列表（需按真实articleId读取正文后才能修改）：\n" + json.dumps(data, ensure_ascii=False),
                 "citations": [], "article_cards": []}

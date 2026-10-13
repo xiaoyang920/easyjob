@@ -33,4 +33,8 @@ public class AgentServiceAuth {
             return userId;
         } catch (RuntimeException e) { throw new ResponseStatusException(HttpStatus.UNAUTHORIZED); }
     }
+    public com.easyjob.rpc.v1.Identity identity(Long userId) {
+        headers(userId); // Same fail-closed identity rules as the compatibility HTTP transport.
+        return com.easyjob.rpc.v1.Identity.newBuilder().setUserId(userId).setServiceKey(key).build();
+    }
 }

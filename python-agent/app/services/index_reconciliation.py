@@ -10,6 +10,7 @@ from time import monotonic
 from app.clients.mysql_client import db
 from app.clients.es_client import BaseEsClient
 from app.services.durable_jobs import DurableJobs
+from app.rpc.blog_client import maintenance
 
 log=logging.getLogger(__name__)
 
@@ -57,20 +58,7 @@ class IndexReconciliation:
             return task
     async def article_repair(self,prior,difference,aid=None):
         aid=aid or prior['article_id']
-        async with self.db.transaction():
-            current=await self.db.fetch_one('SELECT * FROM article_info WHERE article_id=:id FOR UPDATE',{'id':aid})
-            if prior and (not current or article_fingerprint(dict(current._mapping))!=article_fingerprint(prior)):return False
-            if not prior and current and current._mapping['status']==1 and current._mapping['deleted']==0:return False
-            if difference=='view_count' and current:
-                await self.db.execute("""INSERT INTO article_view_sync(article_id,target_count,available_at) VALUES(:id,:count,UTC_TIMESTAMP(6))
-                    ON DUPLICATE KEY UPDATE target_count=GREATEST(target_count,VALUES(target_count)),updated_at=UTC_TIMESTAMP(6)""",{'id':aid,'count':current._mapping['view_count']})
-                return True
-            # Exhausted tasks require explicit admin retry; a sweep must not bypass retry limits.
-            existing=await self.db.fetch_val("SELECT COUNT(*) FROM article_index_outbox WHERE article_id=:id AND status IN ('pending','running','dispatched','dead')",{'id':aid})
-            if existing:return False
-            await self.db.execute("""INSERT INTO article_index_outbox(job_id,article_id,action,routing_key,available_at,created_at,updated_at)
-                VALUES(:job,:id,'UPDATE','article.update',UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))""",{'job':str(uuid4()),'id':aid})
-            return True
+        return await maintenance('article_repair', target_id=aid, name=difference, expected=prior)
     async def memory_repair(self,prior,mid=None,uid=None):
         mid=mid or prior['memory_id']
         async with self.db.transaction():
@@ -95,19 +83,23 @@ class IndexReconciliation:
             for bucket in buckets:
                 key=bucket['key']['article'];task['last_key']=key;scanned+=1
                 if not key.isdigit() or not 0<int(key)<2**63:continue
-                current=await self.db.fetch_one('SELECT * FROM article_info WHERE article_id=:id',{'id':int(key)})
+                current=await maintenance('article_lookup',target_id=int(key))
                 if not current:repaired+=await self.article_repair(None,'orphan',int(key))
-                elif current._mapping['status']!=1 or current._mapping['deleted']!=0 or current._mapping['required_level']>0:
-                    repaired+=await self.article_repair(dict(current._mapping),'restricted_chunks')
+                elif current['status']!=1 or current['deleted']!=0 or current['required_level']>0:
+                    repaired+=await self.article_repair(current,'restricted_chunks')
             more=len(buckets)==self.BATCH
             if not more:task['last_key']=None
             return 0,scanned,repaired,more
         if kind in ('article','memory'):
-            table,key=('article_info','article_id') if kind=='article' else ('user_memory','memory_id')
-            rows=await self.db.fetch_all(f'SELECT * FROM {table} WHERE {key}>:last ORDER BY {key} LIMIT :size',{'last':last,'size':self.BATCH})
+            key='article_id' if kind=='article' else 'memory_id'
+            rows=await maintenance('article_scan',cursor=last) if kind=='article' else await self.db.fetch_all(
+                'SELECT * FROM user_memory WHERE memory_id>:last ORDER BY memory_id LIMIT :size',{'last':last,'size':self.BATCH})
             for item in rows:
                 if scanned and monotonic()-started>=10:break
-                row=dict(item._mapping);cursor=row[key];scanned+=1
+                row=dict(item) if kind=='article' else dict(item._mapping);cursor=row[key];scanned+=1
+                if kind=='article':
+                    row=await maintenance('article_lookup',target_id=cursor)
+                    if not row:continue
                 index='article' if kind=='article' else 'user_memories'
                 found=await es.get(index=index,id=str(cursor),source_excludes=['content_vector'])
                 source=found.get('_source') if found.get('found') else None
@@ -126,8 +118,8 @@ class IndexReconciliation:
         for hit in hits:
             row=hit['_source'];cursor=int(row[field]);scanned+=1
             if str(hit['_id'])!=str(cursor):continue
-            table,key=('article_info','article_id') if kind=='article_orphan' else ('user_memory','memory_id')
-            current=await self.db.fetch_one(f'SELECT * FROM {table} WHERE {key}=:id',{'id':cursor})
+            current=await maintenance('article_lookup',target_id=cursor) if kind=='article_orphan' else await self.db.fetch_one(
+                'SELECT * FROM user_memory WHERE memory_id=:id',{'id':cursor})
             if current:continue
             if kind=='article_orphan':repaired+=await self.article_repair(None,'orphan',cursor)
             elif row.get('user_id'):repaired+=await self.memory_repair(None,cursor,int(row['user_id']))
