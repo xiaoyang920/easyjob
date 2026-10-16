@@ -16,6 +16,8 @@ const router = createRouter({
     return savedPosition || { top: 0, left: 0 }
   },
   routes: [
+    { path: '/account-security', name: 'AccountSecurity', component: () => import('@/views/AccountSecurity.vue') },
+    { path: '/password-reset', name: 'PasswordReset', component: () => import('@/views/PasswordReset.vue') },
     { path: '/admin', name: 'AdminConsole', component: () => import('@/views/AdminConsole.vue') },
     { path: '/ai-memory', name: 'MemoryManagement', component: () => import('@/views/MemoryManagement.vue') },
     {
@@ -96,7 +98,7 @@ const router = createRouter({
 // 路由守卫 - 需要登录的页面
 router.beforeEach((to, _from, next) => {
   const token = localStorage.getItem('token')
-  const needAuth = ['AdminConsole', 'CreateArticle', 'EditArticle', 'DraftBox', 'EditProfile', 'FollowersFollowing', 'Chat', 'AiChat', 'MemoryManagement', 'Notifications']
+  const needAuth = ['AccountSecurity', 'AdminConsole', 'CreateArticle', 'EditArticle', 'DraftBox', 'EditProfile', 'FollowersFollowing', 'Chat', 'AiChat', 'MemoryManagement', 'Notifications']
   
   if (needAuth.includes(to.name as string) && !token) {
     // 跳转到首页并触发登录弹窗

@@ -70,7 +70,9 @@ public class ArticleController {
     @PostMapping( "/create")
     public ResponseVO<?> create(@RequestBody ArticleCreateDTO article) {
         Long articleId = articleService.saveArticle(article);
-        return ResponseVO.success(java.util.Map.of("articleId", articleId.toString()));
+        // Return the content lock as well as the identity: the next autosave must
+        // continue the same workspace without reloading or replacing current edits.
+        return ResponseVO.success(articleService.getEditableArticle(articleId));
     }
     /**
      * 获取文章详情

@@ -3,10 +3,17 @@ import grpc
 from app.config import settings
 from .codec import decode
 from .generated import easyjob_rpc_pb2 as pb, easyjob_rpc_pb2_grpc as api
+from .peer_pool import PeerPool
 
 _channel = None
 _stub = None
-_peers = {}
+def _peer(target):
+    channel = grpc.aio.insecure_channel(target, options=[('grpc.enable_retries', 0),
+        ('grpc.max_receive_message_length', 8 * 1024 * 1024)])
+    return channel, api.BlogRpcStub(channel)
+
+
+pool = PeerPool(_peer)
 
 
 class ServiceError(Exception):
@@ -18,7 +25,9 @@ class ServiceError(Exception):
 def identity(user_id):
     if len(settings.AGENT_SERVICE_KEY.encode()) < 32 or user_id <= 0:
         raise ServiceError(503, '服务身份未配置')
-    return pb.Identity(user_id=user_id, service_key=settings.AGENT_SERVICE_KEY)
+    from app.services.logging_config import current_trace_id, normalize_trace
+    return pb.Identity(user_id=user_id, service_key=settings.AGENT_SERVICE_KEY,
+        trace_id=normalize_trace(current_trace_id()))
 
 
 def client():
@@ -32,13 +41,12 @@ def client():
 
 
 async def close_client():
-    global _channel, _stub
+    global _channel, _stub, pool
     if _channel is not None:
         await _channel.close()
     _channel = _stub = None
-    for channel, _ in _peers.values():
-        await channel.close()
-    _peers.clear()
+    await pool.close()
+    pool = PeerPool(_peer)
 
 
 async def call(method, request):
@@ -46,16 +54,11 @@ async def call(method, request):
         from .discovery import catalog
         if catalog.enabled:
             target = await catalog.target(request.identity.user_id)
-            if target not in _peers:
-                if len(_peers) >= 32:
-                    raise RuntimeError('RPC endpoint pool full')
-                channel = grpc.aio.insecure_channel(target, options=[('grpc.enable_retries', 0),
-                    ('grpc.max_receive_message_length', 8 * 1024 * 1024)])
-                _peers[target] = (channel, api.BlogRpcStub(channel))
-            stub = _peers[target][1]
+            async with pool.lease(target, catalog.healthy_targets()) as stub:
+                reply = await getattr(stub, method)(request, timeout=20)
         else:
             stub = client()
-        reply = await getattr(stub, method)(request, timeout=20)
+            reply = await getattr(stub, method)(request, timeout=20)
     except RuntimeError:
         raise ServiceError(503) from None
     except grpc.aio.AioRpcError as exc:

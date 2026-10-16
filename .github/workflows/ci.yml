@@ -81,3 +81,10 @@ jobs:
       - run: pip install -r python-agent/requirements.txt
       - name: Real Dubbo Triple and Python gRPC interoperability
         run: RPC_TEST_PYTHON="$(command -v python)" mvn -B -Dtest=RpcTransportTests,RpcInteropTests test
+      - name: Isolated RPC endpoint churn and fault load
+        run: python scripts/rpc-stability-check.py --users 16 --seconds 5 --churn 64
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rpc-stability
+          path: logs/rpc-stability*

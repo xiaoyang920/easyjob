@@ -127,7 +127,7 @@ class EsChunkSearch(BaseEsClient):
     INDEX = EsVectorStore.INDEX
 
     async def search(self, keyword: str, page_size: int = 20, filters: dict | None = None) -> list[dict]:
-        query = {"multi_match": {"query": keyword, "fields": ["chunk_content^3", "section_path", "title^0.5"]}}
+        query = {"multi_match": {"query": keyword, "fields": ["chunk_content.zh^3", "section_path.zh", "title.zh^0.5", "chunk_content^0.3", "section_path^0.1", "title^0.05"]}}
         if filters:
             query = {"bool": {"must": [query], "filter": [filters]}}
         response = await self.client.search(index=self.INDEX, body={"query": query, "size": page_size,
@@ -150,7 +150,7 @@ class EsComponent(BaseEsClient):
             "query": {
                 "multi_match": {
                     "query": keyword,
-                    "fields": ["title", "tags"],
+                    "fields": ["title.zh^4", "tags", "summary.zh^2", "content.zh^0.5", "title^0.4"],
                 }
             },
             "size": page_size,

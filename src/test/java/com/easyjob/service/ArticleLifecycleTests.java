@@ -45,6 +45,7 @@ class ArticleLifecycleTests {
         index = mock(ArticleIndexPublisher.class); tags = mock(ArticleTagService.class);
         tagMapper = mock(ArticleTagMapper.class); service = new ArticleServiceImpl();
         revisions=mock(ArticleRevisionService.class);ReflectionTestUtils.setField(service,"revisions",revisions);
+        when(revisions.create(anyLong(),anyLong(),any())).thenAnswer(call->java.util.Map.of("articleId",call.getArgument(1).toString()));
         ReflectionTestUtils.setField(service, "articleMapper", mapper);
         ReflectionTestUtils.setField(service, "userMapper", users);
         ReflectionTestUtils.setField(service, "esComponent", es);

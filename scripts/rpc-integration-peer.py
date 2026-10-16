@@ -21,6 +21,7 @@ from app.rpc import server, blog_client
 from app.rpc.generated import easyjob_rpc_pb2 as pb
 from starlette.responses import StreamingResponse
 from fastapi import HTTPException
+from app.services.logging_config import current_trace_id, set_request_trace
 
 BIG = 9007199254740993
 
@@ -29,8 +30,10 @@ async def serve(port, ready):
     from app.main import ChatRequest, ResumeRequest, ChatResponse, ProfileEdit, RecordEdit
     async def chat(request, principal):
         assert principal.user_id == 7 and request.origin_article_id == BIG
+        assert current_trace_id() == 'interop-java-12345678'
         return ChatResponse(reply='中文二进制 RPC', conversation_id=str(BIG), run_id=str(request.request_id))
     async def stream(request, principal):
+        assert current_trace_id() == 'interop-java-12345678'
         async def frames():
             yield 'data:__ANSWER__:{"type":"start"}\n\n'
             yield ': keepalive\n\n'
@@ -53,6 +56,7 @@ async def serve(port, ready):
 
 
 async def callback(port):
+    set_request_trace(trace_id='interop-python-12345678')
     settings.BLOG_RPC_TARGET = f'127.0.0.1:{port}'
     try:
         rows = await blog_client.list_drafts(7, '中文')

@@ -3,7 +3,7 @@
     <ContentState v-if="loading" kind="loading" title="正在读取版本历史" />
     <ContentState v-else-if="error" kind="error" title="版本加载失败" :description="error" @retry="load" />
     <ContentState v-else-if="!rows.length" kind="empty" title="这篇文章尚未保存版本快照" />
-    <div v-else class="revision-history"><aside><button v-for="row in rows" :key="row.revisionId" :class="{selected:selected?.revisionId===row.revisionId}" @click="select(row.revisionId)">V{{ row.version }} · {{ label(row.state) }}<small>{{ row.createdAt?.replace('T',' ').slice(0,16) }}</small></button></aside><section v-if="selected"><h2>{{ selected.payload.title }}</h2><p v-if="selected.reason" class="reason">审核意见：{{ selected.reason }}</p><p>{{ selected.payload.summary }}</p><pre v-if="selected.payload.contentType===2">{{ selected.payload.content }}</pre><div v-else v-html="safeHtml(selected.payload.content)" /><button class="restore" :disabled="busy || pending" @click="restore">基于此版本创建修改草稿</button><p class="note">恢复历史内容会创建新的草稿版本，审核通过后才会更新公开文章。</p></section></div>
+    <div v-else class="revision-history"><aside><button v-for="row in rows" :key="row.revisionId" :class="{selected:selected?.revisionId===row.revisionId}" @click="select(row.revisionId)">V{{ row.version }} · {{ label(row.state) }}<small>{{ row.createdAt?.replace('T',' ').slice(0,16) }}</small></button></aside><section v-if="selected"><h2>{{ selected.payload.title }}</h2><p v-if="selected.reason" class="reason">审核意见：{{ selected.reason }}</p><p>{{ selected.payload.summary }}</p><pre v-if="selected.payload.contentType===2">{{ selected.payload.content }}</pre><div v-else v-html="safeHtml(selected.payload.content)" /><RevisionComparison :article-id="articleId" :selected="selected" :versions="rows" /><button class="restore" :disabled="busy || pending" @click="restore">基于此版本创建修改草稿</button><p class="note">恢复历史内容会更新工作草稿，审核通过后才会更新公开文章。</p></section></div>
   </el-dialog>
 </template>
 <script setup lang="ts">
@@ -13,6 +13,7 @@ import {safeHtml} from '@/utils/safeHtml'
 import {latestRequest} from '@/utils/latestRequest'
 import {notify,confirmAction,errorMessage} from '@/utils/feedback'
 import ContentState from '@/components/ContentState.vue'
+import RevisionComparison from '@/components/RevisionComparison.vue'
 const props=defineProps<{articleId:string;revisionId:string;lockVersion:number;initialRevisionId?:string;pending:boolean;modelValue:boolean}>()
 const emit=defineEmits(['update:modelValue','restored'])
 const visible=ref(props.modelValue),rows=ref<any[]>([]),selected=ref<any>(),loading=ref(false),error=ref(''),busy=ref(false)

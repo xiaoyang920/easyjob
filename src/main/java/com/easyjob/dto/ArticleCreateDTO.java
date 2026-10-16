@@ -11,6 +11,8 @@ import java.util.List;
  */
 @Data
 public class ArticleCreateDTO implements Serializable {
+    /** Stable identity of the first editor save; retries must not create duplicate drafts. */
+    private String clientRequestId;
     // Current workspace identity plus content lock. Zero revision is only for legacy publications.
     private String expectedRevisionId;
     private Long expectedLockVersion;

@@ -258,7 +258,8 @@ class RunService:
         async def append_message():
             await self.conversations.add_message(
                 conv_id, "assistant", result["reply"], article_cards=result["articles"] or None,
-                citations=result["citations"] or None, draft_article_id=result["draft_article_id"], postprocess=False)
+                citations=result["citations"] or None, draft_article_id=result["draft_article_id"], postprocess=False,
+                **({'run_id': config['configurable']['run_id']} if config else {}))
         if config:
             cfg = config["configurable"]
             result = await self.repository.settle(conv_id, user_id, cfg["run_id"], cfg["execution_token"],
@@ -278,7 +279,7 @@ class RunService:
                          "draft_article_id": run["draft_article_id"], "interrupted": None, "cancelled": False}
             async def append_recovered():
                 await self.conversations.add_message(run["conversation_id"], "assistant", recovered["reply"],
-                                                    draft_article_id=run["draft_article_id"], postprocess=False)
+                                                    draft_article_id=run["draft_article_id"], postprocess=False, run_id=run['run_id'])
             await self.repository.settle(run["conversation_id"], run["user_id"], run["run_id"],
                                           run["execution_token"], "succeeded", recovered, append_recovered)
             await self.conversations.invalidate_cache(run["conversation_id"])

@@ -21,6 +21,7 @@ class DiscoveryTests(unittest.IsolatedAsyncioTestCase):
         catalog=Catalog()
         response=SimpleNamespace(json=lambda:[{'Service':{'Address':'127.0.0.1','Meta':{'rpc_port':'20881'}}}])
         catalog.http=AsyncMock(return_value=response)
+        await catalog.refresh()
         self.assertEqual(await catalog.target(7),'127.0.0.1:20881')
         self.assertEqual(await catalog.target(7),'127.0.0.1:20881')
         catalog.http.assert_awaited_once()
@@ -33,6 +34,7 @@ class DiscoveryTests(unittest.IsolatedAsyncioTestCase):
     async def test_healthy_query_with_no_instances_withdraws_stale_peer_immediately(self):
         catalog=Catalog();catalog.peers=['old:1'];catalog.refreshed=time.monotonic()-6
         catalog.http=AsyncMock(return_value=SimpleNamespace(json=lambda:[]))
+        await catalog.refresh()
         with self.assertRaises(RuntimeError): await catalog.target(7)
 
 

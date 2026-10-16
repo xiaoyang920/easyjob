@@ -35,6 +35,7 @@ public class AgentServiceAuth {
     }
     public com.easyjob.rpc.v1.Identity identity(Long userId) {
         headers(userId); // Same fail-closed identity rules as the compatibility HTTP transport.
-        return com.easyjob.rpc.v1.Identity.newBuilder().setUserId(userId).setServiceKey(key).build();
+        return com.easyjob.rpc.v1.Identity.newBuilder().setUserId(userId).setServiceKey(key)
+            .setTraceId(com.easyjob.observability.RequestTrace.current()).build();
     }
 }

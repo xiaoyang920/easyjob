@@ -163,11 +163,14 @@
         WHERE user_id=#{userId} FOR UPDATE
     </select>
     <insert id="insertRevision" useGeneratedKeys="true" keyProperty="row.revisionId" keyColumn="revision_id">
-        INSERT INTO article_revision(article_id,version_no,author_id,base_revision_id,state,payload,content_hash,submitted_at,is_current,data_source,required_level)
+        INSERT INTO article_revision(article_id,version_no,author_id,base_revision_id,state,payload,content_hash,submitted_at,is_current,data_source,required_level,client_request_id)
         VALUES(#{row.articleId},#{row.version},#{row.authorId},#{row.baseRevisionId},#{row.state},#{row.payload},#{row.contentHash},IF(#{row.state}=1,NOW(3),NULL),1,(SELECT data_source
         FROM user_info
-        WHERE user_id=#{row.authorId}),#{row.requiredLevel})
+        WHERE user_id=#{row.authorId}),#{row.requiredLevel},#{row.clientRequestId})
     </insert>
+    <select id="findCreateRequest" resultType="map">
+        SELECT * FROM article_revision WHERE author_id=#{userId} AND client_request_id=#{requestId} FOR UPDATE
+    </select>
     <select id="lockCategoryRedirect" resultType="map">
         SELECT category_id,migrated_to
         FROM category

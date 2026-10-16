@@ -20,6 +20,9 @@ async def user_source(uid):
 
 async def query(q, uid, database=db):
     kind = q.kind
+    if kind in ('conversation_library','conversation_edit','answer_feedback','answer_feedback_get','feedback_report'):
+        from app.services.conversation_features import query as features
+        return await features(q,uid,database)
     if kind == 'profile_topics':
         rows = await database.fetch_all('SELECT interests,tech_stack FROM user_profile WHERE user_id=:uid', {'uid':uid})
         return [dict(r._mapping) for r in rows]

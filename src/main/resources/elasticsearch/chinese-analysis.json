@@ -1,0 +1,24 @@
+{
+  "analysis": {
+    "filter": {
+      "easyjob_technical_synonyms": {
+        "type": "synonym_graph",
+        "synonyms_path": "analysis/easyjob-synonyms.txt",
+        "updateable": true,
+        "lenient": false
+      }
+    },
+    "analyzer": {
+      "easyjob_zh_index": {
+        "type": "custom",
+        "tokenizer": "ik_max_word",
+        "filter": ["cjk_width", "lowercase"]
+      },
+      "easyjob_zh_search": {
+        "type": "custom",
+        "tokenizer": "ik_smart",
+        "filter": ["cjk_width", "lowercase", "easyjob_technical_synonyms"]
+      }
+    }
+  }
+}

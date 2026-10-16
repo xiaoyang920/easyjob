@@ -23,7 +23,8 @@ async function setup(page: Page, failSave = false, recoverLatest = false, format
         'data:__DRAFT_SAVED__:{"draftArticleId":"900","title":"手动修改标题"}\n\n' +
         'data:__REPLY__:{"content":"草稿已保存"}\n\ndata:__PROGRESS__:done\n\ndata:[DONE]\n\n' })
     }
-    if (url.pathname.endsWith('/agent/conversations')) data = url.searchParams.get('scope') === 'general'
+    if (url.pathname.endsWith('/agent/library')) data = {rows:url.searchParams.get('scope')==='general'?[{conversationId:'101',title:'缓存一致性草稿'}]:[],total:1}
+    else if (url.pathname.endsWith('/agent/conversations')) data = url.searchParams.get('scope') === 'general'
       ? [{ conversationId: '101', title: '缓存一致性草稿', scope: 'general' }] : []
     else if (url.pathname.endsWith('/agent/conversations/101')) data = { conversationId: '101', title: '缓存一致性草稿', scope: 'general' }
     else if (url.pathname.endsWith('/messages')) data = [{ role: 'assistant', content: pending.draft, interrupted: true, isDraft: true, interruptPayload: pending }]

@@ -21,6 +21,7 @@ test('global monitor restores runs, retains reconnect state and fences account c
   const output=fileURLToPath(new URL(`.run-monitor-${process.pid}.mjs`,import.meta.url))
   await writeFile(output,ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText)
   let monitor
+  const realNow=Date.now
   try {
     monitor=await import(pathToFileURL(output).href)
     await monitor.refreshAiRuns()
@@ -28,8 +29,17 @@ test('global monitor restores runs, retains reconnect state and fences account c
     assert.equal(monitor.aiRunCount.value,1)
     monitor.markAiRunRead('101')
     assert.equal(monitor.aiRunCount.value,0)
+    monitor.startAiRunMonitor()
+    await new Promise(r=>setImmediate(r))
+    const beforeStorage=calls
+    const shared=JSON.stringify({items:[{...run('succeeded'),unread:false}],syncedAt:'2026-10-05T11:01:00Z'})
+    for(let i=0;i<50;i++)window.dispatchEvent(new window.StorageEvent('storage',{key:'ai_run_notices:7',newValue:shared}))
+    await new Promise(r=>setImmediate(r))
+    assert.equal(calls,beforeStorage,'another tab cache never triggers HTTP or a storage feedback loop')
     response=new Error('offline');await monitor.refreshAiRuns()
     assert.equal(monitor.aiRunConnection.value,'reconnecting')
+    const beforeRetry=calls;await monitor.refreshAiRuns();assert.equal(calls,beforeRetry,'errors back off before retrying')
+    Date.now=()=>realNow()+16000
     response={code:200,data:{items:[run('running','102')],serverTime:'2026-10-05T11:02:00Z'}}
     await monitor.refreshAiRuns()
     assert.equal(monitor.aiRunConnection.value,'online')
@@ -47,5 +57,5 @@ test('global monitor restores runs, retains reconnect state and fences account c
     assert.deepEqual(monitor.aiRunItems.value.map(r=>r.conversationId),['201'],'old-account result cannot overwrite new account')
     localStorage.removeItem('token');await monitor.refreshAiRuns()
     assert.equal(monitor.aiRunCount.value,0)
-  } finally {monitor?.stopAiRunMonitor();await unlink(output);dom.window.close();delete globalThis.__runQa}
+  } finally {Date.now=realNow;monitor?.stopAiRunMonitor();await unlink(output);dom.window.close();delete globalThis.__runQa}
 })

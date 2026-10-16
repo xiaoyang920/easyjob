@@ -11,6 +11,7 @@
 - `contracts/`：Java 与 Python 共用的 Protobuf RPC 契约。
 - `python-agent/migrations/`：数据库增量迁移。
 - `python-agent/evaluation/`：路由、检索和端到端评测；使用方式见该目录的 README。
+- RPC 连接回收、跨服务追踪、故障压测及回答误拦截评测见 [运行质量验证](docs/runtime-quality.md)。
 - `scripts/`：本地启动、维护和回归检查脚本。
 
 知识检索直接返回候选资料，下一轮 Main 在同一次模型调用内筛选引用、判断充分性并决定回答或继续检索，不再固定调用独立的充分性评估模型。执行契约与测试说明见 [Main 证据评估](python-agent/docs/main-evidence-assessment.md)。
@@ -63,6 +64,8 @@ npm run dev
 
 ### Windows 一键启动
 
+中文技术词典、查询侧同义词与旧索引升级见 [中文检索配置](docs/chinese-search.md)。已有索引需按文档备份回填，新增字段不会自动处理旧文档。
+
 本机直接双击项目根目录的 **`启动项目.cmd`**。它会启动或复用 MySQL、缓存 Redis、Checkpoint Redis、Consul、Elasticsearch、RabbitMQ、Java、Python、网关和前端，全部检查通过后打开 `http://127.0.0.1:3000`。已有数据库本次升级先执行 `python scripts/migrate-service-boundaries.py` 应用增量迁移 021。
 
 第一次准备环境时仍需安装上述软件、创建 Python 虚拟环境并安装依赖、执行 `npm ci`、填写 Java/Python 本地配置并准备业务数据库。启动脚本使用本机现有安装目录；其他电脑可在 `scripts/start-local.ps1` 的参数中指定实际路径。缺少的 `temp/application-runtime.yml` 会由现有本地配置生成，已有配置保持原样，密码和密钥不打印到终端。
@@ -111,6 +114,20 @@ Agent 检索支持完整查询跳过额外改写、容量及过期受控的查�
 管理员可在后台“分类管理”或写文章页的“新增分类”创建一级/二级分类，设置名称、说明和排序；编辑器创建后自动选中，分类列表只返回启用分类。`GET/POST /api/admin/categories` 每次校验管理员权限，创建及操作日志在同一事务提交；同一父分类下由数据库唯一索引拦截重名并发创建。升级执行包含 `017_admin_categories.sql` 的 `python -m app.migrate`，存在历史重名时会停止并要求人工确认，不自动合并或删除。分类列表直接读库，避免旧缓存影响新增分类的可见性。真实本地权限/并发回归：`python -m evaluation.admin_categories`。
 
 分类管理还支持 `PUT /api/admin/categories/{id}` 改名、排序、说明和启停；`POST /api/admin/categories/{id}/migrate` 将未删除文章整体迁入目标并停用原分类，一次最多500篇。源、目标分类必须带当前版本，过期表单返回409；一级分类停用/迁移前须先处理启用的二级分类。已迁移分类保留转向，不能重新启用；旧草稿、编辑器和待审核版本在读取或保存时解析至新分类，保留不可变版本正文及原校验值。迁移、索引投递意图和操作日志在同一事务提交，提交后失效详情缓存。升级先执行包含018的 `python -m app.migrate`。接口回归覆盖并发编辑、停用可见性、迁移原子性、旧编辑器保存及迁移后审核通过，使用隔离夹具并清理。
+
+## 编辑、对话与账号管理
+
+升级时执行 `python scripts/migrate-product-features.py`（022/023，增量可重放），然后重新构建 Java 并重启 Java、Agent。完整初始化也包含此迁移。
+
+写文章页在停止输入5秒后更新当前工作草稿；本机保留未提交内容，刷新后可选择恢复。服务端并发锁冲突会暂停自动保存，网络失败限次退避重试。首次保存使用稳定请求标识，响应丢失后重试复用同一草稿。重复保存不增加 `version_no`、不创建新快照，发布审核通过才更新公开内容。标题、摘要、正文差异在草稿箱“版本历史”中选择基准查看；对比操作只读。
+
+智能助手左栏支持搜索标题与聊天内容、重命名、置顶；修改携带元数据版本，过期修改返回409。完成回答可提交“有帮助”或问题类型反馈，按用户和run_id唯一保存，刷新可恢复。后台Agent指标按业务/评测来源展示反馈计数与运行标识，不暴露私人对话正文。
+
+私信向同一账号的所有连接分发，Redis Pub/Sub支持跨节点传输；消息及未读数以数据库为准，断线重连补拉。头像菜单“账号安全”支持修改密码、查看/退出登录设备；登录页“忘记密码”使用独立邮箱验证码，10分钟有效、最多5次、一次消费。修改/重置密码递增认证版本，旧访问令牌与续签凭证失效。
+
+回归入口：`frontend/tests-e2e/product-features.spec.ts`、`scripts/product-features-smoke.py`。真实接口脚本只操作本机临时夹具，不调用模型或发送邮件，结束后清理。
+
+多标签页同步只消费其他页面写入的 Agent 状态缓存，不会再次拉取并回写，避免请求循环。通知 SSE 每个标签页独立持有连接，失败采用退避重连；网关把后台状态轮询、通知重连和用户操作的限流预算分开。Playwright 使用独立的3100端口（可设置 `E2E_PORT`），不会启动或关闭用户正在使用的3000端口服务。回归见 `frontend/tests-e2e/multi-tab-monitor.spec.ts` 和只读的 `scripts/notification-multitab-smoke.py`。
 
 ## 后台角色、运行指标与推荐反馈
 

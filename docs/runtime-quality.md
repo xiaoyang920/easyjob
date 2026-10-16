@@ -1,0 +1,56 @@
+# 运行稳定性与回答质量验证
+
+## 服务发现与连接回收
+
+保留 Java Dubbo Triple、Python grpc.aio 和现有 Consul 目录结构。启动时初始化一次快照，之后后台每 5 秒刷新；业务请求不等待注册中心 HTTP。查询明确返回空列表立即停用旧地址，查询故障保留此前快照最多 30 秒。
+
+两端连接最多缓存 32 个地址。实例下线或连接空闲 5 分钟后清理，容量不足时淘汰空闲连接。调用通过租约计数：普通调用完成、失败或取消后释放；Java 服务端流在完成、错误或订阅取消后释放。活跃连接不因容量压力被强制关闭。所有连接都忙时返回服务不可用，写操作不透明重试。
+
+## 跨服务追踪
+
+网关生成 `X-Request-Id`，覆盖浏览器提供的同名头并返回响应。Java 在请求线程设置 `trace_id`，通过 Protobuf `Identity.trace_id` 传入 Python。Python 使用 ContextVar 保留该值，回调 Java 时继续传递。Java 流式适配在订阅时恢复捕获的上下文。请求结束恢复之前的上下文，避免线程复用和并发用户串号。
+
+日志只记录追踪标识、运行标识、方法、状态和耗时，不记录请求 DTO、密钥、提示词、正文或包含查询参数的 URL。Python `rpc_stream.first_frame_ms` 表示首个数据帧，可能是运行编号等元数据，不能当作首个答案 Token 耗时。网关记录整次 HTTP/流式订阅耗时，Java `http_dispatch` 只记录 Servlet 分派耗时；业务运行通过 `run_id` 关联。
+
+## 隔离故障与负载测试
+
+在项目根目录执行：
+
+```powershell
+python-agent/.venv/Scripts/python.exe scripts/rpc-stability-check.py --users 24 --seconds 10 --churn 64
+```
+
+脚本仅使用动态分配的本机回环端口，创建独立 gRPC 测试服务和模拟 Consul，不访问业务数据库或模型，不停止项目服务。验证超过 32 个地址替换、缓慢发现、持续并发、超时、显式取消、空健康列表、快照过期、对端退出，以及写请求不透明重试。每个阶段保留请求明细和 P50/P95，故障预期单列，正常负载阶段的错误单列。
+
+报告 `logs/rpc-stability.json` 中的耗时属于真实本机网络与模拟业务，不代表包含数据库、检索或 LLM 的生产 QPS。Java 的 `RpcInteropTests` 同时验证真实 Dubbo/gRPC 双向通信、流式调用、动态连接引用和追踪传播。浏览器用专属 3100 端口测试 2/6 个标签页和 100 次跨页状态更新，不能关闭日常前端 3000 端口。
+
+压测同时采样进程 RSS、连接缓存数量、活跃租约和 asyncio 任务数。RSS 包含模拟服务和逐渐积累的测试记录，增长不能直接判定为业务内存泄漏；不支持的系统保持 null。
+
+## 冻结回答评测集
+
+`python-agent/evaluation/datasets/delivery.realistic.jsonl` 有 64 个不同问题，分为常识、分析建议、项目事实、具体数字、资料不足、来源冲突、版本范围和来源注入八类。前 24 题来自用户已提供的技术对话改写，后 40 题为编写的边界场景；来源是明确标注的冻结片段，部分环境和数值为虚构数据。它不是生产日志，也不是独立人工留出集，不包含账号信息或历史聊天全文。
+
+在 `python-agent` 目录执行，输出目录必须是新目录：
+
+```powershell
+.venv/Scripts/python.exe -m evaluation.delivery_quality collect --mode replay --output ../logs/delivery-quality-replay
+.venv/Scripts/python.exe -m evaluation.delivery_quality collect --mode live --per-category --output ../logs/delivery-quality-live
+.venv/Scripts/python.exe -m evaluation.delivery_quality score --directory ../logs/delivery-quality-live --reviews ../logs/reviews.completed.jsonl
+```
+
+`replay` 安装进程级网络禁止钩子，使用占位回答和固定核验，只验证执行与报告流程；真实模型调用数为零。`live --per-category` 选取每类第 1 题，共 8 题，向本地配置的模型服务发送问题与对应冻结资料；没有真实检索、工具执行、数据库或记忆写入。采集前应确认具体发送范围及模型额度。
+
+报告保存候选回答、最终回答、核验结果、全部已记录请求耗时和模型 Token 用量。人工评审模板绑定候选/最终回答 Hash，拒绝重复、未知样例、过期回答和越界计数。未标注的指标为 null；回放结果不能计为真实回答质量。
+
+模型正常返回也可能被动作契约拒绝；报告单独统计自动交付契约通过/失败，不把“已采集”当作“任务成功”。该契约只验证动作、非空交付、核验状态及无越权执行，不代表事实准确率。
+
+| 指标 | 分母与范围 |
+|---|---|
+| 任务完成率 | 仅已完成独立人工评审的真实模型回答；同时报告全部待评审数量 |
+| 上下文连贯率 | 仅已评审回答，判断修正前后是否出现割裂 |
+| 核验误拦截率 | 人工判定原候选中正确且可保留的内容单元数；分子是被错误阻断/删改的单元数 |
+| 无依据具体事实率 | 最终回答中人工判定需要来源的具体事实数；常识解释和条件性建议不计入此分母 |
+| P50/P95 | 从执行 Main 与交付核验开始到返回，失败耗时也保留；不含真实检索和浏览器传输 |
+| Token | 仅已获得完整 usage 的模型调用，缺失保持未知；输入/输出分别报告 |
+
+人工评审填写 `reviewer`、任务是否完成、上下文是否连贯、正确候选单元数、误拦截单元数、具体事实数及无依据事实数。人工标签不能由离线脚本或被测模型自动填成通过。

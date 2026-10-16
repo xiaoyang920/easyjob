@@ -70,6 +70,7 @@ public class AuthController {
                 throw new BusinessException(401, "登录已过期，请重新登录");
             }
         } else session = sessions.refresh(credential);
+        if (credential == null) sessions.track(session, request.getHeader("User-Agent"));
         // The browser cookie expires at the absolute deadline. Sliding the Redis idle
         // deadline needs no Set-Cookie, avoiding old refresh responses overwriting a new login.
         if (credential == null) sessionCookie(request, response, session.credential(), session.remainingSeconds());
@@ -141,6 +142,7 @@ public class AuthController {
                               String message) {
         sessions.revoke(cookie(request));
         var session = sessions.create(user);
+        sessions.track(session, request.getHeader("User-Agent"));
         sessionCookie(request, response, session.credential(), session.remainingSeconds());
         String token = jwtUtil.generateSessionToken(user.getUserId(), session.id());
         // 返回响应

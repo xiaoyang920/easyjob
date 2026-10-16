@@ -10,6 +10,8 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 import java.util.Map;
+import java.util.Set;
+import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -18,8 +20,8 @@ import java.util.concurrent.TimeUnit;
 @Service
 @Slf4j
 public class SseEmitterService {
-    /** 在线用户 SSE 连接：userId -> SseEmitter */
-    private final ConcurrentHashMap<Long, SseEmitter> emitters = new ConcurrentHashMap<>();
+    /** A tab owns its emitter; opening another tab must not close this one. */
+    private final ConcurrentHashMap<Long, Set<SseEmitter>> emitters = new ConcurrentHashMap<>();
 
     /** 心跳线程池（每 25s 发一次注释消息，防止 Nginx/代理 60s 空闲断连） */
     private ScheduledExecutorService heartbeatExecutor;
@@ -39,9 +41,9 @@ public class SseEmitterService {
         if (heartbeatExecutor != null) {
             heartbeatExecutor.shutdown();
         }
-        emitters.values().forEach(e -> {
+        emitters.values().forEach(group -> List.copyOf(group).forEach(e -> {
             try { e.complete(); } catch (Exception ignore) {}
-        });
+        }));
         emitters.clear();
     }
 
@@ -50,26 +52,24 @@ public class SseEmitterService {
      */
     public SseEmitter connect(Long userId) {
         // 超时 30 分钟；前端 EventSource 会自动重连
-        SseEmitter emitter = new SseEmitter(30 * 60 * 1000L);
+        SseEmitter emitter = newEmitter();
 
         // 回调里用"只有当前持有的 emitter 与自己相同时才清理"避免被重连覆盖时误删
         emitter.onCompletion(() -> removeIfSame(userId, emitter));
         emitter.onTimeout(() -> removeIfSame(userId, emitter));
         emitter.onError(e -> removeIfSame(userId, emitter));
 
-        // 同一用户重连时，先把旧连接优雅关闭（原子替换）
-        SseEmitter old = emitters.put(userId, emitter);
-        if (old != null) {
-            try {
-                old.complete();
-            } catch (Exception ignore) {
-            }
-        }
+        emitters.compute(userId, (id, group) -> {
+            if (group == null) group = ConcurrentHashMap.newKeySet();
+            if (group.size() >= 32) throw new com.easyjob.exception.BusinessException(429,"通知连接过多，请关闭不使用的页面");
+            group.add(emitter);
+            return group;
+        });
 
         // 连接建立后立刻发一个握手事件，让前端尽快收到 open
         try {
             emitter.send(SseEmitter.event().name("connected").data("ok"));
-        } catch (IOException e) {
+        } catch (Exception e) {
             log.warn("SSE 握手事件发送失败: userId={}", userId, e);
             removeIfSame(userId, emitter);
         }
@@ -78,16 +78,18 @@ public class SseEmitterService {
         return emitter;
     }
 
+    protected SseEmitter newEmitter() { return new SseEmitter(30 * 60 * 1000L); }
+
     /**
      * 推送通知给指定用户（不在线则跳过）
      */
     public void sendToUser(Long userId, NotificationMessage msg) {
-        SseEmitter emitter = emitters.get(userId);
-        if (emitter == null) {
+        Set<SseEmitter> group = emitters.get(userId);
+        if (group == null) {
             log.debug("用户 {} 不在线，跳过推送", userId);
             return;
         }
-        try {
+        for (SseEmitter emitter : List.copyOf(group)) try {
             emitter.send(SseEmitter.event()
                     .name("notification")
                     .data(JSON.toJSONString(msg,com.alibaba.fastjson2.JSONWriter.Feature.WriteLongAsString))
@@ -102,10 +104,10 @@ public class SseEmitterService {
      * 主动断开指定用户的连接
      */
     public void disconnect(Long userId) {
-        SseEmitter removed = emitters.remove(userId);
+        Set<SseEmitter> removed = emitters.remove(userId);
         if (removed != null) {
-            try {
-                removed.complete();
+            for (SseEmitter emitter : List.copyOf(removed)) try {
+                emitter.complete();
             } catch (Exception ignore) {
             }
         }
@@ -126,10 +128,9 @@ public class SseEmitterService {
         try {
             if (emitters.isEmpty()) return;
             int before = emitters.size();
-            for (Map.Entry<Long, SseEmitter> e : emitters.entrySet()) {
+            for (Map.Entry<Long, Set<SseEmitter>> e : emitters.entrySet()) {
                 Long userId = e.getKey();
-                SseEmitter emitter = e.getValue();
-                try {
+                for (SseEmitter emitter : List.copyOf(e.getValue())) try {
                     emitter.send(SseEmitter.event().comment("keep-alive"));
                 } catch (Exception ex) {
                     log.debug("心跳失败，清理连接: userId={}, err={}", userId, ex.getClass().getSimpleName());
@@ -147,18 +148,20 @@ public class SseEmitterService {
      * 仅当 map 里存的还是同一个 emitter 时才移除（解决重连覆盖场景的误删）
      */
     private void removeIfSame(Long userId, SseEmitter target) {
-        emitters.remove(userId, target);
+        emitters.computeIfPresent(userId, (id, group) -> {
+            group.remove(target);
+            return group.isEmpty() ? null : group;
+        });
     }
 
     /**
      * 发送失败/心跳失败时的清理：移除 + completeWithError 避免资源泄漏
      */
     private void dropEmitter(Long userId, SseEmitter emitter, Throwable cause) {
-        if (emitters.remove(userId, emitter)) {
+        removeIfSame(userId, emitter);
             try {
                 emitter.completeWithError(cause);
             } catch (Exception ignore) {
             }
-        }
     }
 }

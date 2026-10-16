@@ -5,7 +5,7 @@ option java_multiple_files = true;
 
 // The identity is issued by an authenticated service, never by an LLM or browser.
 // Do not log requests: this field contains the internal service credential.
-message Identity { int64 user_id = 1; string service_key = 2; }
+message Identity { int64 user_id = 1; string service_key = 2; string trace_id = 3; }
 // Preserve int64 IDs exactly; google.protobuf.Struct represents numbers as doubles.
 message Value {
   oneof kind {
@@ -50,6 +50,7 @@ message MemoryRequest {
 message AgentQuery {
   Identity identity = 1; string kind = 2; string state = 3; string name = 4;
   int32 page = 5; int32 limit = 6; string start = 7; string end = 8; string source = 9;
+  Object edit = 10;
 }
 service AgentRpc {
   rpc Chat(ChatRequest) returns (Reply);

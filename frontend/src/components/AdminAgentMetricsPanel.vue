@@ -6,6 +6,7 @@
    <article class="metrics-chart"><h2>每日运行与失败</h2><AdminTrendChart title="每日 Agent 运行与失败数量" :rows="report.daily.map((r:any)=>({date:r.date,values:[r.count,r.failed]}))" :series="[{name:'运行数',color:'#11110f'},{name:'失败数',color:'#c75b49'}]" /></article>
    <p class="metrics-scope">{{ report.from }} — {{ report.to }}。{{ report.scope }}</p><p class="metrics-scope">使用量采样 {{ report.sampledRuns }} 次，其中 {{ report.runsWithMetrics }} 次有指标，{{ report.completeUsageRuns }} 次 Token 数据完整。旧运行缺失的指标保留为空。</p>
   </template>
+ <AnswerFeedbackReport ref="feedbackReport" :source="source" />
  </section>
 </template>
 <script setup lang="ts">
@@ -14,6 +15,8 @@ import request from '@/utils/request'
 import { latestRequest } from '@/utils/latestRequest'
 import ContentState from './ContentState.vue'
 import AdminTrendChart from './AdminTrendChart.vue'
+import AnswerFeedbackReport from './AnswerFeedbackReport.vue'
+const feedbackReport=ref<InstanceType<typeof AnswerFeedbackReport>>()
 const days=ref(7),source=ref('business'),report=ref<any>(),loading=ref(false),error=ref(''),gate=latestRequest();let disposed=false
 const number=(n:number)=>new Intl.NumberFormat('zh-CN').format(n)
 const seconds=(n:number|null)=>n===null?'—':`${(n/1000).toFixed(2)} 秒`
@@ -24,7 +27,7 @@ const cards=computed(()=>{const r=report.value;if(!r)return [];return [
  {label:'模型调用 / 失败',value:`${number(r.llmCalls)} / ${number(r.failedLlmCalls)}`,note:'Agent 图内调用，不含后台记忆处理'},
  {label:'已记录输入 Token',value:number(r.measuredInputTokens),note:'供应商返回的使用量，缺失部分不估算'},
  {label:'已记录输出 Token',value:number(r.measuredOutputTokens),note:'使用量统计，不代表费用'}]})
-async function reload(){const run=gate.begin();loading.value=true;error.value='';try{const result:any=await request.get('/admin/agent-metrics',{params:{days:days.value,source:source.value},signal:run.signal});if(run.isCurrent() && !disposed)report.value=result.data}catch(e){if(run.isCurrent() && !disposed)error.value=e instanceof Error?e.message:'请求失败'}finally{if(run.isCurrent() && !disposed)loading.value=false}}
+async function reload(){void feedbackReport.value?.load();const run=gate.begin();loading.value=true;error.value='';try{const result:any=await request.get('/admin/agent-metrics',{params:{days:days.value,source:source.value},signal:run.signal});if(run.isCurrent() && !disposed)report.value=result.data}catch(e){if(run.isCurrent() && !disposed)error.value=e instanceof Error?e.message:'请求失败'}finally{if(run.isCurrent() && !disposed)loading.value=false}}
 defineExpose({reload});onMounted(reload);onUnmounted(()=>{disposed=true;gate.cancel()})
 </script>
 <style scoped>

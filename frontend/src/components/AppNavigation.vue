@@ -23,6 +23,7 @@
               <RouterLink to="/"><House />首页</RouterLink>
               <RouterLink to="/user-space"><User />个人空间</RouterLink>
               <RouterLink v-for="item in links.filter(item => item.path !== '/user-space')" :key="item.path" :to="item.path"><component :is="item.icon" />{{ item.path === '/draft-box' ? '草稿箱' : item.path === '/ai-chat' ? 'AI 助手' : item.label }}<span v-if="badge(item.path)" class="app-account-count">{{ badge(item.path) > 99 ? '99+' : badge(item.path) }}</span></RouterLink>
+              <RouterLink to="/account-security"><Setting />账号安全</RouterLink>
               <RouterLink to="/edit-profile"><Setting />编辑资料</RouterLink>
               <RouterLink to="/ai-memory"><Document />长期记忆</RouterLink>
               <RouterLink v-if="administrator" to="/admin"><Setting />管理后台</RouterLink>

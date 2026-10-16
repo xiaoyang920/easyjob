@@ -8,6 +8,7 @@ import lombok.Data;
 @Builder
 public class ArticleRevisionInsert {
     private Long revisionId;
+    private String clientRequestId;
     private Long articleId;
     private Integer version;
     private Long authorId;

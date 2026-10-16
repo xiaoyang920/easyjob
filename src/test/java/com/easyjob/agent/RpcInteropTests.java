@@ -35,7 +35,10 @@ class RpcInteropTests {
             });
             var revisions = mock(ArticleRevisionService.class);
             var drafts = mock(AgentDraftService.class);
-            when(revisions.ownDrafts(7L,"中文")).thenReturn(List.of(Map.of("articleId",Long.toString(RpcTransportTests.BIG),"title","中文草稿")));
+            when(revisions.ownDrafts(7L,"中文")).thenAnswer(invocation -> {
+                assertEquals("interop-python-12345678",org.slf4j.MDC.get("trace_id"));
+                return List.of(Map.of("articleId",Long.toString(RpcTransportTests.BIG),"title","中文草稿"));
+            });
             when(revisions.ownDraft(7L,RpcTransportTests.BIG)).thenReturn(Map.of("id",RpcTransportTests.BIG,"editable",true,"empty",List.of()));
             when(drafts.save(eq(7L),any())).thenAnswer(invocation -> {
                 AgentDraftService.DraftRequest draft = invocation.getArgument(1);
@@ -43,7 +46,8 @@ class RpcInteropTests {
                 return Map.of("articleId",Long.toString(draft.articleId()));
             });
             var auth = new AgentServiceAuth(RpcTransportTests.KEY);
-            try (var runtime = new TripleRuntime(new BlogRpcProvider(auth,drafts,revisions),"127.0.0.1:"+agentPort,"127.0.0.1",blogPort)) {
+            try (var trace = new com.easyjob.observability.RequestTrace("interop-java-12345678",null);
+                 var runtime = new TripleRuntime(new BlogRpcProvider(auth,drafts,revisions),"127.0.0.1:"+agentPort,"127.0.0.1",blogPort)) {
                 runtime.start();
                 var client = new AgentRpcClient(runtime.agent(),auth);
                 var body = new HashMap<String,java.lang.Object>();
@@ -66,6 +70,15 @@ class RpcInteropTests {
                     assertEquals(0,callback.exitValue(),Files.readString(callbackOutput));
                 } finally { stop(callback); }
                 verify(drafts,times(2)).save(eq(7L),any());
+                // Exercise the actual leased Dubbo reference path as well as direct mode.
+                runtime.catalog(new com.easyjob.agent.rpc.ServiceCatalog(new com.fasterxml.jackson.databind.ObjectMapper(),
+                    true,"http://127.0.0.1:1","","127.0.0.1",8080,blogPort,"interop-snapshot") {
+                    @Override public String agentTarget(long uid) { return "127.0.0.1:"+agentPort; }
+                    @Override public java.util.List<String> healthyTargets() { return java.util.List.of("127.0.0.1:"+agentPort); }
+                });
+                var discovered=new AgentRpcClient(runtime.agent(),auth);
+                assertEquals("中文二进制 RPC",((Map<?,?>)discovered.post("/chat",7L,body)).get("reply"));
+                assertEquals(frames,discovered.stream("/chat/stream",7L,body).collectList().block(Duration.ofSeconds(20)));
             }
         } finally {
             Files.writeString(Path.of(ready + ".stop"), "stop");

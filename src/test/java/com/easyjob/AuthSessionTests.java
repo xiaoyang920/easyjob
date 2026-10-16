@@ -24,7 +24,8 @@ class AuthSessionTests {
     }
     private void session(long absolute) {
         when(redis.opsForValue()).thenReturn(values);
-        when(values.get(anyString())).thenReturn("7:" + absolute + ":" + AuthSessionService.digest("encoded-password"));
+        when(redis.opsForZSet()).thenReturn(mock(org.springframework.data.redis.core.ZSetOperations.class));
+        when(values.get(startsWith("auth:session:"))).thenReturn("7:" + absolute + ":" + AuthSessionService.digest("encoded-password"));
         when(users.selectById(7L)).thenReturn(user());
     }
     @Test void opaqueCredentialsAreHashedAndIdleExpiryIsBounded() {

@@ -759,7 +759,7 @@ function handleWsMessage(data: any) {
       // 其他会话的消息，更新未读数
       const conv = conversations.value.find(c => c.conversationId === data.conversationId)
       if (conv) {
-        conv.unreadCount = (conv.unreadCount || 0) + 1
+        conv.unreadCount = data.senderId === myUserId.value ? 0 : (conv.unreadCount || 0) + 1
         conv.lastMessage = data.messageType === 2 ? '[图片]' : data.content
         conv.lastMessageTime = data.createTime
         // 将会话移动到顶部

@@ -99,7 +99,7 @@
           </el-form-item>
         </el-form>
       </el-tab-pane>
-    </el-tabs>
+    </el-tabs><RouterLink to="/password-reset" style="display:block;text-align:right;margin:12px 0">忘记密码？</RouterLink>
 
     <div class="form-footer">
       <span>还没有账号？</span>

@@ -531,6 +531,8 @@ async def main():
         from app.services.revision_migration import apply_revision_workspace_migration
         await apply_revision_workspace_migration(db)
         await apply_service_boundaries(db)
+        await apply_product_features(db)
+        await apply_product_features(db,'023_draft_create_request.sql')
         print("001..021: applied (legacy data preserved)")
     finally:
         await db.disconnect()
@@ -708,6 +710,33 @@ async def check_service_boundaries(database):
     if count!=5:
         raise RuntimeError('服务边界迁移未就绪，请执行 python scripts/migrate-service-boundaries.py')
 
+
+async def apply_product_features(database,migration_name='022_product_features.sql'):
+    migration=MIGRATION.with_name(migration_name);checksum=hashlib.sha256(migration.read_bytes()).hexdigest()
+    async with database.connection() as connection:
+        if await connection.fetch_val("SELECT GET_LOCK('easyjob_agent_schema',10)")!=1:raise RuntimeError('无法取得迁移锁')
+        try:
+            previous=await connection.fetch_val('SELECT checksum FROM agent_schema_migration WHERE version=:v',{'v':migration.name})
+            if previous:
+                if previous!=checksum:raise RuntimeError('功能迁移校验和发生变化')
+                return
+            for statement in migration.read_text(encoding='utf-8').split(';'):
+                statement=statement.strip()
+                if not statement:continue
+                match=re.match(r'ALTER TABLE (\w+) ADD COLUMN (\w+)',statement)
+                if match and await connection.fetch_val('SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name=:t AND column_name=:c',{'t':match[1],'c':match[2]}):continue
+                match=re.match(r'CREATE (?:UNIQUE )?INDEX (\w+) ON (\w+)',statement)
+                if match and await connection.fetch_val('SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name=:t AND index_name=:i',{'t':match[2],'i':match[1]}):continue
+                await connection.execute(statement)
+            await connection.execute('INSERT INTO agent_schema_migration(version,checksum) VALUES(:v,:c)',{'v':migration.name,'c':checksum})
+        finally:await connection.fetch_val("SELECT RELEASE_LOCK('easyjob_agent_schema')")
+
+async def check_product_features(database):
+    columns=await database.fetch_val("""SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE()
+        AND ((table_name='ai_conversation' AND column_name IN ('is_pinned','metadata_version'))
+          OR (table_name='ai_message' AND column_name='run_id'))""")
+    table=await database.fetch_val("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='agent_answer_feedback'")
+    if columns!=3 or table!=1:raise RuntimeError('功能迁移未就绪，请执行 python scripts/migrate-product-features.py')
 
 if __name__ == "__main__":
     asyncio.run(main())

@@ -232,6 +232,7 @@ try {
     Write-Step '3/7 Starting Elasticsearch.'
     $esProcess = $null
     if (!(Test-Port 9200)) {
+        Invoke-Logged 'chinese-analysis-install' $python @('scripts\install-chinese-analysis.py','--es-home',$ElasticsearchHome) $root
         $env:ES_JAVA_HOME = $JavaHome
         $env:ES_JAVA_OPTS = '-Xms1g -Xmx1g'
         $esProcess = Start-Hidden 'elasticsearch' "$env:WINDIR\System32\cmd.exe" `

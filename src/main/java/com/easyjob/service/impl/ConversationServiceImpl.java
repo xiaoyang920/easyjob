@@ -123,6 +123,7 @@ public class ConversationServiceImpl extends ServiceImpl<ConversationMapper, Con
         }
         // 2. 调用 conversationMemberMapper.clearUnreadCount(conversationId, userId)
         conversationMemberMapper.clearUnreadCount(conversationId, userId);
+        com.easyjob.config.ChatWebSocketHandler.sendToUser(userId,java.util.Map.of("type","unread_update","conversationId",conversationId.toString(),"unreadCount",0));
     }
     /**
      * 删除会话

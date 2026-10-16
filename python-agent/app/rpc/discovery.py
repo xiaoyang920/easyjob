@@ -16,7 +16,7 @@ class Catalog:
         self.instance = os.getenv('AGENT_INSTANCE_ID') or f'easyjob-agent-{self.address}-{self.port}'
         self.client = None
         self.task = None
-        self.lock = asyncio.Lock()
+        self.refresh_task = None
         self.peers = []
         self.refreshed = -1000.0
 
@@ -42,33 +42,48 @@ class Catalog:
 
     async def start(self):
         if self.enabled and self.task is None:
+            await self.refresh()
             self.task = asyncio.create_task(self.heartbeat(), name='consul-registration')
+            self.refresh_task = asyncio.create_task(self.refresh_loop(), name='consul-discovery')
+
+    async def refresh_loop(self):
+        while True:
+            await asyncio.sleep(5)
+            await self.refresh()
+            from .blog_client import pool
+            await pool.reconcile(self.healthy_targets())
+
+    async def refresh(self):
+        try:
+            response = await self.http('GET', '/v1/health/service/easyjob-blog?passing=true')
+            peers = []
+            for item in response.json():
+                s = item['Service']; host = s['Address']; port = int(s['Meta']['rpc_port'])
+                if not host or not 0 < port < 65536 or any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.:-' for c in host):
+                    continue
+                peers.append(f'[{host}]:{port}' if ':' in host else f'{host}:{port}')
+            # No await between publication of these fields: atomic to async readers.
+            self.peers = tuple(sorted(set(peers)))
+            self.refreshed = time.monotonic()
+        except (httpx.HTTPError, ValueError, KeyError, TypeError):
+            pass  # healthy_targets enforces expiry even while refresh is blocked.
+
+    def healthy_targets(self):
+        return self.peers if time.monotonic() - self.refreshed <= 30 else ()
 
     async def target(self, user_id):
-        async with self.lock:
-            now = time.monotonic()
-            if now - self.refreshed > 5:
-                try:
-                    response = await self.http('GET', '/v1/health/service/easyjob-blog?passing=true')
-                    peers = []
-                    for item in response.json():
-                        s = item['Service']; host = s['Address']; port = int(s['Meta']['rpc_port'])
-                        if not host or not 0 < port < 65536 or any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.:-' for c in host):
-                            continue
-                        peers.append(f'[{host}]:{port}' if ':' in host else f'{host}:{port}')
-                    self.peers = sorted(set(peers)); self.refreshed = now
-                except (httpx.HTTPError, ValueError, KeyError):
-                    if now - self.refreshed > 30:
-                        self.peers = []
-            if not self.peers:
-                raise RuntimeError('No healthy Blog instance')
-            return max(self.peers, key=lambda peer: hashlib.sha256(f'{user_id}:{peer}'.encode()).digest())
+        peers = self.healthy_targets()
+        if not peers:
+            raise RuntimeError('No healthy Blog instance')
+        return max(peers, key=lambda peer: hashlib.sha256(f'{user_id}:{peer}'.encode()).digest())
 
     async def close(self):
-        if self.task:
-            self.task.cancel()
-            await asyncio.gather(self.task, return_exceptions=True)
-            self.task = None
+        tasks = [task for task in (self.task, self.refresh_task) if task]
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        self.task = self.refresh_task = None
+        self.peers = ()
         if self.enabled:
             try:
                 await self.http('PUT', '/v1/agent/service/deregister/' + self.instance)

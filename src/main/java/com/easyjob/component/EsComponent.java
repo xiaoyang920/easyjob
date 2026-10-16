@@ -7,6 +7,7 @@ import co.elastic.clients.elasticsearch.core.SearchResponse;
 import co.elastic.clients.json.JsonData;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.easyjob.constants.EsConstants;
+import com.easyjob.constants.ChineseSearchSchema;
 import com.easyjob.dto.ArticleEsDTO;
 import com.alibaba.fastjson2.JSON;
 import com.easyjob.entity.Article;
@@ -208,13 +209,16 @@ public class EsComponent {
                                     if (StringTools.isEmpty(keyword)) {
                                         return q.matchAll(m -> m); // 关键词为空，查全部
                                     } else {
-                                        return q.multiMatch(m -> m.query(keyword).fields("title", "tags")); // 多字段匹配
+                                        return q.multiMatch(m -> m.query(keyword).fields(ChineseSearchSchema.ARTICLE_FIELDS));
                                     }
                                 })
                                 // --- 高亮设置 (Highlight) ---
                                 ;
                         if (highlight) {
-                            s.highlight(h -> h.fields("title", f -> f
+                            s.highlight(h -> h.fields("title.zh", f -> f
+                                    .preTags("<span class='highlight'>")
+                                    .postTags("</span>")
+                            ).fields("title", f -> f
                                     .preTags("<span class='highlight'>")
                                     .postTags("</span>")
                             ));
@@ -235,8 +239,11 @@ public class EsComponent {
                     .map(hit -> {
                         ArticleEsDTO a = hit.source();
                         // 处理高亮文本替换
-                        if (highlight && hit.highlight().containsKey("title")) {
-                            a.setTitle(hit.highlight().get("title").get(0));
+                        if (highlight) {
+                            List<String> fragments = hit.highlight().getOrDefault("title.zh", hit.highlight().get("title"));
+                            if (fragments != null && !fragments.isEmpty()) {
+                                a.setTitle(fragments.get(0));
+                            }
                         }
                         return a;
                     }).collect(Collectors.toList());

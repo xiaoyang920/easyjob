@@ -41,7 +41,7 @@
         </div>
         
         <RouterLink to="/ai-memory" style="padding: 12px 20px; color: #69725b; font-size: 13px; text-decoration: none;">管理长期记忆 ↗</RouterLink>
-        <div class="conversation-list" ref="conversationListRef" @scroll="handleConversationScroll">
+        <input v-model="libraryKeyword" class="conversation-search" aria-label="搜索对话" maxlength="80" placeholder="搜索标题或聊天内容…" /><div class="conversation-list" ref="conversationListRef" @scroll="handleConversationScroll">
           <section v-for="group in conversationGroups" :key="group.scope" class="conversation-group">
           <button class="conversation-group-toggle" @click="group.scope === 'article' ? articleGroupOpen = !articleGroupOpen : generalGroupOpen = !generalGroupOpen" :aria-expanded="group.open">
             <span>{{ group.title }}</span><span>{{ group.open ? '−' : '+' }}</span>
@@ -60,14 +60,14 @@
             </div>
             <div class="conv-info">
               <div v-if="conv.originArticleId" class="conv-article-title">{{ conv.originArticleTitle || '原文章已不可用' }}</div>
-              <div class="conv-title">{{ conv.title || '新对话' }}</div>
+              <div class="conv-title"><span v-if="conv.isPinned" title="已置顶">⌃ </span>{{ conv.title || '新对话' }}</div>
               <div class="conv-time"><span v-if="conversationStatus(conv.conversationId)" class="conv-run-status" role="status">{{ conversationStatus(conv.conversationId) }}</span><span v-else>{{ formatTime(conv.updateTime) }}</span></div>
             </div>
-            <button class="delete-btn" aria-label="删除对话" :disabled="!!sessions.get(String(conv.conversationId))?.loading" @click.stop="deleteConversation(conv.conversationId)">
+            <div class="conv-actions"><button class="conv-edit" :aria-label="conv.isPinned ? '取消置顶' : '置顶对话'" @click.stop="editConversation(conv, {pinned: !conv.isPinned})">⌃</button><button class="conv-edit" aria-label="重命名对话" @click.stop="renameConversation(conv)">✎</button><button class="delete-btn" aria-label="删除对话" :disabled="!!sessions.get(String(conv.conversationId))?.loading" @click.stop="deleteConversation(conv.conversationId)">
               <svg viewBox="0 0 24 24" width="16" height="16">
                 <path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
               </svg>
-            </button>
+            </button></div>
           </div>
           <div v-if="group.items.length === 0 && !loadingConversations" class="no-conversations">{{ group.scope === 'article' ? '在文章页提问后，对话会出现在这里' : '暂无普通聊天' }}</div>
           <button v-if="hasMoreByScope[group.scope] && group.items.length" class="conversation-load-more" :disabled="loadingMoreConversations" @click="loadMoreConversations(group.scope)">加载更多</button>
@@ -190,7 +190,7 @@
                 </footer>
               </article>
               <div v-else-if="msg.content" class="message-bubble"><div v-html="renderMarkdown(msg.content, msg.provisional ? [] : msg.citations)"></div></div>
-              <div v-if="msg.agent?.answerReceiving" class="generating-indicator"><div class="generating-dot-pulse"></div><span>{{ msg.provisional ? '正在生成，完成后确认正文…' : '正在接收回答…' }}</span></div>
+              <AnswerFeedback v-if="msg.role==='assistant' && msg.runId && msg.content && !msg.provisional && !msg.interrupted && !msg.isDraft && !msg.recoverable && (!msg.agent || msg.agent.status==='complete') && !loading && !resuming" :run-id="msg.runId" /><div v-if="msg.agent?.answerReceiving" class="generating-indicator"><div class="generating-dot-pulse"></div><span>{{ msg.provisional ? '正在生成，完成后确认正文…' : '正在接收回答…' }}</span></div>
               <div v-if="msg.interrupted && !msg.isDraft" class="interrupt-actions">
                 <div class="interrupt-hint">{{ msg.interruptPayload?.message || '需要您确认后继续' }}</div>
                 <div class="interrupt-buttons">
@@ -377,7 +377,8 @@ import { draftEditFrom,draftEditError,type DraftEdit } from '@/utils/draftEdit'
 import { ref, shallowRef, shallowReactive, reactive, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { goBackOr } from '@/utils/navigation'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import AnswerFeedback from '@/components/AnswerFeedback.vue'
 import { renderChatMarkdown } from '@/utils/chatMarkdown'
 import { avatarUrl, onAvatarError } from '@/utils/avatar'
 import { safeHtml } from '@/utils/safeHtml'
@@ -449,7 +450,7 @@ const articleGroupOpen = ref(false)
 function groupItems(scope: ConversationScope) {
   const items = conversations.value.filter(c => scope === 'article' ? !!c.originArticleId : !c.originArticleId)
   const selected = selectedConversation.value
-  if (selected && (scope === 'article' ? !!selected.originArticleId : !selected.originArticleId)
+  if (!libraryKeyword.value.trim() && selected && (scope === 'article' ? !!selected.originArticleId : !selected.originArticleId)
       && !items.some(c => c.conversationId === selected.conversationId)) return [selected, ...items]
   return items
 }
@@ -681,48 +682,43 @@ const quickQuestions = computed(() => props.embedded ? [
   '用简明语言解释一下 RAG'
 ])
 
-// 加载会话列表（首次加载）
+const libraryKeyword = ref('')
+const libraryPages: Record<ConversationScope,number> = { general: 1, article: 1 }
+let libraryGeneration = 0
+let librarySearchTimer: ReturnType<typeof setTimeout> | undefined
+watch(libraryKeyword, () => { libraryGeneration++;clearTimeout(librarySearchTimer);librarySearchTimer=setTimeout(()=>void loadConversations(),300) })
 async function loadConversations() {
   if (props.embedded) return
-  loadingConversations.value = true
+  const generation=++libraryGeneration
+  loadingConversations.value=true
   try {
-    const scopes: ConversationScope[] = ['general', 'article']
-    const results = await Promise.all(scopes.map(scope => request.get('/agent/conversations', { params: { scope, limit: 20 } })))
-    if (!mounted) return
-    conversations.value = results.flatMap(res => res.code === 200 && Array.isArray(res.data) ? res.data : [])
-    results.forEach((res, index) => { hasMoreByScope.value[scopes[index]] = res.code === 200 && res.data?.length >= 20 })
-  } catch (error) {
-    ElMessage.error('加载对话列表失败，请稍后重试')
-  } finally {
-    loadingConversations.value = false
-  }
+    const scopes:ConversationScope[]=['general','article']
+    const results=await Promise.all(scopes.map(scope=>request.get('/agent/library',{params:{scope,keyword:libraryKeyword.value,page:1,size:20}})))
+    if(!mounted || generation!==libraryGeneration)return
+    conversations.value=results.flatMap(r=>r.data?.rows || [])
+    scopes.forEach((scope,i)=>{libraryPages[scope]=1;hasMoreByScope.value[scope]=results[i].data.total>20})
+  }catch{if(generation===libraryGeneration)ElMessage.error('加载对话列表失败，请稍后重试')}
+  finally{if(generation===libraryGeneration)loadingConversations.value=false}
 }
-
-// 加载更多会话（滚动触发）
-async function loadMoreConversations(scope: ConversationScope) {
-  // A deep-linked old conversation may be displayed above the current page;
-  // only actual page results may define the next cursor.
-  const items = conversations.value.filter(c => scope === 'article' ? !!c.originArticleId : !c.originArticleId)
-  if (loadingMoreConversations.value || !hasMoreByScope.value[scope] || items.length === 0) return
-  
-  loadingMoreConversations.value = true
-  try {
-    // 获取最后一条的 updateTime 和 conversationId 作为复合游标
-    const lastConv = items[items.length - 1]
-    const lastUpdateTime = lastConv.updateTime
-    const lastId = lastConv.conversationId
-    
-    const res = await request.get('/agent/conversations', { params: { scope, lastUpdateTime, lastId, limit: 20 } })
-    if (res.code === 200 && res.data) {
-      const ids = new Set(conversations.value.map(c => c.conversationId))
-      conversations.value.push(...res.data.filter((c: any) => !ids.has(c.conversationId)))
-      hasMoreByScope.value[scope] = res.data.length >= 20
-    }
-  } catch (error) {
-    ElMessage.error('加载更多对话失败')
-  } finally {
-    loadingMoreConversations.value = false
-  }
+async function loadMoreConversations(scope:ConversationScope) {
+  if(loadingConversations.value || loadingMoreConversations.value || !hasMoreByScope.value[scope])return
+  const generation=libraryGeneration,page=libraryPages[scope]+1
+  loadingMoreConversations.value=true
+  try{
+    const r=await request.get('/agent/library',{params:{scope,keyword:libraryKeyword.value,page,size:20}})
+    if(!mounted || generation!==libraryGeneration)return
+    const ids=new Set(conversations.value.map(c=>c.conversationId))
+    conversations.value.push(...r.data.rows.filter((c:any)=>!ids.has(c.conversationId)))
+    libraryPages[scope]=page;hasMoreByScope.value[scope]=r.data.total>page*20
+  }catch{if(generation===libraryGeneration)ElMessage.error('加载更多对话失败')}
+  finally{loadingMoreConversations.value=false}
+}
+async function editConversation(conv:any,edit:Record<string,unknown>){
+  try{await request.patch(`/agent/conversations/${conv.conversationId}`,{...edit,version:conv.metadataVersion ?? 0});await loadConversations()}
+  catch(e){ElMessage.error(e instanceof Error?e.message:'修改失败');await loadConversations()}
+}
+async function renameConversation(conv:any){
+  try{const {value}=await ElMessageBox.prompt('输入对话标题（1至80字）','重命名对话',{inputValue:conv.title||'',inputValidator:v=>!!v?.trim() && v.trim().length<=80 || '请输入1至80个字',confirmButtonText:'保存',cancelButtonText:'取消'});await editConversation(conv,{title:value.trim()})}catch{}
 }
 
 // 会话列表滚动事件
@@ -1776,6 +1772,7 @@ watch(() => props.originArticleTitle, title => {
 
 onUnmounted(() => {
   mounted = false
+  libraryGeneration++;clearTimeout(librarySearchTimer)
   historyLoadVersion += 1
   releaseChatSessions(sessions.values())
   setViewedAiConversation(null)
@@ -1785,6 +1782,9 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.conversation-search{margin:12px 16px;padding:10px 12px;min-width:0;border:1px solid var(--ej-line);border-radius:12px;background:var(--ej-surface)}
+.conv-actions{display:flex;gap:2px;flex-shrink:0}.conversation-item{gap:6px}.conv-edit{flex-shrink:0;background:transparent;border:0;padding:4px;color:var(--ej-muted);cursor:pointer}
+.conv-edit:hover{color:var(--ej-ink)}
 .conv-run-status { color: var(--ej-ink); display: inline-flex; align-items: center; gap: 6px; }
 .conv-run-status::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--studio-lime); border: 1px solid var(--ej-ink); }
 .citation-list {
@@ -1990,16 +1990,14 @@ onUnmounted(() => {
 }
 
 .delete-btn {
-  position: absolute;
-  right: 10px;
-  top: 50%;
-  transform: translateY(-50%);
+  position: static;
+  flex-shrink: 0;
   background: none;
   border: none;
   cursor: pointer;
-  opacity: 0;
+  opacity: 1;
   transition: opacity 0.2s;
-  padding: 6px;
+  padding: 4px;
   color: #909399;
   border-radius: 6px;
 }

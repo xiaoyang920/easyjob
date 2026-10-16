@@ -123,6 +123,7 @@ class AuthRegistrationTests {
         // Use the real session and JWT implementations; substitute only external stores.
         var redis = mock(StringRedisTemplate.class);
         ValueOperations<String, String> values = mock(ValueOperations.class);
+        when(redis.opsForZSet()).thenReturn(mock(org.springframework.data.redis.core.ZSetOperations.class));
         Map<String, String> stored = new HashMap<>();
         Map<Long, User> accounts = new HashMap<>();
         when(redis.opsForValue()).thenReturn(values);

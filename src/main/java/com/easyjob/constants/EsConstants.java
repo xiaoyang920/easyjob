@@ -1,7 +1,7 @@
 package com.easyjob.constants;
 
 public class EsConstants {
-    public static final String MAPPING_TEMPLATE = "{\n" +
+    public static final String LEGACY_MAPPING_TEMPLATE = "{\n" +
             "  \"properties\": {\n" +
             "    \"articleId\": {\n" +
             "      \"type\": \"long\"\n" +
@@ -90,7 +90,7 @@ public class EsConstants {
             "    }\n" +
             "  }\n" +
             "}";
-    public static final String INDEX_SETTING = "{\n" +
+    public static final String LEGACY_INDEX_SETTING = "{\n" +
             "  \"analysis\": {\n" +
             "    \"analyzer\": {\n" +
             "      \"comma\": {\n" +
@@ -104,4 +104,6 @@ public class EsConstants {
             "    }\n" +
             "  }\n" +
             "}";
+    public static final String MAPPING_TEMPLATE=ChineseSearchSchema.mapping(LEGACY_MAPPING_TEMPLATE,"title","summary","content");
+    public static final String INDEX_SETTING=ChineseSearchSchema.settings(LEGACY_INDEX_SETTING);
 }

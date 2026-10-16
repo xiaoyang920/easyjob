@@ -16,7 +16,8 @@ async function fixture(page: Page) {
   await page.route('**/api/**', async route => {
     const url = new URL(route.request().url()), path = url.pathname
     let data: any = []
-    if (path.endsWith('/agent/conversations')) data = [{ conversationId: '101', title: '分页验收' }]
+    if (path.endsWith('/agent/library')) data = { rows: url.searchParams.get('scope')==='general' ? [{conversationId:'101',title:'分页验收'}] : [], total: 1 }
+    else if (path.endsWith('/agent/conversations')) data = [{ conversationId: '101', title: '分页验收' }]
     else if (path.endsWith('/agent/conversations/101')) data = { conversationId: '101', title: '分页验收' }
     else if (path.endsWith('/questions')) {
       const start = Number(url.searchParams.get('after') || 0) / 2

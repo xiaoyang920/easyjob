@@ -142,6 +142,7 @@ public class ArticleRevisionService {
         String serialized=encode(new TreeMap<>(p));
         store.clearCurrentRevision(aid);
         var row=ArticleRevisionInsert.builder()
+            .clientRequestId((String)a.get("client_request_id"))
             .articleId(aid).version(version).authorId(number(a,"user_id"))
             .baseRevisionId(number(a,"published_revision_id")).state(state)
             .payload(serialized).contentHash(hash(serialized))
@@ -154,12 +155,36 @@ public class ArticleRevisionService {
     }
     @Transactional public Map<String,Object> create(Long uid,long aid,ArticleCreateDTO dto) {
         lockOwner(uid);
+        String requestId=dto.getClientRequestId();
+        if(requestId!=null){
+            try{if(!java.util.UUID.fromString(requestId).toString().equalsIgnoreCase(requestId))throw new IllegalArgumentException();}
+            catch(IllegalArgumentException invalid){throw new BusinessException(400,"草稿请求标识无效");}
+            var previous=store.findCreateRequest(uid,requestId);
+            if(!previous.isEmpty()){
+                var r=previous.getFirst();long existing=number(r,"article_id");
+                if(number(r,"deleted")!=0 || number(r,"is_current")!=1)
+                    throw new BusinessException(409,"这次保存已完成，请从草稿箱打开当前内容");
+                boolean submitting=Integer.valueOf(1).equals(dto.getStatus());
+                String contentHash=hash(encode(new TreeMap<>(payload(dto,submitting))));
+                Map<String,Object> result;
+                if(number(r,"state")==DRAFT && number(r,"lock_version")==0){
+                    dto.setExpectedRevisionId(r.get("revision_id").toString());dto.setExpectedLockVersion(0L);
+                    result=save(uid,existing,dto);
+                }else if(contentHash.equals(r.get("content_hash")) &&
+                         (number(r,"state")==DRAFT && !submitting || number(r,"state")==PENDING && submitting)){
+                    result=metadata(r);
+                }else throw new BusinessException(409,"首次保存已完成或草稿已变化，请从草稿箱继续编辑");
+                result.put("articleId",Long.toString(existing));return result;
+            }
+        }
         if(!store.findExistingIdentity(aid).isEmpty())
             throw new BusinessException(409,"文章标识已存在");
         var a=new HashMap<String,Object>();a.put("article_id",aid);a.put("user_id",uid);
+        a.put("client_request_id",requestId);
         a.put("published_revision_id",0L);a.put("latest_revision_id",0L);a.put("status",0);
         boolean submitting=Integer.valueOf(1).equals(dto.getStatus());
-        return metadata(revision(append(a,payload(dto,submitting),submitting?PENDING:DRAFT)));
+        var result=metadata(revision(append(a,payload(dto,submitting),submitting?PENDING:DRAFT)));
+        result.put("articleId",Long.toString(aid));return result;
     }
     private Map<String,Object> legacyPayload(long aid) {
         var detail=articles.selectArticleAndUser(aid);if(detail==null) throw new BusinessException(404,"文章不存在");

@@ -24,6 +24,18 @@ class ArticleRevisionTests {
         when(store.findRevisionArticle(5L)).thenReturn(List.of(Map.of("article_id",42L)));
     }
     Map<String,Object> article(){return new HashMap<>(Map.of("article_id",42L,"user_id",7L,"status",1,"latest_revision_id",5L,"published_revision_id",3L));}
+    @Test void repeatedFirstSaveReusesIdentityAndDoesNotCreateAnotherVersion() throws Exception {
+        var dto=new ArticleCreateDTO();dto.setClientRequestId("d2bd1b6e-e431-43c7-810b-9f01750a29c7");dto.setTitle("同一草稿");dto.setContent("<p>正文</p>");dto.setStatus(0);
+        Map<String,Object> payload=org.springframework.test.util.ReflectionTestUtils.invokeMethod(service,"payload",dto,false);
+        String encoded=new ObjectMapper().writeValueAsString(new TreeMap<>(payload));
+        String hash=java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(encoded.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        var saved=new HashMap<String,Object>();saved.put("article_id",42L);saved.put("revision_id",5L);saved.put("state",0);saved.put("lock_version",1L);saved.put("is_current",1);saved.put("deleted",0);saved.put("content_hash",hash);saved.put("version_no",1);
+        when(store.findCreateRequest(7L,dto.getClientRequestId())).thenReturn(List.of(saved));
+        assertEquals("42",service.create(7L,99L,dto).get("articleId"));
+        verify(store,never()).insertRevision(any());verify(store,never()).saveWorkingRevision(anyString(),anyString(),anyInt(),anyInt(),anyLong());
+        dto.setTitle("已经变化的内容");assertThrows(BusinessException.class,()->service.create(7L,100L,dto));
+    }
+    @Test void invalidFirstSaveRequestIdIsRejected(){var dto=new ArticleCreateDTO();dto.setClientRequestId("invalid");assertThrows(BusinessException.class,()->service.create(7L,99L,dto));verify(store,never()).insertRevision(any());}
     @Test void ordinaryUsersCannotInspectOrApproveRevisionBodies(){
         assertThrows(BusinessException.class,()->service.reviewDetail(7L,99L));
         assertThrows(BusinessException.class,()->service.review(7L,99L,"approve",""));

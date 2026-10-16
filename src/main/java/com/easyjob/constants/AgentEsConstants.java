@@ -25,7 +25,7 @@ public class AgentEsConstants {
      * - number_of_shards: 分片数，单机设为1即可
      * - number_of_replicas: 副本数，开发环境设为0
      */
-    public static final String VECTOR_INDEX_SETTINGS = """
+    public static final String LEGACY_VECTOR_INDEX_SETTINGS = """
         {
             "number_of_shards": 1,
             "number_of_replicas": 0,
@@ -55,7 +55,7 @@ public class AgentEsConstants {
      * - index: true (建立索引，支持KNN搜索)
      * - similarity: cosine (余弦相似度，最常用)
      */
-    public static final String VECTOR_INDEX_MAPPING = """
+    public static final String LEGACY_VECTOR_INDEX_MAPPING = """
         {
             "properties": {
                 "chunk_id": {
@@ -68,6 +68,10 @@ public class AgentEsConstants {
                     "type": "long"
                 },
                 "title": {
+                    "type": "text",
+                    "analyzer": "ik_smart"
+                },
+                "section_path": {
                     "type": "text",
                     "analyzer": "ik_smart"
                 },
@@ -103,4 +107,6 @@ public class AgentEsConstants {
             }
         }
         """;
+    public static final String VECTOR_INDEX_SETTINGS=ChineseSearchSchema.settings(LEGACY_VECTOR_INDEX_SETTINGS);
+    public static final String VECTOR_INDEX_MAPPING=ChineseSearchSchema.mapping(LEGACY_VECTOR_INDEX_MAPPING,"title","chunk_content","section_path");
 }

@@ -13,6 +13,25 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class EdgeFilterTests {
+    @Test void statusPollingCannotExhaustTheBudgetForBusinessActions() {
+        var redis=redis(1);
+        when(redis.execute(any(),anyList(),anyList())).thenAnswer(call->{
+            List<String> keys=call.getArgument(1);return Flux.just(keys.getFirst().startsWith("gateway:limit:observe:")?0L:1L);
+        });
+        var edge=new EdgeFilter(redis,SECRET,300,20,12);
+        var polling=MockServerWebExchange.from(MockServerHttpRequest.get("/api/agent/run-overview"));
+        var rejected=mock(GatewayFilterChain.class);edge.filter(polling,rejected).block();
+        assertEquals(HttpStatus.TOO_MANY_REQUESTS,polling.getResponse().getStatusCode());verifyNoInteractions(rejected);
+        var action=mock(GatewayFilterChain.class);when(action.filter(any())).thenReturn(Mono.empty());
+        edge.filter(MockServerWebExchange.from(MockServerHttpRequest.post("/api/article/create")),action).block();verify(action).filter(any());
+    }
+    @Test void notificationStreamUsesItsAuthenticatedUsersReconnectBudget() {
+        String token=io.jsonwebtoken.Jwts.builder().claim("userId",7L).setExpiration(new java.util.Date(System.currentTimeMillis()+60000))
+                .signWith(io.jsonwebtoken.security.Keys.hmacShaKeyFor(SECRET.getBytes(java.nio.charset.StandardCharsets.UTF_8)),io.jsonwebtoken.SignatureAlgorithm.HS512).compact();
+        var redis=redis(1);var edge=new EdgeFilter(redis,SECRET,300,20,12);
+        edge.filter(MockServerWebExchange.from(MockServerHttpRequest.get("/api/notification/stream?token="+token)),e->Mono.empty()).block();
+        verify(redis).execute(any(),argThat(keys->keys.getFirst().toString().startsWith("gateway:limit:stream:")),eq(List.of("30")));
+    }
     static final String SECRET="gateway-offline-test-secret-64-bytes-minimum-012345678901234567890123456789";
     @SuppressWarnings("unchecked") ReactiveStringRedisTemplate redis(long allowed) {
         var redis=mock(ReactiveStringRedisTemplate.class);

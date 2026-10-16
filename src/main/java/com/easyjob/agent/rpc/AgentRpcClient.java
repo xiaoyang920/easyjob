@@ -19,6 +19,10 @@ import java.util.function.Supplier;
 
 /** Typed Protobuf requests; no browser identity and no automatic retry of mutations. */
 public final class AgentRpcClient {
+    public java.lang.Object edit(long uid,String kind,String name,Map<String,java.lang.Object> values) {
+        return call(() -> remote.serviceQuery(AgentQuery.newBuilder().setIdentity(auth.identity(uid))
+            .setKind(kind).setName(name).setEdit(RpcValues.encode(values).getObject()).build()));
+    }
     private final AgentRpc remote;
     private final AgentServiceAuth auth;
     public AgentRpcClient(AgentRpc remote, AgentServiceAuth auth) { this.remote = remote; this.auth = auth; }
@@ -144,12 +148,13 @@ public final class AgentRpcClient {
         return stream(observer -> remote.runEvents(run(uid,id,after),observer));
     }
     private Flux<String> stream(Consumer<StreamObserver<Frame>> invoke) {
+        String traceId=com.easyjob.observability.RequestTrace.current();
         return Flux.<String>create(sink -> {
             var cancellation = new CancellationContext();
             sink.onDispose(() -> cancellation.cancel(new java.util.concurrent.CancellationException("Subscriber disconnected")));
             var previous = RpcContext.getCancellationContext();
             RpcContext.restoreCancellationContext(cancellation);
-            try {
+            try (var trace=new com.easyjob.observability.RequestTrace(traceId,null)) {
                 invoke.accept(new StreamObserver<>() {
                     public void onNext(Frame frame) {
                         if (frame.hasError()) sink.error(failure(frame.getError().getStatus()));

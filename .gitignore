@@ -11,6 +11,8 @@
 !/docs/
 /docs/*
 !/docs/service-boundaries.md
+!/docs/runtime-quality.md
+!/docs/chinese-search.md
 !python-agent/app/skills/definitions/*.md
 
 # Local IDE and AI assistant state

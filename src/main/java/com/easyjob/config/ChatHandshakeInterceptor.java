@@ -36,6 +36,8 @@ public class ChatHandshakeInterceptor implements HandshakeInterceptor {
                 try{
                     Long userId = jwtUtil.getUserIdFromToken(token);
                     attributes.put("userId", userId);
+                    String sid=jwtUtil.parseToken(token).get("sid",String.class);
+                    if(sid!=null)attributes.put("authSessionId",sid);
                     return true;//允许连接
                 } catch (Exception e) {
                     log.warn("用户token解析失败（忽略）: {}", e.getMessage());

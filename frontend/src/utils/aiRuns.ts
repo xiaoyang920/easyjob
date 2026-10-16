@@ -9,6 +9,7 @@ export const aiRunCount = computed(() => aiRunItems.value.length)
 export const aiRunConnection = shallowRef<'online' | 'reconnecting'>('online')
 let owner = '', epoch = 0, started = false, timer: ReturnType<typeof setTimeout> | undefined
 let syncing: Promise<void> | null = null
+let retryAfter = 0, failures = 0
 let viewed = ''
 const read = new Map<string, string>()
 function key() { return `ai_run_notices:${owner}` }
@@ -19,7 +20,7 @@ function save() {
 function account() {
   const next = localStorage.getItem('token') ? localStorage.getItem('userId') || '' : ''
   if (next === owner) return
-  owner = next; epoch++; read.clear(); syncing = null; viewed = ''
+  owner = next; epoch++; read.clear(); syncing = null; viewed = ''; retryAfter = 0; failures = 0
   snapshot.value = { items: [], syncedAt: '' }
   aiRunConnection.value = 'online'
   if (!owner) return
@@ -33,12 +34,13 @@ function schedule() {
   clearTimeout(timer)
   if (!started) return
   const delay = document.visibilityState === 'visible' && snapshot.value.items.some(r => r.status === 'running') ? 3000 : 15000
-  timer = setTimeout(() => { void refreshAiRuns() }, delay)
+  timer = setTimeout(() => { void refreshAiRuns() }, Math.max(delay, retryAfter - Date.now()))
 }
 export async function refreshAiRuns() {
   account()
   if (!owner) { schedule(); return }
   if (syncing) return syncing
+  if (Date.now() < retryAfter) { schedule(); return }
   const version = epoch
   const job = (async () => {
     try {
@@ -48,9 +50,13 @@ export async function refreshAiRuns() {
       snapshot.value = mergeRunOverview(snapshot.value, response.data.items, response.data.serverTime)
       // A user can read a completion while an earlier poll is still in flight.
       for (const item of snapshot.value.items) if (item.conversationId === viewed || read.get(item.conversationId) === `${item.runId}:${item.status}`) item.unread = false
-      aiRunConnection.value = 'online'; save()
-    } catch {
-      if (version === epoch && owner) aiRunConnection.value = 'reconnecting'
+      aiRunConnection.value = 'online'; retryAfter = 0; failures = 0; save()
+    } catch (error: any) {
+      if (version === epoch && owner) {
+        aiRunConnection.value = 'reconnecting'
+        failures++
+        retryAfter = Date.now() + (error?.code === 429 ? Math.max(60000, error.retryAfterMs || 0) : Math.min(60000, 15000 * 2 ** (failures - 1)))
+      }
     }
   })()
   syncing = job
@@ -78,7 +84,26 @@ export function trackAiRun(runId: string, cid: string, status: RunStatus = 'runn
 export function aiConversationStatus(cid: string) { return runLabel(snapshot.value.items.find(r => r.conversationId === cid)) }
 const wake = () => { void refreshAiRuns() }
 const visibility = () => { if (document.visibilityState === 'visible') wake() }
-const storage = (event: StorageEvent) => { if (event.key === 'userId' || event.key === 'token' || event.key === key()) { account(); wake() } }
+const storage = (event: StorageEvent) => {
+  if (event.key === 'userId' || event.key === 'token' || event.key === null) {
+    const previous = owner
+    account()
+    if (previous !== owner) wake()
+    return
+  }
+  if (!owner || event.key !== key() || !event.newValue) return
+  // Another tab already fetched this snapshot. Consume it without another HTTP
+  // request or storage write, otherwise two tabs trigger each other indefinitely.
+  try {
+    const saved = JSON.parse(event.newValue)
+    if (!Array.isArray(saved.items) || !Number.isFinite(Date.parse(saved.syncedAt))
+        || Date.parse(saved.syncedAt) < Date.parse(snapshot.value.syncedAt || '1970-01-01')) return
+    snapshot.value = { syncedAt: saved.syncedAt, items: saved.items.filter(validRun).slice(0, 100).map((item: any) => ({
+      ...item, unread: item.conversationId !== viewed && read.get(item.conversationId) !== `${item.runId}:${item.status}` && !!item.unread
+    })) }
+    schedule()
+  } catch { /* A malformed local cache must not start a network retry. */ }
+}
 export function startAiRunMonitor() {
   if (started) return
   started = true

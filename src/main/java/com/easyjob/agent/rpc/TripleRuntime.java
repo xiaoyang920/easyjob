@@ -8,7 +8,12 @@ import org.apache.dubbo.config.bootstrap.DubboBootstrap;
 public final class TripleRuntime implements AutoCloseable {
     private final DubboBootstrap bootstrap = DubboBootstrap.newInstance();
     private final ReferenceConfig<AgentRpc> agent = new ReferenceConfig<>();
-    private final java.util.Map<String,ReferenceConfig<AgentRpc>> discovered = new java.util.LinkedHashMap<>();
+    private record Peer(ReferenceConfig<AgentRpc> reference, AgentRpc remote) {}
+    private final RpcPeerPool<Peer> discovered = new RpcPeerPool<>(32, java.time.Duration.ofMinutes(5),
+        this::createPeer, peer -> destroyPeer(peer.reference()));
+    private final java.util.concurrent.ScheduledExecutorService reaper=java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
+        var thread=new Thread(r,"rpc-peer-reaper");thread.setDaemon(true);return thread;
+    });
     private ServiceCatalog catalog;
     public TripleRuntime(BlogRpc provider, String target, String bind, int port) {
         var application = new ApplicationConfig("easyjob-blog");
@@ -35,7 +40,25 @@ public final class TripleRuntime implements AutoCloseable {
         bootstrap.application(application).registry(new RegistryConfig("N/A"))
                 .protocol(protocol).service(blog);
     }
-    public void start() { if(catalog==null || !catalog.enabled()) bootstrap.reference(agent);bootstrap.start(); }
+    public void start() {
+        if(catalog==null || !catalog.enabled()) bootstrap.reference(agent);bootstrap.start();
+        reaper.scheduleWithFixedDelay(() -> {
+            if(catalog!=null && catalog.enabled()) discovered.reconcile(catalog.healthyTargets());
+        },5,5,java.util.concurrent.TimeUnit.SECONDS);
+    }
+    private Peer createPeer(String endpoint) {
+        var ref=new ReferenceConfig<AgentRpc>();ref.setInterface(AgentRpc.class);
+        var url=org.apache.dubbo.common.URL.valueOf("tri://"+endpoint);
+        ref.setUrl(url.setHost(loopbackHost(url.getHost())).toString());
+        ref.setCheck(false);ref.setRetries(0);ref.setCluster("failfast");ref.setTimeout(310000);
+        ref.setMethods(agent.getMethods());bootstrap.reference(ref);
+        try { return new Peer(ref,ref.get()); }
+        catch(RuntimeException failure) { destroyPeer(ref);throw failure; }
+    }
+    private void destroyPeer(ReferenceConfig<AgentRpc> reference) {
+        try { reference.destroy(); }
+        finally { bootstrap.getApplicationModel().getDefaultModule().getConfigManager().removeConfig(reference); }
+    }
     public void catalog(ServiceCatalog value) { catalog=value; }
     public AgentRpc agent() {
         if(catalog==null || !catalog.enabled()) return agent.get();
@@ -43,24 +66,27 @@ public final class TripleRuntime implements AutoCloseable {
             if(method.getDeclaringClass()==java.lang.Object.class) return method.invoke(this,args);
             var identity=(Identity)args[0].getClass().getMethod("getIdentity").invoke(args[0]);
             String endpoint=catalog.agentTarget(identity.getUserId());
-            AgentRpc peer;
-            synchronized(discovered) {
-                var ref=discovered.get(endpoint);
-                if(ref==null) {
-                    if(discovered.size()>=32) throw new IllegalStateException("RPC endpoint pool full");
-                    ref=new ReferenceConfig<>(); ref.setInterface(AgentRpc.class);
-                    var url=org.apache.dubbo.common.URL.valueOf("tri://"+endpoint);
-                    ref.setUrl(url.setHost(loopbackHost(url.getHost())).toString());
-                    ref.setCheck(false);ref.setRetries(0);ref.setCluster("failfast");ref.setTimeout(310000);
-                    ref.setMethods(agent.getMethods());bootstrap.reference(ref);discovered.put(endpoint,ref);
-                }
-                peer=ref.get();
+            discovered.reconcile(catalog.healthyTargets());
+            var lease=discovered.acquire(endpoint);
+            boolean streaming=args.length>1 && args[args.length-1] instanceof org.apache.dubbo.common.stream.StreamObserver<?>;
+            if(streaming) {
+                var observer=(org.apache.dubbo.common.stream.StreamObserver<java.lang.Object>)args[args.length-1];
+                args=args.clone();
+                args[args.length-1]=new org.apache.dubbo.common.stream.StreamObserver<java.lang.Object>() {
+                    public void onNext(java.lang.Object value) { try { observer.onNext(value); } catch(Throwable error) { lease.close();throw error; } }
+                    public void onError(Throwable error) { try { observer.onError(error); } finally { lease.close(); } }
+                    public void onCompleted() { try { observer.onCompleted(); } finally { lease.close(); } }
+                };
+                var cancellation=org.apache.dubbo.rpc.RpcContext.getCancellationContext();
+                if(cancellation!=null) cancellation.addListener(context -> lease.close());
             }
-            try { return method.invoke(peer,args); }
-            catch(java.lang.reflect.InvocationTargetException e) { throw e.getCause(); }
+            try { return method.invoke(lease.value().remote(),args); }
+            catch(java.lang.reflect.InvocationTargetException e) { lease.close();throw e.getCause(); }
+            catch(Throwable error) { lease.close();throw error; }
+            finally { if(!streaming) lease.close(); }
         });
     }
-    @Override public void close() { synchronized(discovered) { discovered.values().forEach(ReferenceConfig::destroy); } bootstrap.destroy(); }
+    @Override public void close() { reaper.shutdownNow();discovered.close();bootstrap.destroy(); }
     static String loopbackHost(String host) {
         // Dubbo 3.3 treats IPv4 loopback as unspecified and rewrites it to a NIC IP.
         // The IPv4-mapped form resolves to the same IPv4 socket without that rewrite.

@@ -156,8 +156,8 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper,Article> imple
         validateStatus(article.getStatus());
         if(!article.isTitleValid() || article.getContent()==null) throw new BusinessException(400,"标题或正文无效");
         long articleId=com.baomidou.mybatisplus.core.toolkit.IdWorker.getId();
-        revisions.create(UserContext.getUserId(),articleId,article);
-        return articleId;
+        var created=revisions.create(UserContext.getUserId(),articleId,article);
+        return Long.valueOf(created.get("articleId").toString());
     }
 
     /**

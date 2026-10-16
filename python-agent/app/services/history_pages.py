@@ -49,7 +49,7 @@ class HistoryPages:
         following = await self.users(cid, 1, '>', ids[-1], False, ceiling=ceiling)
         condition = ' AND message_id < :end' if following else ''
         rows = await self.db.fetch_all(f'''SELECT message_id,role,content,token_count,image_paths,
-            article_cards,draft_article_id,citations,create_time FROM ai_message
+            article_cards,draft_article_id,citations,create_time,run_id FROM ai_message
             WHERE conversation_id=:cid AND message_id>=:start AND message_id<=:ceiling {condition} ORDER BY message_id''',
             {'cid': cid, 'start': ids[0], 'ceiling': ceiling, **({'end': following[0]} if following else {})})
         messages = [self.message(r._mapping) for r in rows]
@@ -83,6 +83,7 @@ class HistoryPages:
             raw = row.get(key)
             return json.loads(raw) if isinstance(raw, str) else raw
         return {'messageId': str(row['message_id']), 'role': row['role'], 'content': row['content'],
+                'runId': row.get('run_id'),
                 'imagePaths': decoded('image_paths'), 'articleCards': decoded('article_cards'),
                 'citations': decoded('citations'), 'draftArticleId': str(row['draft_article_id']) if row.get('draft_article_id') else None,
                 'createTime': str(row['create_time']) if row.get('create_time') else None}

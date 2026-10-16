@@ -39,6 +39,8 @@ public class AiConversation {
      * 会话标题
      */
     private String title;
+    private Integer isPinned;
+    private Long metadataVersion;
     
     /**
      * 消息数量

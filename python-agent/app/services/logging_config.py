@@ -10,11 +10,17 @@ import contextvars
 import logging
 import sys
 import uuid
+import re
 from typing import Optional
 
 # 请求级别的 trace id 上下文
 _trace_id: contextvars.ContextVar[str] = contextvars.ContextVar("trace_id", default="-")
 _conversation_id: contextvars.ContextVar[str] = contextvars.ContextVar("conv_id", default="-")
+_run_id: contextvars.ContextVar[str] = contextvars.ContextVar("run_id", default="-")
+
+
+def normalize_trace(value):
+    return value if isinstance(value, str) and re.fullmatch(r'[a-zA-Z0-9_-]{8,64}', value) else uuid.uuid4().hex
 
 
 def set_request_trace(conversation_id: Optional[int | str] = None, trace_id: Optional[str] = None) -> str:
@@ -22,7 +28,7 @@ def set_request_trace(conversation_id: Optional[int | str] = None, trace_id: Opt
     为当前 asyncio Task 设置 trace 上下文。返回生成的 trace_id。
     配合 FastAPI 在每个请求开头调用一次即可，同一 Task 内所有 await 都能读到。
     """
-    tid = trace_id or uuid.uuid4().hex[:8]
+    tid = normalize_trace(trace_id or _trace_id.get())
     _trace_id.set(tid)
     _conversation_id.set(str(conversation_id) if conversation_id is not None else "-")
     return tid
@@ -34,6 +40,7 @@ class TraceFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         record.trace_id = _trace_id.get()
         record.conv_id = _conversation_id.get()
+        record.run_id = _run_id.get()
         return True
 
 
@@ -62,7 +69,7 @@ def setup_logging(level: str = "INFO") -> None:
     - 统一格式：时间 | 级别 | [trace=xxx conv=yyy] | logger名 | 消息
     - 第三方库降级到 WARNING，减少噪音
     """
-    fmt = "%(asctime)s | %(levelname)-5s | [trace=%(trace_id)s conv=%(conv_id)s] | %(name)s | %(message)s"
+    fmt = "%(asctime)s | %(levelname)-5s | [trace=%(trace_id)s conv=%(conv_id)s run=%(run_id)s] | %(name)s | %(message)s"
     datefmt = "%H:%M:%S"
 
     handler = logging.StreamHandler(sys.stdout)
@@ -92,14 +99,16 @@ class request_trace:
             ...
     """
 
-    def __init__(self, conversation_id: Optional[int | str] = None, trace_id: Optional[str] = None):
-        self.trace_id = trace_id or uuid.uuid4().hex[:8]
+    def __init__(self, conversation_id: Optional[int | str] = None, trace_id: Optional[str] = None, run_id=None):
+        self.trace_id = normalize_trace(trace_id or _trace_id.get())
         self.conv_id = str(conversation_id) if conversation_id is not None else "-"
+        self.run_id = str(run_id) if run_id and re.fullmatch(r'[a-zA-Z0-9_-]{8,64}', str(run_id)) else '-'
         self._tokens: list = []
 
     def __enter__(self):
         self._tokens.append(_trace_id.set(self.trace_id))
         self._tokens.append(_conversation_id.set(self.conv_id))
+        self._tokens.append(_run_id.set(self.run_id))
         return self
 
     def __exit__(self, exc_type, exc, tb):
@@ -118,6 +127,10 @@ class request_trace:
 
 def current_trace_id() -> str:
     return _trace_id.get()
+
+
+def set_run_trace(run_id):
+    _run_id.set(str(run_id) if run_id and re.fullmatch(r'[a-zA-Z0-9_-]{8,64}', str(run_id)) else '-')
 
 
 def truncate(s, max_len: int = 300) -> str:

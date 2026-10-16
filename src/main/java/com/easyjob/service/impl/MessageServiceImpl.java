@@ -176,7 +176,7 @@ public class MessageServiceImpl extends ServiceImpl<MessageMapper, Message> impl
         wsMsg.put("senderId", messageVO.getSenderId()); wsMsg.put("senderName", sender.getNickName());
         wsMsg.put("senderAvatar", sender.getAvatar()); wsMsg.put("createTime", messageVO.getCreateTime().toString());
         wsMsg.put("status", 0); wsMsg.put("replyToMessageId", messageVO.getReplyToMessageId());
-        afterCommit(() -> { if (receiveId != null) ChatWebSocketHandler.sendToUser(receiveId, wsMsg); });
+        afterCommit(() -> { if (receiveId != null) ChatWebSocketHandler.sendToUser(receiveId, wsMsg);ChatWebSocketHandler.sendToUser(userId,wsMsg); });
         return messageVO;
     }
     
@@ -207,14 +207,14 @@ public class MessageServiceImpl extends ServiceImpl<MessageMapper, Message> impl
         }
         // websocket推送信息
         Long receiveId = conversationMemberService.getOneReceiveId(message.getConversationId(), userId);
-        if(ChatWebSocketHandler.isOnline(receiveId)){
+        {
             Map<String, Object> wsMsg = new HashMap<>();
             wsMsg.put("type", "recall");
             wsMsg.put("conversationId", message.getConversationId().toString());
             wsMsg.put("messageId", messageId.toString());
             wsMsg.put("senderId", message.getSenderId().toString());
             wsMsg.put("content", message.getContent());  // 原消息内容，用于前端判断
-            afterCommit(() -> ChatWebSocketHandler.sendToUser(receiveId, wsMsg));
+            afterCommit(() -> {ChatWebSocketHandler.sendToUser(receiveId, wsMsg);ChatWebSocketHandler.sendToUser(userId,wsMsg);});
         }
     }
 }

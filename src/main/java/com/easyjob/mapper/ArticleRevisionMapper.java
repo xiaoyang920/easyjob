@@ -28,6 +28,7 @@ public interface ArticleRevisionMapper {
     int insertReviewLog(@Param("articleId") Long articleId, @Param("actorId") Long actorId, @Param("action") String action, @Param("reason") String reason, @Param("revisionId") Long revisionId);
     int updatePublishedRevision(@Param("revisionId") Long revisionId, @Param("articleId") Long articleId);
     List<Map<String,Object>> findExistingIdentity(@Param("articleId") Long articleId);
+    List<Map<String,Object>> findCreateRequest(@Param("userId")Long userId,@Param("requestId")String requestId);
     int updateLatestRevision(@Param("revisionId") Long revisionId, @Param("articleId") Long articleId);
     Integer nextVersion(@Param("articleId") Long articleId);
     List<Map<String,Object>> findCategoryName(@Param("categoryId") Long categoryId);

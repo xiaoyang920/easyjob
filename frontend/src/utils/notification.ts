@@ -29,6 +29,8 @@ export const latestNotify = ref<NotifyMessage | null>(null)
 
 let eventSource: EventSource | null = null
 let reconnectTimer: number | null = null
+let generation = 0, failures = 0
+let unreadPending: Promise<void> | null = null, unreadOwner = ''
 
 /**
  * 建立 SSE 连接。多次调用幂等，已连接时直接返回。
@@ -36,21 +38,26 @@ let reconnectTimer: number | null = null
  * 或者在 Nginx 同源 + Cookie 鉴权场景下省略该参数。
  */
 export async function connectNotifyStream() {
-  if (eventSource) return
+  if (eventSource || reconnectTimer) return
+  const version = generation, owner = localStorage.getItem('userId')
+  if (!owner) return
   let token: string | null
   try { token = await ensureAccessToken() } catch { return }
-  if (eventSource) return
-  if (!token) return
+  if (eventSource || reconnectTimer || version !== generation || localStorage.getItem('userId') !== owner) return
+  if (!token || !localStorage.getItem('token')) return
 
   const url = `/api/notification/stream?token=${encodeURIComponent(token)}`
+  let source: EventSource
   try {
-    eventSource = new EventSource(url)
+    source = new EventSource(url)
+    eventSource = source
   } catch (e) {
     console.error('[notify] SSE 建连失败', e)
     return
   }
 
-  eventSource.addEventListener('notification', (e: MessageEvent) => {
+  source.addEventListener('notification', (e: MessageEvent) => {
+    if (eventSource !== source || localStorage.getItem('userId') !== owner) return
     try {
       const msg: NotifyMessage = JSON.parse(e.data)
       latestNotify.value = msg
@@ -59,42 +66,52 @@ export async function connectNotifyStream() {
       console.error('[notify] 解析消息失败', err, e.data)
     }
   })
-  eventSource.addEventListener('connected', () => { void fetchNotifyUnreadCount() })
+  let openedAt = Date.now()
+  source.addEventListener('connected', () => { openedAt = Date.now(); void fetchNotifyUnreadCount() })
 
-  eventSource.onerror = () => {
-    // 浏览器 EventSource 会自动重连，这里只在完全断开时做兜底重连
-    if (eventSource) {
-      closeNotifyStream()
-      if (!reconnectTimer) {
-        reconnectTimer = window.setTimeout(() => {
-          reconnectTimer = null
-          connectNotifyStream()
-        }, 5000)
-      }
-    }
+  source.onerror = () => {
+    if (eventSource !== source) return
+    if (Date.now() - openedAt > 30000) failures = 0
+    failures++
+    closeNotifyStream(false)
+    // One reconnect owner, with bounded exponential backoff. Page mounts must
+    // not bypass this timer and a stale source must not close its replacement.
+    const delay = Math.min(60000, 5000 * 2 ** Math.min(failures - 1, 4))
+    reconnectTimer = window.setTimeout(() => {
+      reconnectTimer = null
+      void connectNotifyStream()
+    }, delay)
   }
 }
 
 /** 主动断开（登出时调用） */
-export function closeNotifyStream() {
+export function closeNotifyStream(resetBackoff = true) {
+  generation++
+  if (resetBackoff) failures = 0
   if (eventSource) {
     eventSource.close()
     eventSource = null
   }
   if (reconnectTimer) {
-    clearTimeout(reconnectTimer)
+    window.clearTimeout(reconnectTimer)
     reconnectTimer = null
   }
 }
 
 /** 拉取未读数（登录后初始化 + 断线重连后对齐） */
 export async function fetchNotifyUnreadCount() {
-  try {
-    const res: any = await request.get('/notification/unread-count')
-    notifyUnreadCount.value = Number(res.data) || 0
-  } catch (e) {
-    console.error('[notify] 拉取未读数失败', e)
-  }
+  const owner = localStorage.getItem('userId')
+  if (!owner || !localStorage.getItem('token')) return
+  if (unreadPending && unreadOwner === owner) return unreadPending
+  unreadOwner = owner
+  const job = (async () => {
+    try {
+      const res: any = await request.get('/notification/unread-count')
+      if (localStorage.getItem('userId') === owner && localStorage.getItem('token')) notifyUnreadCount.value = Number(res.data) || 0
+    } catch (e) { console.error('[notify] 拉取未读数失败', e) }
+  })()
+  unreadPending = job
+  try { await job } finally { if (unreadPending === job) unreadPending = null }
 }
 
 /** 重置本地状态（登出时用） */

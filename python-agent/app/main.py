@@ -21,7 +21,7 @@ from app.graph.builder import get_graph, close_graph
 from app.migrate import check_message_schema, check_content_schema, check_jobs_schema, check_article_conversation_schema, check_delivery_schema
 from app.services.durable_jobs import background_worker
 from app.services.conversation import ConversationService
-from app.services.logging_config import setup_logging, get_logger, set_request_trace
+from app.services.logging_config import setup_logging, get_logger, set_request_trace, set_run_trace
 from app.services.memory import memory_service
 from app.services.run_service import RunService
 from app.services.executor_heartbeat import maintain_executor
@@ -64,6 +64,8 @@ async def lifespan(app: FastAPI):
         await check_task_recovery_schema(mysql_client.db)
         from app.migrate import check_service_boundaries
         await check_service_boundaries(mysql_client.db)
+        from app.migrate import check_product_features
+        await check_product_features(mysql_client.db)
         if len(settings.AGENT_SERVICE_KEY.encode()) < 32:
             raise RuntimeError("请为 Java 和 Python 配置相同的 AGENT_SERVICE_KEY，至少32字节")
         from app.clients.es_client import BaseEsClient
@@ -174,6 +176,8 @@ async def _complete(graph, conv_id, user_id, config) -> dict:
 
 
 async def _invoke(graph, graph_input, conv_id, user_id, config) -> ChatResponse:
+    set_request_trace(conv_id)
+    set_run_trace(config['configurable']['run_id'])
     recovered = None
     if not config["configurable"].get("replay"):
         try:
@@ -206,6 +210,7 @@ async def _invoke(graph, graph_input, conv_id, user_id, config) -> ChatResponse:
 def _stream_source(graph, graph_input, conv_id, user_id, config):
     async def generate():
         set_request_trace(conv_id)
+        set_run_trace(config['configurable']['run_id'])
         yield _sse(f"__CONV_ID__:{conv_id}")
         yield _sse(f"__RUN_ID__:{config['configurable']['run_id']}")
         if config['configurable'].get('user_message_id'):

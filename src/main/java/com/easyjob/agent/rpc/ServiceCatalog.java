@@ -12,6 +12,7 @@ import java.net.URI;
 import java.net.http.*;
 import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.*;
 
 /** Consul catalog adapter for native gRPC peers. Failed discovery expires, never falls back to a write retry. */
 @Component
@@ -22,8 +23,11 @@ public class ServiceCatalog {
     private final String base, token, address, instance;
     private final int httpPort,rpcPort;
     private volatile boolean ready;
-    private volatile List<String> peers=List.of();
-    private volatile long refreshed;
+    private record Snapshot(List<String> peers, long refreshed) {}
+    private volatile Snapshot snapshot = new Snapshot(List.of(), 0);
+    private final ScheduledExecutorService refreshers = Executors.newScheduledThreadPool(2, runnable -> {
+        var thread = new Thread(runnable, "consul-catalog"); thread.setDaemon(true); return thread;
+    });
     public ServiceCatalog(ObjectMapper json,
             @Value("${SERVICE_DISCOVERY_ENABLED:false}") boolean enabled,
             @Value("${CONSUL_URL:http://127.0.0.1:8500}") String base,
@@ -45,8 +49,15 @@ public class ServiceCatalog {
         if(response.statusCode()/100!=2) throw new IllegalStateException("Service catalog unavailable");
         return response.body();
     }
-    @EventListener(ApplicationReadyEvent.class) public void ready() { ready=true; heartbeat(); }
-    @Scheduled(fixedDelay=10000) public void heartbeat() {
+    @EventListener(ApplicationReadyEvent.class) public void ready() {
+        if (!enabled || ready) return;
+        ready=true;
+        // Initial discovery is startup work; user requests never perform registry I/O.
+        refresh(); heartbeat();
+        refreshers.scheduleWithFixedDelay(this::refresh, 5, 5, TimeUnit.SECONDS);
+        refreshers.scheduleWithFixedDelay(this::heartbeat, 10, 10, TimeUnit.SECONDS);
+    }
+    public void heartbeat() {
         if (!enabled || !ready) return;
         try {
             request("PUT","/v1/agent/service/register",Map.of("ID",instance,"Name","easyjob-blog","Address",address,
@@ -55,10 +66,9 @@ public class ServiceCatalog {
             request("PUT","/v1/agent/check/pass/service:"+instance,null);
         } catch (Exception ignored) { /* TTL withdraws an unreachable instance; never log credentials. */ }
     }
-    public synchronized String agentTarget(long userId) {
-        long now=System.nanoTime();
-        if(now-refreshed>Duration.ofSeconds(5).toNanos()) {
-            try {
+    public void refresh() {
+        if (!enabled || !ready) return;
+        try {
                 var next=new ArrayList<String>();
                 JsonNode items=json.readTree(request("GET","/v1/health/service/easyjob-agent?passing=true",null));
                 for(var item:items) {
@@ -66,15 +76,19 @@ public class ServiceCatalog {
                     if(!host.matches("[a-zA-Z0-9.:-]+") || port<1 || port>65535) continue;
                     next.add((host.contains(":")?"["+host+"]":host)+":"+port);
                 }
-                peers=next.stream().sorted().distinct().toList();refreshed=now;
-            } catch(Exception ignored) {
-                // A short cache absorbs registry blips; after 30s fail closed.
-                if(now-refreshed>Duration.ofSeconds(30).toNanos()) peers=List.of();
-            }
-        }
-        return peers.stream().max(Comparator.comparingLong(p -> rendezvous(userId,p)))
+                if (ready) snapshot=new Snapshot(next.stream().sorted().distinct().toList(), now());
+        } catch(Exception ignored) { /* Readers enforce expiry even if refresh is still blocked. */ }
+    }
+    public List<String> healthyTargets() {
+        var current=snapshot;
+        return ready && now()-current.refreshed() <= Duration.ofSeconds(30).toNanos()
+            ? current.peers() : List.of();
+    }
+    public String agentTarget(long userId) {
+        return healthyTargets().stream().max(Comparator.comparingLong(p -> rendezvous(userId,p)))
             .orElseThrow(() -> new IllegalStateException("No healthy Agent instance"));
     }
+    protected long now() { return System.nanoTime(); }
     static long rendezvous(long uid,String endpoint) {
         try {
             byte[] hash=java.security.MessageDigest.getInstance("SHA-256").digest((uid+":"+endpoint).getBytes(java.nio.charset.StandardCharsets.UTF_8));
@@ -83,6 +97,8 @@ public class ServiceCatalog {
     }
     @PreDestroy public void close() {
         ready=false;
+        refreshers.shutdownNow();
+        snapshot=new Snapshot(List.of(),0);
         if(enabled) try { request("PUT","/v1/agent/service/deregister/"+instance,null); } catch(Exception ignored) {}
     }
 }

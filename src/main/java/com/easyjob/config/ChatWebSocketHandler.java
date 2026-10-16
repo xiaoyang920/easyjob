@@ -1,181 +1,45 @@
 package com.easyjob.config;
-
 import com.alibaba.fastjson2.JSON;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
-import org.springframework.web.socket.CloseStatus;
-import org.springframework.web.socket.TextMessage;
-import org.springframework.web.socket.WebSocketSession;
+import org.springframework.web.socket.*;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
-
 import java.io.IOException;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.*;
 
-
-@Component
-@Slf4j
-public class ChatWebSocketHandler  extends TextWebSocketHandler {
-    /**
-     * 存储用户ID和WebSocketSession的映射关系
-     */
-    private static final Map<Long, WebSocketSession> SESSIONS = new ConcurrentHashMap<>();
-
-    public void disconnectUser(Long id) {
-        WebSocketSession session=SESSIONS.get(id);
-        if(session!=null) try {session.close(CloseStatus.POLICY_VIOLATION);}
-        catch(IOException e){log.warn("Cannot close revoked chat session for {}",id,e);}
+@Component @Slf4j
+public class ChatWebSocketHandler extends TextWebSocketHandler {
+    private static final Map<Long,Set<WebSocketSession>> SESSIONS=new ConcurrentHashMap<>();
+    static volatile BiConsumer<Long,String> relay,revokeRelay;
+    static volatile Predicate<Long> presence;
+    static volatile Supplier<Set<Long>> onlineUsers;
+    static volatile BiConsumer<Long,Boolean> presenceChanged;
+    private static Long user(WebSocketSession session){Object id=session.getAttributes().get("userId");return id instanceof Number n?n.longValue():null;}
+    @Override public void afterConnectionEstablished(WebSocketSession session){
+        Long uid=user(session);if(uid==null)return;boolean first;
+        synchronized(SESSIONS){var sessions=SESSIONS.computeIfAbsent(uid,k->ConcurrentHashMap.newKeySet());first=sessions.isEmpty();sessions.add(session);}
+        if(first)changePresence(uid,true);
+        sendSafe(session,JSON.toJSONString(Map.of("type","online_users","userIds",getOnlineUserIds().stream().map(Object::toString).toList())));
     }
-    /**
-     * 连接建立
-     * @param session
-     * @throws Exception
-     */
-    @Override
-    public void afterConnectionEstablished(WebSocketSession session) throws Exception {
-        Long userId = getUserId(session);
-        if(userId != null){
-            SESSIONS.put(userId, session);
-            log.info("用户 " + userId + " 已连接，当前在线人数: " + SESSIONS.size());
-
-            //发送在线用户列表给该用户
-            sendOnlineUserList(session);
-            //广播该用户上线
-            broadcastOnlineStatus(userId, true);
-        }
+    @Override protected void handleTextMessage(WebSocketSession session,TextMessage message){try{if("ping".equals(JSON.parseObject(message.getPayload()).getString("type")))sendSafe(session,"{\"type\":\"pong\"}");}catch(RuntimeException invalid){log.debug("Ignored invalid socket frame");}}
+    @Override public void afterConnectionClosed(WebSocketSession session,CloseStatus status){
+        Long uid=user(session);if(uid==null)return;boolean last=false;
+        synchronized(SESSIONS){var sessions=SESSIONS.get(uid);if(sessions!=null){sessions.remove(session);if(sessions.isEmpty()){SESSIONS.remove(uid);last=true;}}}
+        if(last)changePresence(uid,false);
     }
-    /**
-     * 接收到消息（主要处理心跳）
-     * @param session
-     * @param message
-     * @throws Exception
-     */
-    @Override
-    protected void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
-        String payload = message.getPayload();
-        Map<String, Object> msg = JSON.parseObject(payload, Map.class);
-        String type = (String) msg.get("type");
-        if("ping".equals(type)){
-            // 心跳响应
-            sendMessageSafe(session, new TextMessage("{\"type\":\"pong\"}"));
-        }
-    }
-    /**
-     * 连接关闭
-     * @param session
-     * @param status
-     * @throws Exception
-     */
-    @Override
-    public void afterConnectionClosed(WebSocketSession session, CloseStatus status) throws Exception {
-        Long userId = getUserId(session);
-        if(userId != null && SESSIONS.remove(userId, session)){
-            // 广播该用户下线
-            log.info("用户 " + userId + " 已断开，当前在线人数: " + SESSIONS.size());
-            broadcastOnlineStatus(userId, false);
-        }
-    }
-    /**
-     * 错误处理
-     * @param session
-     * @param exception
-     * @throws Exception
-     */
-    @Override
-    public void handleTransportError(WebSocketSession session, Throwable exception) throws Exception {
-        Long userId = getUserId(session);
-        log.error("用户 " + userId + " 错误: " + exception.getMessage(), exception);
-        if(session.isOpen()){
-            session.close();
-        }
-    }
-    /**
-     * 线程安全的消息发送（解决并发写入问题）
-     * @param session
-     * @param message
-     */
-    private static void sendMessageSafe(WebSocketSession session, TextMessage message) {
-        if (session != null && session.isOpen()) {
-            synchronized (session) {
-                try {
-                    session.sendMessage(message);
-                } catch (IOException e) {
-                    log.error("发送消息失败: " + e.getMessage(), e);
-                }
-            }
-        }
-    }
-    
-    /**
-     * 发送消息给指定用户
-     * @param userId
-     * @param message
-     */
-    public static void sendToUser(Long userId, String message){
-        WebSocketSession session = SESSIONS.get(userId);
-        sendMessageSafe(session, new TextMessage(message));
-    }
-    /**
-
-     * 发送消息给指定用（Map自动转JSON）
-     * @param userId
-     * @param data
-     */
-    public static void sendToUser(Long userId,Map<String, Object> data){
-
-        sendToUser(userId, JSON.toJSONString(data));
-    }
-    /**
-     * 判断用户是否在线
-     * @param userId
-     * @return
-     */
-    public static boolean isOnline(Long userId) {
-        WebSocketSession session = SESSIONS.get(userId);
-        return session != null && session.isOpen();
-    }
-    /**
-     * 获取所有在线用户ID
-     * @return
-     */
-    public static Set<Long> getOnlineUserIds() {
-        return SESSIONS.keySet();
-    }
-    /**
-     * 获取用户ID
-     * @param session
-     * @return
-     */
-    private Long getUserId(WebSocketSession session) {
-        Object userId = session.getAttributes().get("userId");
-        return userId == null ? null : (Long) userId;
-    }
-    /**
-     * 发送在线用户列表给该用户
-     * @param session
-     */
-    private void sendOnlineUserList(WebSocketSession session) {
-        Map<String, Object> msg = new HashMap<>();
-        msg.put("type", "online_users");
-        msg.put("userIds", SESSIONS.keySet().stream().map(Object::toString).toList());
-        sendMessageSafe(session, new TextMessage(JSON.toJSONString(msg)));
-    }
-    /**
-     * 广播用户上线或下线
-     * @param userId
-     * @param online
-     */
-    private void broadcastOnlineStatus(Long userId, boolean online) {
-        Map<String, Object> msg = new HashMap<>();
-        msg.put("type", online ? "online" : "offline");
-        msg.put("userId", userId.toString());
-        TextMessage textMessage = new TextMessage(JSON.toJSONString(msg));
-        SESSIONS.forEach((uid, session) -> {
-            if (!uid.equals(userId) && session.isOpen()) {
-                sendMessageSafe(session, textMessage);
-            }
-        });
-    }
+    @Override public void handleTransportError(WebSocketSession session,Throwable error)throws IOException{session.close();}
+    private static void sendSafe(WebSocketSession session,String message){if(session==null || !session.isOpen())return;synchronized(session){try{session.sendMessage(new TextMessage(message));}catch(IOException e){log.warn("Chat delivery failed; reload persisted messages");}}}
+    static void deliverLocal(Long uid,String data){var sessions=SESSIONS.get(uid);if(sessions!=null)sessions.forEach(s->sendSafe(s,data));}
+    public static void sendToUser(Long uid,String data){if(uid==null)return;deliverLocal(uid,data);var publisher=relay;if(publisher!=null)publisher.accept(uid,data);}
+    public static void sendToUser(Long uid,Map<String,Object> data){sendToUser(uid,JSON.toJSONString(data));}
+    public static boolean isOnline(Long uid){if(uid==null)return false;var sessions=SESSIONS.get(uid);return sessions!=null && sessions.stream().anyMatch(WebSocketSession::isOpen) || presence!=null && presence.test(uid);}
+    static Set<Long> localUsers(){return Set.copyOf(SESSIONS.keySet());}
+    public static Set<Long> getOnlineUserIds(){var ids=new HashSet<>(localUsers());if(onlineUsers!=null)ids.addAll(onlineUsers.get());return ids;}
+    private static void changePresence(Long uid,boolean online){if(presenceChanged!=null)presenceChanged.accept(uid,online);else presenceLocal(uid,online);}
+    static void presenceLocal(Long uid,boolean online){String data=JSON.toJSONString(Map.of("type",online?"online":"offline","userId",uid.toString()));SESSIONS.forEach((id,sessions)->{if(!id.equals(uid))sessions.forEach(s->sendSafe(s,data));});}
+    static void disconnectLocal(Long uid,String sid){var sessions=SESSIONS.get(uid);if(sessions!=null)for(var session:List.copyOf(sessions))if(sid==null || sid.equals(session.getAttributes().get("authSessionId")))try{session.close(CloseStatus.POLICY_VIOLATION);}catch(IOException e){log.warn("Cannot close revoked socket");}}
+    public void disconnectUser(Long uid){disconnectLocal(uid,null);if(revokeRelay!=null)revokeRelay.accept(uid,"");}
+    public static void disconnectSession(Long uid,String sid){disconnectLocal(uid,sid);if(revokeRelay!=null)revokeRelay.accept(uid,sid);}
 }

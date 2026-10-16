@@ -40,12 +40,14 @@ public class EdgeFilter implements GlobalFilter, Ordered {
     }
     @Override public int getOrder() { return -200; }
     @Override public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+        String traceId=UUID.randomUUID().toString();
+        exchange.getResponse().getHeaders().set("X-Request-Id",traceId);
         String path=exchange.getRequest().getPath().value();
         if (path.startsWith("/internal") || path.startsWith("/actuator"))
             return reject(exchange,HttpStatus.NOT_FOUND,"接口不存在");
         String bearer=exchange.getRequest().getHeaders().getFirst("Authorization");
         String token=bearer!=null && bearer.startsWith("Bearer ")?bearer.substring(7):null;
-        if (token==null && (path.startsWith("/ws") || path.startsWith("/api/agent")))
+        if (token==null && (path.startsWith("/ws") || path.startsWith("/api/agent") || path.equals("/api/notification/stream")))
             token=exchange.getRequest().getQueryParams().getFirst("token");
         String uid=null;
         // Expired access tokens must not prevent refresh/logout using the refresh cookie.
@@ -63,14 +65,20 @@ public class EdgeFilter implements GlobalFilter, Ordered {
                 || name.equalsIgnoreCase("X-User-Id") || name.equalsIgnoreCase("X-Service-Key")
                 || name.equalsIgnoreCase("X-Gateway-User") || name.toLowerCase(java.util.Locale.ROOT).startsWith("x-forwarded-")
                 || name.equalsIgnoreCase("Forwarded"));
-            headers.set("X-Request-Id",UUID.randomUUID().toString());
+            headers.set("X-Request-Id",traceId);
         }).build();
         var clean=exchange.mutate().request(request).build();
         if (path.startsWith("/uploads/")) return chain.filter(clean);
         String ip=exchange.getRequest().getRemoteAddress()==null?"unknown":exchange.getRequest().getRemoteAddress().getAddress().getHostAddress();
         String principal=uid==null?"ip:"+ip:"user:"+uid;
-        String bucket=path.startsWith("/api/auth/")?"auth":"api";
-        int limit=bucket.equals("auth")?authLimit:apiLimit;
+        // Background monitoring and reconnects must not exhaust the budget for
+        // user actions such as searching, saving, cancelling or opening a page.
+        boolean observation="GET".equals(request.getMethod().name()) && (
+                path.equals("/api/agent/run-overview") || path.equals("/api/notification/unread-count")
+                || path.equals("/api/chat/total-unread-count") || path.matches("/api/agent/runs/[^/]+")
+                || path.matches("/api/agent/conversations/[^/]+/run"));
+        String bucket=path.startsWith("/api/auth/")?"auth":path.equals("/api/notification/stream")?"stream":observation?"observe":"api";
+        int limit=bucket.equals("auth")?authLimit:bucket.equals("stream")?30:apiLimit;
         // Stop/status/reconnect use the general budget so an exhausted AI budget cannot trap a running task.
         boolean aiStart=path.matches("/api/agent/chat(/stream|/resume|/resume/stream)?");
         Mono<Boolean> admitted=allow(bucket,principal,limit);

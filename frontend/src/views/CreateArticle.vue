@@ -18,18 +18,21 @@
     </nav>
 
       <div class="editor-action-bar">
+        <span class="autosave-status" role="status">{{ autosaveMessage }}</span>
         <button class="btn btn-cancel" @click="goBack">取消</button>
         <button class="btn btn-draft" :disabled="!articleReady || saving || isPending" @click="saveDraft">{{ isPublished ? "保存修改草稿" : "保存草稿" }}</button>
         <button class="btn btn-publish" :disabled="!articleReady || saving || isPending" @click="publishArticle">{{ isPending ? '审核中' : '提交审核' }}</button>
       </div>
 
+    <div v-if="recoveryPending" class="revision-notice"><span>发现 {{ new Date(recoveryPending.updatedAt).toLocaleString() }} 的本机未保存内容。</span><button @click="restoreLocalDraft">恢复到编辑器</button><button @click="discardRecovery">舍弃本机副本</button></div>
+    <div v-if="autosaveConflict" class="revision-notice"><span>草稿已在其他页面修改，自动保存已暂停。请先复制保留当前内容，再刷新核对。</span></div>
     <div v-if="isPending || article.reviewReason || isPublished" class="revision-notice">
       <span v-if="isPending">当前版本审核中，内容已锁定。需要修改时，请先撤回审核。</span>
       <span v-else-if="article.reviewReason">审核意见：{{ article.reviewReason }}</span>
       <span v-else>公开版本继续展示，修改保存为独立版本，审核通过后更新。</span>
       <button v-if="isPending" :disabled="saving" @click="withdrawReview">撤回审核</button>
     </div>
-    <div class="editor-container" :inert="isPending" :aria-disabled="isPending">
+    <div class="editor-container" :inert="isPending || publishing" :aria-disabled="isPending || publishing">
       <!-- 左侧主编辑区 -->
       <div class="editor-main">
         <!-- 标题输入 -->
@@ -228,6 +231,7 @@ import { editableArticleStatus } from '../utils/articleLifecycle'
 import { uploadFile } from '../utils/upload'
 import { eventBus, EVENT_AUTH_EXPIRED } from '../utils/eventBus'
 import ArticleRichEditor from '@/components/ArticleRichEditor.vue'
+import {recoveryKey,saveRecovery,readRecovery,draftSignature,type DraftSnapshot} from '@/utils/draftRecovery'
 
 const route = useRoute()
 const router = useRouter()
@@ -239,6 +243,7 @@ const article = ref({
   articleId: '',
   revisionId: '0',
   expectedRevisionId: '0',
+  clientRequestId: crypto.randomUUID(),
   expectedLockVersion: 0,
   lockVersion: 0,
   revisionState: 0,
@@ -282,14 +287,27 @@ const valueHtml = ref('')
 
 const isEditMode = computed(() => !!route.query.id)
 const articleReady = ref(!isEditMode.value)
-const saving = ref(false)
+const saving = ref(false),publishing=ref(false)
 const isPublished = computed(() => articleReady.value && article.value.status === 1)
 const isPending = computed(() => article.value.revisionState === 1)
 const savedSignature = ref('')
 function editorSignature() {
-  return JSON.stringify({ article: article.value, content: valueHtml.value === '<p><br></p>' ? '' : valueHtml.value, tags: tagList.value })
+  return draftSignature(article.value,valueHtml.value,tagList.value)
 }
 function markSaved() { savedSignature.value = editorSignature() }
+const autosaveMessage=ref('修改后自动保存'),autosaveConflict=ref(false),recoveryPending=ref<DraftSnapshot|null>(null)
+let autosaveTimer:ReturnType<typeof setTimeout>|undefined,localTimer:ReturnType<typeof setTimeout>|undefined,skipFetchId='',disposed=false
+let autosaveRetries=0
+let recoveryOwner=localStorage.getItem('userId'),serverLoaded=!route.query.id
+const cacheKey=()=>recoveryKey(recoveryOwner,String(route.query.id||article.value.articleId||''))
+function offerRecovery(){const snapshot=readRecovery(localStorage,cacheKey());recoveryPending.value=snapshot && snapshot.signature!==editorSignature()?snapshot:null}
+function persistLocal(){if(recoveryPending.value || !articleReady.value || isPending.value || localStorage.getItem('userId')!==recoveryOwner || editorSignature()===savedSignature.value)return;const ok=saveRecovery(localStorage,cacheKey(),{updatedAt:Date.now(),signature:editorSignature(),article:{...article.value},content:valueHtml.value,tags:[...tagList.value]});if(!ok)autosaveMessage.value='本机暂存失败，请手动保存或复制正文'}
+function discardRecovery(){localStorage.removeItem(cacheKey());recoveryPending.value=null;scheduleAutosave()}
+function restoreLocalDraft(){const snapshot=recoveryPending.value;if(!snapshot)return;const metadata={articleId:article.value.articleId,revisionId:article.value.revisionId,expectedRevisionId:article.value.expectedRevisionId,expectedLockVersion:article.value.expectedLockVersion,lockVersion:article.value.lockVersion,revisionState:article.value.revisionState,status:article.value.status};autosaveConflict.value=!!metadata.articleId && snapshot.article.expectedLockVersion!==metadata.expectedLockVersion;article.value={...article.value,...snapshot.article,...(serverLoaded?metadata:{})};valueHtml.value=snapshot.content;tagList.value=[...snapshot.tags];articleReady.value=true;recoveryPending.value=null;autosaveMessage.value='已恢复本机内容';scheduleAutosave()}
+function scheduleAutosave(delay=5000){clearTimeout(autosaveTimer);if(!articleReady.value || isPending.value || recoveryPending.value || autosaveConflict.value || disposed || localStorage.getItem('userId')!==recoveryOwner)return;autosaveTimer=setTimeout(()=>void persistDraft(true),delay)}
+function onEditorChange(){if(!articleReady.value || editorSignature()===savedSignature.value || recoveryPending.value)return;autosaveRetries=0;clearTimeout(localTimer);localTimer=setTimeout(persistLocal,250);autosaveMessage.value='有修改，等待自动保存';scheduleAutosave()}
+function beforeUnload(event:BeforeUnloadEvent){if(articleReady.value && editorSignature()!==savedSignature.value){persistLocal();event.preventDefault();event.returnValue=''}}
+function onlineAgain(){autosaveRetries=0;if(!serverLoaded && route.query.id)void fetchArticle();else scheduleAutosave()}
 onBeforeRouteLeave(async () => {
   if (!localStorage.getItem('token')) return true
   if (!savedSignature.value || editorSignature() === savedSignature.value) return true
@@ -379,8 +397,10 @@ function addHotTag(tagName: string) {
 // 获取文章详情（编辑模式）
 async function fetchArticle() {
   const articleId = route.query.id as string
+  if(articleId && articleId===skipFetchId){skipFetchId='';return}
+  clearTimeout(autosaveTimer);autosaveConflict.value=false;serverLoaded=!articleId
   articleReady.value = !articleId
-  if (!articleId) { markSaved(); return }
+  if (!articleId) { markSaved();offerRecovery();return }
   
   try {
     const res = await request.get(`/article/${articleId}/edit`)
@@ -407,29 +427,38 @@ async function fetchArticle() {
         tagList.value = res.data.tags.split(',').filter((t: string) => t.trim())
       }
       articleReady.value = true
+      serverLoaded=true
       markSaved()
+      offerRecovery()
     }
   } catch (error: any) {
+    recoveryPending.value=readRecovery(localStorage,cacheKey())
     alert(error.message || '获取文章失败，请刷新后重试')
   }
 }
 
 // 保存草稿
-async function saveDraft() {
-  if (!articleReady.value || saving.value) return
+async function saveDraft() { await persistDraft(false) }
+async function persistDraft(automatic:boolean) {
+  if (!articleReady.value || saving.value || disposed || localStorage.getItem('userId')!==recoveryOwner) return
   if (isPending.value) return
+  if(automatic && (autosaveConflict.value || recoveryPending.value || !serverLoaded || editorSignature()===savedSignature.value))return
+  persistLocal()
+  if(automatic && !navigator.onLine){autosaveMessage.value='网络不可用，已暂存本机';return}
   if (!article.value.title.trim()) {
-    alert('请输入文章标题')
+    if(automatic){autosaveMessage.value='已暂存本机，填写标题后自动保存';return}alert('请输入文章标题')
     return
   }
   
   if (!article.value.categoryId) {
-    alert('请选择文章分类')
+    if(automatic){autosaveMessage.value='已暂存本机，选择分类后自动保存';return}alert('请选择文章分类')
     focusCategorySelect()
     return
   }
   
   saving.value = true
+  autosaveMessage.value='正在保存草稿…'
+  const submittedSignature=editorSignature(),previousCacheKey=cacheKey()
   try {
     const data = {
       ...article.value,
@@ -441,31 +470,37 @@ async function saveDraft() {
     }
     
     let res
-    if (isEditMode.value) {
+    if (article.value.articleId) {
       res = await request.put(`/article/${article.value.articleId}`, data)
     } else {
       res = await request.post('/article/create', data)
     }
     
+    if(disposed || localStorage.getItem('userId')!==recoveryOwner)return
     if (res.code === 200) {
-      notify.success('版本草稿已保存，公开内容未改变')
+      autosaveRetries=0
+      if(!automatic)notify.success('草稿已保存，公开内容未改变')
       if (res.data?.revisionId) { article.value.revisionId=res.data.revisionId; article.value.expectedRevisionId=res.data.revisionId; article.value.lockVersion=res.data.lockVersion; article.value.expectedLockVersion=res.data.lockVersion; article.value.revisionState=res.data.revisionState; article.value.reviewReason=res.data.reviewReason || '' }
       if (!isEditMode.value && res.data?.articleId) {
         article.value.articleId = res.data.articleId
-        markSaved()
-        await router.replace(`/edit-article?id=${res.data.articleId}`)
-        await fetchArticle()
-      } else {
-        markSaved()
+        skipFetchId=String(res.data.articleId)
+        await router.replace({query:{...route.query,id:String(res.data.articleId)}})
       }
+      savedSignature.value=submittedSignature
+      if(editorSignature()===submittedSignature){localStorage.removeItem(previousCacheKey);localStorage.removeItem(cacheKey())}else persistLocal()
+      autosaveMessage.value='草稿已保存 · '+new Date().toLocaleTimeString()
     } else {
-      alert(res.message || '保存失败')
+      throw new Error(res.message || '保存失败')
     }
   } catch (error: any) {
     console.error('保存失败:', error)
-    alert(error.message || '保存失败')
+    autosaveRetries++
+    autosaveConflict.value=error.code===409 || /变化|版本|冲突|审核中/.test(error.message||'')
+    autosaveMessage.value=autosaveConflict.value?'保存冲突，自动保存已暂停':autosaveRetries>=3?'自动保存已暂停，内容已暂存本机，请手动重试':'保存失败，内容已暂存本机，稍后重试'
+    if(!automatic)alert(error.message || '保存失败')
   } finally {
     saving.value = false
+    if(autosaveRetries<3 && editorSignature()!==savedSignature.value && !autosaveConflict.value && navigator.onLine)scheduleAutosave(Math.min(60000,5000*3**autosaveRetries))
   }
 }
 
@@ -489,7 +524,8 @@ async function publishArticle() {
   }
   
   if (isPending.value) return
-  saving.value = true
+  clearTimeout(autosaveTimer);publishing.value=true;saving.value = true
+  const submittedSignature=editorSignature(),submittedKey=cacheKey()
   try {
     const data = {
       ...article.value,
@@ -501,7 +537,7 @@ async function publishArticle() {
     }
     
     let res
-    if (isEditMode.value) {
+    if (article.value.articleId) {
       res = await request.put(`/article/${article.value.articleId}`, data)
     } else {
       res = await request.post('/article/create', data)
@@ -509,7 +545,9 @@ async function publishArticle() {
     
     if (res.code === 200) {
       notify.success('已提交审核，通过后才会公开或更新正文')
-      markSaved()
+      savedSignature.value=submittedSignature
+      if(editorSignature()===submittedSignature)localStorage.removeItem(submittedKey)
+      article.value.revisionState=1
       returnTo(router, '/draft-box')
     } else {
       alert(res.message || '发布失败')
@@ -518,7 +556,7 @@ async function publishArticle() {
     console.error('发布失败:', error)
     alert(error.message || '保存失败')
   } finally {
-    saving.value = false
+    saving.value = false;publishing.value=false
   }
 }
 
@@ -653,6 +691,7 @@ function switchToLogin() {
 }
 
 watch(() => route.query.id, fetchArticle, { immediate: true })
+watch(editorSignature,onEditorChange)
 
 onMounted(() => {
   void checkCategoryAdmin()
@@ -660,15 +699,19 @@ onMounted(() => {
   fetchCategories()  // 获取分类列表
   fetchHotTags()     // 获取热门标签
   document.addEventListener('keydown', handleKeydown)
+  window.addEventListener('beforeunload',beforeUnload);window.addEventListener('online',onlineAgain)
 })
 
 onBeforeUnmount(() => {
+  persistLocal();disposed=true;clearTimeout(autosaveTimer);clearTimeout(localTimer)
+  window.removeEventListener('beforeunload',beforeUnload);window.removeEventListener('online',onlineAgain)
   eventBus.off(EVENT_AUTH_EXPIRED, handleAuthExpired)
   document.removeEventListener('keydown', handleKeydown)
 })
 </script>
 
 <style scoped>
+.autosave-status{margin-right:auto;font-size:12px;color:var(--ej-muted)}
 .category-setting-label{display:flex;align-items:center;gap:6px}.category-create-link{margin-left:auto;border:0;background:transparent;color:var(--ej-ink);font-size:12px;cursor:pointer;padding:4px 0;white-space:nowrap}.category-create-link:hover{text-decoration:underline}
 .revision-notice{max-width:1200px;margin:16px auto;padding:14px 20px;border:1px solid var(--ej-line);border-radius:14px;background:var(--ej-surface);color:var(--ej-muted);font-size:13px;display:flex;gap:16px;align-items:center;justify-content:space-between}.revision-notice button{flex-shrink:0;border:1px solid var(--ej-line);border-radius:99px;padding:8px 14px;background:transparent;cursor:pointer}
 

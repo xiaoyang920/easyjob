@@ -50,7 +50,7 @@ class ChunkRetrievalTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(vector_call["index"], keyword_call["index"])
         self.assertEqual(keyword_call["index"], "article_vectors")
         self.assertEqual(vector_call["knn"]["filter"], keyword_call["body"]["query"]["bool"]["filter"][0])
-        self.assertIn("chunk_content^3", keyword_call["body"]["query"]["bool"]["must"][0]["multi_match"]["fields"])
+        self.assertIn("chunk_content.zh^3", keyword_call["body"]["query"]["bool"]["must"][0]["multi_match"]["fields"])
         self.assertEqual(filters["bool"]["filter"][0], {"term": {"chunker_version": "html-dom-v1"}})
         self.assertIn({"terms": {"category_id": [2]}}, filters["bool"]["filter"])
 

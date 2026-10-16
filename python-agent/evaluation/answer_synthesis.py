@@ -26,6 +26,8 @@ NOTE = ('固定行为断言是小样本冒烟检查，不是全链路准确率�
 
 def seeded_state(case):
     from app.graph.state_factory import create_initial_state
+    if not case.get('retrieval_performed', True):
+        return {**create_initial_state(0, case['query'], []), 'run_id': '', 'main_round': 1}
     citations = [{'id': f'retrieve_1:{i}', 'articleId': '', 'title': source['title'],
         'excerpt': source['text'], 'url': source.get('url', ''),
         'contentScope': source.get('content_scope', 'fixture_text')}
@@ -135,11 +137,12 @@ async def execute(case, mode):
         stack.enter_context(patch.object(main_agent.memory_policy_service, 'enqueue_changes', side_effect=deny('memory.enqueue_changes')))
         stack.enter_context(patch.object(main_context.context_service, 'compact_history', side_effect=deny('history.compact_history')))
         if mode == 'replay':
-            assessment = EvidenceAssessment(selected_ids=[citation['id'] for citation in state['task_results']['retrieve_1']['citations']],
+            assessment = EvidenceAssessment(selected_ids=[citation['id'] for citation in (state.get('task_results') or {}).get('retrieve_1', {}).get('citations', [])],
                 adequacy=case.get('adequacy', 'sufficient'), reason='固定合成资料；回放标签不评价真实模型质量',
-                missing_aspects=case.get('missing_aspects', []))
-            decision = main_agent.MainDecision(action='answer', reply=case['reply'], answer_dependencies=['retrieve_1'],
-                evidence_assessment=assessment)
+                missing_aspects=case.get('missing_aspects', [])) if case.get('retrieval_performed', True) else None
+            decision = main_agent.MainDecision(action='answer', reply=case['reply'],
+                answer_dependencies=['retrieve_1'] if case.get('retrieval_performed', True) else [],
+                evidence_assessment=assessment if case.get('retrieval_performed', True) else None)
             control = SimpleNamespace(ainvoke=AsyncMock(return_value=decision))
             model = SimpleNamespace(with_structured_output=Mock(return_value=control))
             stack.enter_context(patch.object(main_agent, 'get_llm', return_value=model))

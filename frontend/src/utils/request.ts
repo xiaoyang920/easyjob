@@ -53,7 +53,7 @@ request.interceptors.response.use(
         return retryAuth(response.config)
       }
       // 抛出业务错误，message 来自后端
-      return Promise.reject(new Error(res.message || '操作失败'))
+      return Promise.reject(Object.assign(new Error(res.message || '操作失败'), {code: res.code}))
     }
     
     return res
@@ -73,7 +73,11 @@ request.interceptors.response.use(
                  || error.message 
                  || '网络请求失败，请稍后重试'
     
-    return Promise.reject(new Error(message))
+    const retrySeconds = Number(error.response?.headers?.['retry-after'])
+    return Promise.reject(Object.assign(new Error(message), {
+      code: error.response?.status || error.response?.data?.code,
+      retryAfterMs: Number.isFinite(retrySeconds) && retrySeconds > 0 ? Math.min(300000, retrySeconds * 1000) : undefined
+    }))
   }
 )
 

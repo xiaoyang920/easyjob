@@ -5,6 +5,8 @@ import logging
 from contextlib import aclosing
 from datetime import datetime
 from uuid import UUID
+from time import monotonic
+from app.services.logging_config import request_trace
 
 import grpc
 from fastapi import HTTPException
@@ -130,6 +132,14 @@ class AgentRpc(api.AgentRpcServicer):
         raise HTTPException(404, 'RPC 方法不存在')
 
     async def unary(self, method, request, context):
+        started = monotonic()
+        with request_trace(getattr(request, 'conversation_id', None), request.identity.trace_id, getattr(request, 'run_id', None)):
+            reply = await self._unary_reply(method, request, context)
+            log.info('rpc_server method=%s status=%s duration_ms=%.2f', method,
+                reply.error.status if reply.HasField('error') else 200, (monotonic() - started) * 1000)
+            return reply
+
+    async def _unary_reply(self, method, request, context):
         try:
             return pb.Reply(data=encode(await self.invoke(method, request)))
         except asyncio.CancelledError:
@@ -138,6 +148,30 @@ class AgentRpc(api.AgentRpcServicer):
             return pb.Reply(error=fault(exc))
 
     async def stream(self, method, request, context):
+        started = monotonic()
+        first_data = None
+        status = 200
+        with request_trace(getattr(request, 'conversation_id', None), request.identity.trace_id, getattr(request, 'run_id', None)):
+            try:
+                async with aclosing(self._stream_frames(method, request, context)) as frames:
+                    async for frame in frames:
+                        if frame.HasField('error'):
+                            status = frame.error.status
+                        elif frame.HasField('data'):
+                            if first_data is None:
+                                first_data = round((monotonic() - started) * 1000, 2)
+                            if frame.data.startswith('__RUN_ID__:'):
+                                from app.services.logging_config import set_run_trace
+                                set_run_trace(frame.data.split(':', 1)[1])
+                        yield frame
+            except (asyncio.CancelledError, GeneratorExit):
+                status = 499
+                raise
+            finally:
+                log.info('rpc_stream method=%s status=%s first_frame_ms=%s duration_ms=%.2f',
+                    method, status, first_data, (monotonic() - started) * 1000)
+
+    async def _stream_frames(self, method, request, context):
         iterator = None
         try:
             response = await self.invoke(method, request)

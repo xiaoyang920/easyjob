@@ -289,10 +289,10 @@ class ConversationService:
         return result
 
     async def add_message(self, conversation_id, role, content, image_paths=None, article_cards=None,
-                          draft_article_id=None, citations=None, postprocess=True):
+                          draft_article_id=None, citations=None, postprocess=True, run_id=None):
         async with db.transaction():
             msg_id = await self._append_message(conversation_id, role, content, image_paths, article_cards,
-                                                draft_article_id, citations)
+                                                draft_article_id, citations, run_id=run_id)
         if postprocess:
             await self.postprocess_messages(conversation_id)
         return msg_id
@@ -304,6 +304,7 @@ class ConversationService:
             draft_article_id: int | None = None,
             citations: list[dict] | None = None,
             postprocess: bool = True,
+            run_id: str | None = None,
     ):
         """
         添加一条消息：计算token → 写 MySQL → 更新统计；外层按需使缓存失效。
@@ -318,9 +319,9 @@ class ConversationService:
             """
             INSERT INTO ai_message
                 (message_id, conversation_id, role, content, token_count, 
-                 image_paths, article_cards, draft_article_id, citations, create_time)
+                 image_paths, article_cards, draft_article_id, citations, create_time, run_id)
             VALUES
-                (:mid, :cid, :role, :content, :tc, :imgs, :cards, :draft_aid, :citations, :now)
+                (:mid, :cid, :role, :content, :tc, :imgs, :cards, :draft_aid, :citations, :now, :run_id)
             """,
             {
                 "mid": msg_id,
@@ -333,6 +334,7 @@ class ConversationService:
                 "draft_aid": draft_article_id,
                 "citations": json.dumps(citations, ensure_ascii=False) if citations else None,
                 "now": now,
+                "run_id": run_id,
             },
         )
 
@@ -358,7 +360,7 @@ class ConversationService:
             if row and row._mapping["title"] is None:
                 title = content[:50] + "..." if len(content) > 50 else content
                 await db.execute(
-                    "UPDATE ai_conversation SET title = :title WHERE conversation_id = :cid",
+                    "UPDATE ai_conversation SET title = :title WHERE conversation_id = :cid AND title IS NULL",
                     {"title": title, "cid": conversation_id},
                 )
         return msg_id

@@ -49,6 +49,7 @@ test('real chat component switches, receives parallel replies, resumes and cance
     request:{
       async get(url, options) {
         calls.push(['get',url])
+        if(url==='/agent/library') return {code:200,data:{rows:options.params.scope==='general'?chats:[],total:options.params.scope==='general'?chats.length:0}}
         if(url==='/agent/conversations') return {code:200,data:options.params.scope==='general'?chats:[]}
         if(url.endsWith('/messages')) return {code:200,data:histories.get(url.split('/')[3]) || []}
         if(url.endsWith('/run')) return {code:200,data:recovering&&url.includes('101')?{runId:'r-recovered',status:'running'}:null}
