@@ -61,7 +61,9 @@ export function applyAgentEvent(state: AgentStreamState, event: Record<string, a
     if (state.commentary.at(-1) !== event.text) state.commentary.push(event.text.slice(0, 500))
   } else if (event.kind === 'plan' && Array.isArray(event.tasks)) {
     const previous = new Map(state.plan.map(task => [task.id, task]))
-    const next = event.tasks.map((task: any): AgentPlanTask => ({ id: String(task.id), label: String(task.label).slice(0, 120),
+    // The server task contract allows 4000 Unicode characters. Retain the
+    // full plan for expansion and history; presentation owns the preview.
+    const next = event.tasks.map((task: any): AgentPlanTask => ({ id: String(task.id), label: Array.from(String(task.label)).slice(0, 4000).join(''),
       role: String(task.role), stage: Number(task.stage), status: previous.get(task.id)?.status || 'pending' }))
     // Incremental plans retain already completed work in the activity panel.
     const ids = new Set(next.map((task: AgentPlanTask) => task.id))

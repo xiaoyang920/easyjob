@@ -1,5 +1,5 @@
 <template>
- <el-dialog v-model="visible" title="推荐偏好" width="min(620px,94vw)" align-center :close-on-click-modal="false">
+ <el-dialog v-model="visible" title="推荐偏好" width="min(620px,94vw)" align-center :close-on-click-modal="false" append-to-body class="ej-dialog">
   <p class="preference-note">这些反馈仅影响推荐列表。最多保留200条，随时可以恢复。</p>
   <ContentState v-if="loading" kind="loading" title="正在加载偏好" /><ContentState v-else-if="error" kind="error" title="加载失败" :description="error" @retry="reload" /><ContentState v-else-if="!rows.length" kind="empty" title="暂未隐藏任何推荐" />
   <div v-else class="preference-list"><article v-for="row in rows" :key="row.articleId"><div><strong>{{ row.kind==='hide_author'?`减少来自 ${row.authorName || '该作者'} 的推荐`:row.title || '原文章已删除' }}</strong><p>{{ row.kind==='hide_author'?'不再推荐该作者的文章':'对这篇文章不感兴趣' }}</p></div><button :disabled="!!busy" @click="restore(row.articleId)">{{ busy===row.articleId?'恢复中…':'恢复推荐' }}</button></article></div>

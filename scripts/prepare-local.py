@@ -42,13 +42,14 @@ config = {
         "data": {"redis": {"host": "localhost", "port": 6379, "database": 3, "password": ""}},
     },
 }
-bocha_key = local_values.get("BOCHA_API_KEY") or values.get("BOCHA_API_KEY")
-if bocha_key:
-    config["agent"] = {"bocha": {
-        "api-key": bocha_key,
-        "base-url": local_values.get("BOCHA_BASE_URL") or "https://api.bocha.cn/v1/web-search",
-        "enabled": local_values.get("AGENT_WEB_SEARCH_ENABLED", "true").lower() in ("true", "1", "yes"),
-    }}
+deepseek_key = local_values.get("DEEPSEEK_API_KEY") or values.get("DEEPSEEK_API_KEY")
+if deepseek_key:
+    config['spring']['ai'] = {'deepseek': {'api-key': deepseek_key}}
+config['agent'] = {'web-search': {
+    'base-url': local_values.get('DEEPSEEK_TOOLS_BASE_URL') or values.get('DEEPSEEK_TOOLS_BASE_URL') or 'https://api.deepseek.com/v1',
+    'enabled': (local_values.get('AGENT_WEB_SEARCH_ENABLED') or values.get('AGENT_WEB_SEARCH_ENABLED') or 'true').lower() in ('true', '1', 'yes'),
+    'max-results': 5,
+}}
 output = root / "temp/application-runtime.yml"
 output.parent.mkdir(exist_ok=True)
 output.write_text(yaml.safe_dump(config, allow_unicode=True), encoding="utf-8")

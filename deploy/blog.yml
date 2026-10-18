@@ -1,0 +1,9 @@
+spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 300s
+server:
+  shutdown: graceful
+file:
+  image:
+    max-pixels: 20000000
+    max-dimension: 10000

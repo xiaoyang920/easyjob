@@ -62,13 +62,17 @@ test('all question previews remain available while only a window of full turns i
 
 test('prepending older complete turns preserves the visible message position and question numbering', async ({ page }) => {
   await fixture(page)
+  await page.emulateMedia({reducedMotion:'no-preference'})
+  await page.locator('.message-list').evaluate(el=>Promise.all(el.getAnimations({subtree:true}).map(a=>a.finished)))
   await page.locator('.message-list').evaluate(el => { el.scrollTop = 220 })
   const anchor = page.locator('[data-question-id="161"]')
   const before = await anchor.evaluate(el => el.getBoundingClientRect().top)
   // Trigger the same control without scrolling it into view (which would change the anchor).
   await page.getByRole('button', { name: '加载更早的消息', exact: true }).evaluate((el: HTMLButtonElement) => el.click())
-  await expect(page.locator('.message-item')).toHaveCount(80)
-  expect(Math.abs((await anchor.evaluate(el => el.getBoundingClientRect().top)) - before)).toBeLessThan(3)
+  await expect(page.locator('.message-list')).toHaveAttribute('data-message-count','80')
+  await expect.poll(() => page.locator('.message-item').count()).toBeLessThan(60)
+  await expect(page.locator('[data-question-id="161"]')).toBeVisible()
+  await expect.poll(async()=>Math.abs((await anchor.evaluate(el => el.getBoundingClientRect().top))-before)).toBeLessThan(3)
   await expect(page.locator('.rail-tick')).toHaveCount(100)
   await page.getByRole('button', { name: '跳转到第 65 个提问：问题 65', exact: true }).click()
   await expect(page.locator('[data-question-id="129"]')).toBeVisible()
@@ -91,11 +95,14 @@ test('history loading during generation cannot redirect streamed text into an ol
   await page.getByRole('button', { name: '发送消息', exact: true }).click()
   await requestStarted
   await page.getByRole('button', { name: '加载更早的消息', exact: true }).evaluate((el: HTMLButtonElement) => el.click())
-  await expect(page.locator('.message-item')).toHaveCount(82)
+  await expect(page.locator('.message-list')).toHaveAttribute('data-message-count','82')
+  await expect.poll(() => page.locator('.message-item').count()).toBeLessThan(60)
   release()
-  await expect(page.locator('.message-item.assistant').last()).toContainText('这是新问题的完整回答')
+  await page.getByRole('button', { name: /跳转到第 \d+ 个提问：新问题$/ }).click()
   await expect(page.locator('[data-question-id="201"]')).toContainText('新问题')
-  await expect(page.locator('.message-item.assistant').first()).toContainText('回答 61')
+  await expect(page.locator('.message-item.assistant').last()).toContainText('这是新问题的完整回答')
+  await page.getByRole('button', { name: '跳转到第 61 个提问：问题 61', exact: true }).click()
+  await expect(page.locator('[data-question-id="121"]')).toContainText('问题 61')
   await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeVisible()
 })
 

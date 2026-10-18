@@ -18,7 +18,7 @@
     </section>
     <section class="panel">
       <div class="filters"><div class="tabs"><button v-for="item in tabs" :key="item.key" :class="{active:tab===item.key}" @click="changeTab(item.key)">{{ item.label }}</button></div>
-        <select v-model="state" aria-label="运行或任务状态" @change="page=1;loadRows()"><option v-for="s in states" :key="s" :value="s">{{ statusName(s) }}</option></select>
+        <AppSelect v-model="state" aria-label="运行或任务状态" @change="page=1;loadRows()"><AppSelectOption v-for="s in states" :key="s" :value="s">{{ statusName(s) }}</AppSelectOption></AppSelect>
       </div>
       <p class="note">仅展示运行状态和任务标识。重试将重新核验当前数据，不会重新执行整轮 AI 对话。</p>
       <ContentState v-if="loading" kind="loading" title="正在读取运行状态" />

@@ -6,7 +6,7 @@ import com.easyjob.agent.component.EsVectorStore;
 import com.easyjob.agent.service.QueryRewriteService;
 import com.easyjob.agent.service.RerankerService;
 import com.easyjob.agent.tool.ArticleTool;
-import com.easyjob.agent.tool.BochaSearchTool;
+import com.easyjob.agent.tool.DeepSeekSearchTool;
 import com.easyjob.component.EsComponent;
 import com.easyjob.dto.RewriteResult;
 import com.easyjob.entity.AiMessage;
@@ -32,7 +32,7 @@ public class SearchWorkerNode implements NodeAction {
     @Autowired
     private  ArticleTool articleTool;
     @Autowired
-    private  BochaSearchTool bochaSearchTool;
+    private  DeepSeekSearchTool deepSeekSearchTool;
     @Autowired
     private  EsVectorStore esVectorStore;
     @Autowired
@@ -122,7 +122,7 @@ public class SearchWorkerNode implements NodeAction {
 
         String result = workerClient.prompt()
                 .user(taskInput)
-                .tools(articleTool, bochaSearchTool)
+                .tools(articleTool, deepSeekSearchTool)
                 .toolContext(Map.of("conversationId", conversationId))
                 .call()
                 .content();

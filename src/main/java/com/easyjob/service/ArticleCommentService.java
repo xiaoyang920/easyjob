@@ -13,6 +13,9 @@ public interface ArticleCommentService extends IService<ArticleComment> {
     PageVO getCommentList(Long articleId, Integer page, Integer size, String sort);
 
     PageVO getReplies(Long commentId, Integer page, Integer size);
+    PageVO getQuoteComments(Long articleId, Integer page, Integer size);
+    PageVO getSelectedQuoteComments(Long articleId,Integer page,Integer size,java.util.List<Long> ids);
+    java.util.Map<String,Object> getQuoteMarkers(Long articleId,Long afterId,Integer size);
 
     ArticleCommentVO create(CommentCreateDTO commentCreateDTO);
 

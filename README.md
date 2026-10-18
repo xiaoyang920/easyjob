@@ -66,6 +66,8 @@ npm run dev
 
 中文技术词典、查询侧同义词与旧索引升级见 [中文检索配置](docs/chinese-search.md)。已有索引需按文档备份回填，新增字段不会自动处理旧文档。
 
+文章分批向量化的有界线程池、默认参数和本机HTTP模拟对比测试见 [Embedding线程池配置](docs/embedding-pool.md)。
+
 本机直接双击项目根目录的 **`启动项目.cmd`**。它会启动或复用 MySQL、缓存 Redis、Checkpoint Redis、Consul、Elasticsearch、RabbitMQ、Java、Python、网关和前端，全部检查通过后打开 `http://127.0.0.1:3000`。已有数据库本次升级先执行 `python scripts/migrate-service-boundaries.py` 应用增量迁移 021。
 
 第一次准备环境时仍需安装上述软件、创建 Python 虚拟环境并安装依赖、执行 `npm ci`、填写 Java/Python 本地配置并准备业务数据库。启动脚本使用本机现有安装目录；其他电脑可在 `scripts/start-local.ps1` 的参数中指定实际路径。缺少的 `temp/application-runtime.yml` 会由现有本地配置生成，已有配置保持原样，密码和密钥不打印到终端。
@@ -138,3 +140,9 @@ Agent 检索支持完整查询跳过额外改写、容量及过期受控的查�
 登录用户可在首页推荐卡片选择“不感兴趣”或“不再推荐该作者”，在“推荐偏好”中恢复。反馈按用户隔离，仅影响推荐列表，不影响搜索、最新发布或主动访问；作者屏蔽保留目标作者ID，原文章删除后仍有效。每人最多200条，写入用用户行锁保护上限，删除仅允许操作自己的记录。接口为 `GET /api/recommendation/feedback`、`PUT/DELETE /api/recommendation/feedback/{articleId}`。
 
 本地真实回归：先在 `python-agent` 执行 `python -m evaluation.platform --seed-browser`，再在 `frontend` 执行 `npx playwright install chromium` 和 `npm run test:browser`，最后执行 `python -m evaluation.platform --cleanup`。仅创建并清理核验过身份的临时账号、文章、分类、运行和登录凭证；夹具不提交仓库。`tests/integration/schema.sql` 仅供空的 `*_ci` 测试数据库初始化，不包含用户数据，不用于覆盖已有数据库。
+
+## 部署与交付验证
+
+[容器部署与备份恢复](deploy/README.md)提供 Java、Python、网关、前端与依赖服务的一致配置和独立恢复流程。上传文件按用户归属隔离，校验真实图片格式及像素范围；历史消息使用可变高度窗口渲染，提问索引仍保留全量跳转。顶部导航常驻于页面切换之外，保持头像悬停交互。
+
+[运行质量说明](docs/runtime-quality.md)区分浏览器首段答案、服务端阶段耗时与真实 Token 样本。[人工评审工作台](docs/human-answer-review.md)可将已有真实输出生成为离线页面，逐题标注后再计算质量指标；不把自动核验或模拟数据当成人工准确率。

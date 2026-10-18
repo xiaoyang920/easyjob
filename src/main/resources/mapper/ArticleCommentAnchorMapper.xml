@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.easyjob.mapper.ArticleCommentAnchorMapper">
+    <select id="lockArticle" resultType="com.easyjob.entity.Article">
+        SELECT * FROM article_info WHERE article_id=#{articleId} FOR SHARE
+    </select>
+    <select id="findComments" resultType="com.easyjob.entity.ArticleComment">
+        SELECT c.* FROM comment c INNER JOIN article_comment_anchor a ON a.comment_id=c.comment_id
+        WHERE c.article_id=#{articleId} AND c.status=0 AND c.parent_id=0
+        ORDER BY c.create_time DESC,c.comment_id DESC
+    </select>
+    <insert id="insert">
+        INSERT INTO article_comment_anchor(comment_id,quote_text,quote_prefix,quote_suffix,start_offset,end_offset,content_hash)
+        VALUES(#{commentId},#{quote.exact},#{quote.prefix},#{quote.suffix},#{quote.start},#{quote.end},#{quote.contentHash})
+    </insert>
+    <select id="findMarkers" resultType="com.easyjob.entity.ArticleCommentAnchor">
+        SELECT a.comment_id,a.quote_text AS exact,a.quote_prefix AS prefix,a.quote_suffix AS suffix,
+               a.start_offset AS `start`,a.end_offset AS `end`,a.content_hash
+        FROM article_comment_anchor a INNER JOIN comment c ON c.comment_id=a.comment_id
+        WHERE c.article_id=#{articleId} AND c.status=0 AND c.parent_id=0 AND c.comment_id &gt; #{afterId}
+        ORDER BY c.comment_id LIMIT #{limit}
+    </select>
+    <select id="findSelectedComments" resultType="com.easyjob.entity.ArticleComment">
+        SELECT c.* FROM comment c INNER JOIN article_comment_anchor a ON a.comment_id=c.comment_id
+        WHERE c.article_id=#{articleId} AND c.status=0 AND c.parent_id=0 AND c.comment_id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+        ORDER BY c.create_time DESC,c.comment_id DESC
+    </select>
+    <select id="findByComments" resultType="com.easyjob.entity.ArticleCommentAnchor">
+        SELECT comment_id,quote_text AS exact,quote_prefix AS prefix,quote_suffix AS suffix,
+               start_offset AS `start`,end_offset AS `end`,content_hash
+        FROM article_comment_anchor WHERE comment_id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </select>
+</mapper>

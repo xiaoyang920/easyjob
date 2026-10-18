@@ -62,13 +62,13 @@ async def draft_generate_node(state: dict) -> dict:
     if state.get("revision"):
         task_input += "\n\n原草稿（含用户已编辑的标题、摘要及正文）：\n" + json.dumps(state['draft'], ensure_ascii=False)
         task_input += f"\n\n用户修改意见：{state['revision']}\n仅按意见修改，保留未要求改动的标题、摘要及正文。"
-    structured = await generate_draft(task_input, system_prompt)
+    structured = await generate_draft(task_input, system_prompt, execution_state=state)
     from app.graph.staged_runtime import invalid_references, assert_run
     await assert_run(state)
     if draft_invalid_references(structured.content, state):
         from app.services.agent_events import activity
         await activity(state, "citation_correction", "修正草稿引用")
-        structured = await generate_draft(task_input + "\n修正引用：仅使用依赖中提供的编号，不能编造引用。", system_prompt)
+        structured = await generate_draft(task_input + "\n修正引用：仅使用依赖中提供的编号，不能编造引用。", system_prompt, execution_state=state)
         if draft_invalid_references(structured.content, state):
             await activity(state, "citation_correction", "修正草稿引用", "error")
             raise ValueError("草稿包含无法定位的引用，不能进入审批")
@@ -148,7 +148,7 @@ def draft_reject_node(state: dict) -> dict:
     return {"worker_results": [{"worker_name": "writing", "result": "用户取消了草稿保存。"}],
             "draft_article_id": None}
 
-async def generate_draft(task_input: str, system_prompt: str) -> DraftOutput:
+async def generate_draft(task_input: str, system_prompt: str, *, execution_state=None) -> DraftOutput:
     # Writing consumes declared evidence and cannot execute retrieval tools.
     all_tools = []
     """生成文章草稿：LLM + Tool 多轮调用"""
@@ -158,6 +158,7 @@ async def generate_draft(task_input: str, system_prompt: str) -> DraftOutput:
         tools=all_tools,
         max_rounds=2,
         tag="writing_worker",
+        execution_state=execution_state,
     )
     from app.config import settings
     from app.utils.context_budget import ensure_request_budget

@@ -54,8 +54,9 @@ async def query(q,uid,database=db):
                 if rating not in ('helpful','problem','') or reason not in ('','irrelevant','incorrect','citation','incomplete','other') or not isinstance(comment,str) or len(comment)>500:raise HTTPException(422,'反馈内容无效')
                 if run['status']!='succeeded':raise HTTPException(409,'回答尚未完成')
                 if rating=='':await database.execute('DELETE FROM agent_answer_feedback WHERE run_id=:rid AND user_id=:uid',{'rid':q.name,'uid':uid})
-                else:await database.execute("""INSERT INTO agent_answer_feedback(run_id,user_id,rating,reason,comment) VALUES(:rid,:uid,:rating,:reason,:comment)
-                    ON DUPLICATE KEY UPDATE rating=VALUES(rating),reason=VALUES(reason),comment=VALUES(comment),updated_at=UTC_TIMESTAMP(6)""",{'rid':q.name,'uid':uid,'rating':rating,'reason':reason if rating=='problem' else '','comment':comment.strip()})
+                else:await database.execute("""INSERT INTO agent_answer_feedback(run_id,user_id,rating,reason,comment,feedback_generation) VALUES(:rid,:uid,:rating,:reason,:comment,UUID())
+                    ON DUPLICATE KEY UPDATE rating=VALUES(rating),reason=VALUES(reason),comment=VALUES(comment),updated_at=UTC_TIMESTAMP(6),
+                    review_state='pending',review_note='',handled_by=NULL,handled_at=NULL,feedback_generation=UUID(),review_version=review_version+1""",{'rid':q.name,'uid':uid,'rating':rating,'reason':reason if rating=='problem' else '','comment':comment.strip()})
             row=await database.fetch_one('SELECT rating,reason,comment,updated_at FROM agent_answer_feedback WHERE run_id=:rid AND user_id=:uid',{'rid':q.name,'uid':uid})
         return dict(row._mapping) if row else None
     if q.kind=='feedback_report':
@@ -63,7 +64,11 @@ async def query(q,uid,database=db):
         values=pagination(q)
         where='' if q.source=='all' else ' WHERE r.data_source=:source'
         if q.source!='all':values['source']=q.source
-        rows=await database.fetch_all('SELECT f.run_id,f.rating,f.reason,f.created_at,f.updated_at,r.data_source FROM agent_answer_feedback f JOIN agent_run r ON r.run_id=f.run_id'+where+' ORDER BY f.updated_at DESC,f.run_id LIMIT :limit OFFSET :offset',values)
+        rows=await database.fetch_all('SELECT f.run_id,f.rating,f.reason,f.review_state,f.created_at,f.updated_at,r.data_source FROM agent_answer_feedback f JOIN agent_run r ON r.run_id=f.run_id AND r.user_id=f.user_id'+where+' ORDER BY f.updated_at DESC,f.run_id LIMIT :limit OFFSET :offset',values)
         counts=await database.fetch_all('SELECT f.rating,f.reason,COUNT(*) AS count FROM agent_answer_feedback f JOIN agent_run r ON r.run_id=f.run_id'+where+' GROUP BY f.rating,f.reason',{} if q.source=='all' else {'source':q.source})
-        return {'rows':[dict(r._mapping) for r in rows],'counts':[dict(r._mapping) for r in counts]}
+        total=await database.fetch_val('SELECT COUNT(*) FROM agent_answer_feedback f JOIN agent_run r ON r.run_id=f.run_id AND r.user_id=f.user_id'+where,{} if q.source=='all' else {'source':q.source})
+        return {'rows':[dict(r._mapping) for r in rows],'counts':[dict(r._mapping) for r in counts],'total':total}
+    if q.kind in ('feedback_detail','feedback_review'):
+        from app.services.feedback_review import query as feedback_review
+        return await feedback_review(q,uid,database)
     raise HTTPException(422,'查询类型无效')

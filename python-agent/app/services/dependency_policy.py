@@ -17,7 +17,7 @@ class DependencyHTTPError(ConnectionError):
 
 def transient(error):
     code = getattr(error, 'status_code', None) or getattr(getattr(error, 'response', None), 'status_code', None)
-    return code == 429 or isinstance(code, int) and 500 <= code < 600 or (
+    return code in (408, 429) or isinstance(code, int) and 500 <= code < 600 or (
         code is None and isinstance(error, (TimeoutError, httpx.RequestError, ConnectionError, ZhipuConnectionError)))
 
 
@@ -63,5 +63,6 @@ class DependencyPolicy:
 
 
 web_policy = DependencyPolicy('联网搜索', timeout=16)
+fetch_policy = DependencyPolicy('网页抓取', timeout=8, concurrency=2)
 rerank_policy = DependencyPolicy('精排服务', timeout=18)
 embedding_policy = DependencyPolicy('向量服务', timeout=20)

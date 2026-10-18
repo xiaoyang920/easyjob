@@ -11,4 +11,5 @@ public class AdminAgentMetricsMapper {
     public List<Map<String,Object>> countStates(java.sql.Timestamp start,java.sql.Timestamp end,String source) { return rpc.serviceRows("metric_states",start,end,source); }
     public List<Map<String,Object>> findMetrics(java.sql.Timestamp start,java.sql.Timestamp end,String source) { return rpc.serviceRows("metric_rows",start,end,source); }
     public List<Map<String,Object>> countDaily(java.sql.Timestamp start,java.sql.Timestamp end,String source) { return rpc.serviceRows("metric_daily",start,end,source); }
+    public List<Map<String,Object>> findStages(java.sql.Timestamp start,java.sql.Timestamp end,String source) { return rpc.serviceRows("metric_stages",start,end,source); }
 }

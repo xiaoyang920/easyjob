@@ -40,6 +40,7 @@ async def analysis_worker_node(state: AgentState) -> dict:
         tools=all_tools,
         max_rounds=2,
         tag="analysis_worker",
+        execution_state=state,
     )
 
     return {

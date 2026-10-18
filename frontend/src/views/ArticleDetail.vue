@@ -1,47 +1,41 @@
 <template>
-  <div :class="['article-detail-page', { 'ai-question-open': showAiQuestion }]">
+  <div :class="['article-detail-page', { 'ai-question-open': showAiQuestion, 'reading-wide': readingWide }]" :style="readingStyle">
     <!-- 导航栏 -->
-    <nav class="navbar">
-      <div class="logo" @click="$router.push('/')">
-        <svg class="logo-icon" viewBox="0 0 1024 1024" fill="currentColor">
-          <path d="M512 1024c282.771692 0 512-229.228308 512-512S794.771692 0 512 0 0 229.228308 0 512s229.228308 512 512 512z m0-59.076923C261.858462 964.923077 59.076923 762.141538 59.076923 512S261.858462 59.076923 512 59.076923s452.923077 202.781538 452.923077 452.923077-202.781538 452.923077-452.923077 452.923077z"/>
-          <path d="M464.945231 748.642462c15.399385 3.042462 31.133538 4.588308 47.054769 4.588307 133.228308 0 241.230769-108.002462 241.230769-241.230769S645.228308 270.769231 512 270.769231 270.769231 378.771692 270.769231 512c0 15.921231 1.545846 31.655385 4.588307 47.054769a24.615385 24.615385 0 0 0 48.295385-9.550769A193.053538 193.053538 0 0 1 320 512c0-106.043077 85.956923-192 192-192S704 405.956923 704 512 618.043077 704 512 704c-12.701538 0-25.245538-1.230769-37.494154-3.652923a24.615385 24.615385 0 1 0-9.550769 48.295385z"/>
-          <path d="M512 512m-78.769231 0a78.769231 78.769231 0 1 0 157.538462 0 78.769231 78.769231 0 1 0-157.538462 0Z"/>
-          <path d="M510.385231 498.294154C396.465231 543.123692 320 653.351385 320 777.846154a24.615385 24.615385 0 1 0 49.230769 0 251.145846 251.145846 0 0 1 159.182769-233.737846 24.615385 24.615385 0 0 0-18.018461-45.814154z"/>
-        </svg>
-        <span class="logo-text">EasyJob</span>
-      </div>
-      <div class="nav-right">
+    <Teleport defer to="#page-header-actions"><div class="nav-right">
         <button class="nav-btn" @click="goBackOr(router, '/')">返回</button>
         <button v-if="isAuthor" class="nav-btn primary" @click="editArticle">编辑</button>
         <button v-if="isAuthor" class="nav-btn danger" @click="deleteArticle">删除</button>
-      </div>
-    </nav>
+      </div></Teleport>
 
     <!-- 主容器 -->
-    <div class="main-container">
+    <div v-if="articleLoading || articleError" class="article-load-state">
+      <ContentState v-if="articleLoading" kind="loading" title="正在读取文章" />
+      <ContentState v-else kind="error" title="文章暂时无法加载" :description="articleError" @retry="fetchArticle" />
+    </div>
+    <div v-else class="main-container">
       <!-- 左侧目录 -->
       <aside
-        ref="tocRef"
         class="toc-sidebar"
         @pointerenter="tocHovered = true"
         @pointerleave="tocHovered = false"
       >
         <div class="toc-title">文章目录</div>
-        <ul v-if="tocItems.length > 0" class="toc-list">
-          <li
-            v-for="(item, index) in tocItems"
-            :key="index"
-            :class="['toc-item', `level-${item.level}`, { active: activeHeading === item.id }]"
-          >
-            <a :href="`#${item.id}`" :title="item.text" @click.prevent="scrollToHeading(item.id)">
-              {{ item.text }}
-            </a>
-          </li>
-        </ul>
-        <div v-else class="toc-empty">
-          本文暂无目录
-        </div>
+        <nav ref="tocRef" class="toc-scroll" aria-label="文章目录" tabindex="0">
+          <ul v-if="tocItems.length > 0" class="toc-list">
+            <li
+              v-for="(item, index) in tocItems"
+              :key="index"
+              :class="['toc-item', `level-${item.level}`, { active: activeHeading === item.id }]"
+            >
+              <a :href="`#${item.id}`" :title="item.text" :aria-current="activeHeading === item.id ? 'location' : undefined" @click.prevent="scrollToHeading(item.id)">
+                {{ item.text }}
+              </a>
+            </li>
+          </ul>
+          <div v-else class="toc-empty">
+            本文暂无目录
+          </div>
+        </nav>
       </aside>
 
       <!-- 主内容区 -->
@@ -107,7 +101,22 @@
           </div>
 
           <!-- 文章内容 -->
-          <div v-if="article.canReadFull !== false" class="article-content" v-html="safeHtml(article.content)" ref="contentRef"></div>
+          <div v-if="resumeBookmark && article.canReadFull !== false" class="article-resume-prompt" role="status">
+            <span>上次读到：{{ resumeBookmark.headingText }}</span><button type="button" @click="resumeReading">继续阅读</button><button type="button" aria-label="关闭续读提示" @click="resumeBookmark = undefined">×</button>
+          </div>
+          <div v-if="article.content && article.canReadFull !== false" class="article-reading-tools" role="group" aria-label="阅读设置">
+            <span class="reading-tools-label">阅读设置</span>
+            <div class="reading-size-controls">
+              <button type="button" aria-label="缩小正文字号" :disabled="readingScale <= 90" @click="resizeReading(-10)">A−</button>
+              <button type="button" aria-label="恢复正文默认字号" title="恢复默认字号" @click="readingScale = 100">{{ readingScale }}%</button>
+              <button type="button" aria-label="放大正文字号" :disabled="readingScale >= 150" @click="resizeReading(10)">A+</button>
+            </div>
+            <button type="button" class="reading-width-toggle" :aria-pressed="readingWide" @click="readingWide = !readingWide">{{ readingWide ? '标准宽度' : '宽屏阅读' }}</button>
+            <button type="button" class="reading-comment-toggle" @click="annotationRef?.open()">划词评论<span v-if="annotationRef?.total"> · {{ annotationRef.total }}</span></button>
+            <button v-if="tocItems.length" type="button" class="mobile-toc-toggle" @click="mobileTocOpen = true">目录</button>
+            <button v-if="tocItems.length" type="button" @click="shareSection">分享本节</button>
+          </div>
+          <div v-if="article.canReadFull !== false" class="article-content" v-html="articleHtml" ref="contentRef" @click="handleCodeAction"></div>
           <div v-else class="reading-lock">
             <span class="reading-level-badge">L{{ article.requiredLevel }} 阅读内容</span>
             <h2>继续阅读，解锁这篇文章</h2>
@@ -116,9 +125,9 @@
           </div>
           <div v-if="article.viewerAdmin" class="reading-admin">
             <label for="article-reading-level">最低阅读等级</label>
-            <select id="article-reading-level" v-model.number="selectedReadingLevel" :disabled="savingReadingLevel">
-              <option v-for="rule in article.readingProgress?.rules || []" :key="rule.level" :value="rule.level">L{{ rule.level }}{{ rule.level === 0 ? ' · 公开' : '' }}</option>
-            </select>
+            <AppSelect id="article-reading-level" v-model.number="selectedReadingLevel" :disabled="savingReadingLevel">
+              <AppSelectOption v-for="rule in article.readingProgress?.rules || []" :key="rule.level" :value="rule.level">L{{ rule.level }}{{ rule.level === 0 ? ' · 公开' : '' }}</AppSelectOption>
+            </AppSelect>
             <button class="nav-btn" :disabled="savingReadingLevel || selectedReadingLevel === article.requiredLevel" @click="saveReadingLevel">{{ savingReadingLevel ? '保存中…' : '保存' }}</button>
             <span role="status">{{ readingLevelFeedback }}</span>
           </div>
@@ -165,10 +174,16 @@
         <!-- 评论区域 -->
         <ArticleComment 
           v-if="article.articleId"
+          ref="commentRef"
           :article-id="String(article.articleId)"
           :article-author-id="String(article.authorId || article.userId)"
           :target-comment-id="String(route.query.commentId || '')"
+          @locate-quote="annotationRef?.locate($event)"
+          @changed="annotationRef?.refresh()"
         />
+        <ArticleAnnotations v-if="article.articleId && article.canReadFull !== false" :key="String(article.articleId)" ref="annotationRef"
+          :article-id="String(article.articleId)" :article-author-id="String(article.authorId || article.userId)" :root="contentRef"
+          @changed="commentRef?.refresh()" @login="showLoginDialog = true" @opened="showAiQuestion = false" />
       </main>
 
       <!-- 右侧在线用户 -->
@@ -282,19 +297,26 @@
         </div>
       </div>
     </div>
+    <Teleport to="body">
     <!-- 图片预览弹窗 -->
     <div v-if="previewImage" class="image-preview-modal" @click="previewImage = ''">
       <img :src="previewImage" @click.stop />
       <span class="preview-close-btn" @click="previewImage = ''">×</span>
     </div>
 
+    </Teleport>
+    <CodeViewer v-model="codeViewerOpen" :code="previewCode.text" :language="previewCode.language" :initial-font-size="13.5 * readingScale / 100" />
+    <el-dialog v-model="mobileTocOpen" title="文章目录" width="420px" class="ej-dialog mobile-toc-dialog" append-to-body @closed="finishMobileTocSelection">
+      <nav class="mobile-article-outline" aria-label="手机文章目录"><ul class="toc-list"><li v-for="item in tocItems" :key="item.id" :class="['toc-item', `level-${item.level}`, {active: activeHeading === item.id}]"><a :href="`#${item.id}`" :aria-current="activeHeading === item.id ? 'location' : undefined" @click.prevent="selectMobileHeading(item.id)">{{ item.text }}</a></li></ul></nav>
+    </el-dialog>
+
     <!-- 登录弹窗 -->
-    <el-dialog v-model="showLoginDialog" title="" :width="dialogWidth" :close-on-click-modal="true" class="modern-dialog">
+    <el-dialog v-model="showLoginDialog" title="" :width="dialogWidth" :close-on-click-modal="true" class="modern-dialog ej-dialog" append-to-body>
       <LoginForm @success="handleLoginSuccess" @switchToRegister="switchToRegister" />
     </el-dialog>
 
     <!-- 注册弹窗 -->
-    <el-dialog v-model="showRegisterDialog" title="" :width="dialogWidth" :close-on-click-modal="true" class="modern-dialog">
+    <el-dialog v-model="showRegisterDialog" title="" :width="dialogWidth" :close-on-click-modal="true" class="modern-dialog ej-dialog" append-to-body>
       <RegisterForm @success="handleRegisterSuccess" @switchToLogin="switchToLogin" />
     </el-dialog>
   </div>
@@ -304,11 +326,12 @@
 import { trackEffectiveReading } from '@/utils/effectiveReading'
 import ReadingProgress from '@/components/ReadingProgress.vue'
 import { ReadingHeartbeatPump, readingDuration, type ReadingProgress as Progress } from '@/utils/readingGrowth'
-import { ref, onMounted, onUnmounted, nextTick, computed, watch, defineAsyncComponent } from 'vue'
+import { ref, onMounted, onBeforeUnmount, onUnmounted, nextTick, computed, watch, defineAsyncComponent } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { goBackOr, goBackUnless } from '../utils/navigation'
 import ArticleComment from '../components/ArticleComment.vue'
+import ArticleAnnotations from '@/components/ArticleAnnotations.vue'
 import LoginForm from '../components/LoginForm.vue'
 import RegisterForm from '../components/RegisterForm.vue'
 import request from '../utils/request'
@@ -316,8 +339,14 @@ import { ensureAccessToken } from '../utils/authSession'
 import { eventBus, EVENT_AUTH_EXPIRED } from '../utils/eventBus'
 import { avatarUrl, onAvatarError } from '../utils/avatar'
 // 只用 highlight.js 打 token 标记；配色在 styles/theme.css 中与编辑器共用
-import hljs from '@/utils/highlight'
+import { decorateCodeBlocks, clickedCode } from '@/utils/codeTools'
 import { safeHtml } from '@/utils/safeHtml'
+import CodeViewer from '@/components/CodeViewer.vue'
+import { useArticleReading } from '@/composables/useArticleReading'
+import ContentState from '@/components/ContentState.vue'
+import { errorMessage, notify } from '@/utils/feedback'
+import { latestRequest } from '@/utils/latestRequest'
+import { readingFingerprint, sectionId, readBookmark, saveBookmark, type ReadingBookmark } from '@/utils/articleReading'
 
 const AiChat = defineAsyncComponent(() => import('./AiChat.vue'))
 
@@ -341,6 +370,13 @@ const article = ref<any>({
   coverImage: '',
   isOriginal: false
 })
+const articleHtml = computed(() => safeHtml(article.value.content))
+const { scale: readingScale, wide: readingWide, style: readingStyle, resize: resizeReading } = useArticleReading()
+const codeViewerOpen = ref(false)
+const previewCode = ref({ text: '', language: '' })
+const articleLoading = ref(true), articleError = ref(''), detailRequests = latestRequest()
+const mobileTocOpen = ref(false), resumeBookmark = ref<ReadingBookmark>()
+let mobileHeading = '', bookmarkTimer: ReturnType<typeof setTimeout> | undefined, currentFingerprint = ''
 
 const tocItems = ref<any[]>([])
 const activeHeading = ref('')
@@ -372,6 +408,8 @@ function keepActiveTocItemVisible() {
 
 watch(activeHeading, () => nextTick(keepActiveTocItemVisible))
 const contentRef = ref<HTMLElement>()
+const annotationRef = ref<InstanceType<typeof ArticleAnnotations>>()
+const commentRef = ref<InstanceType<typeof ArticleComment>>()
 
 // 图片预览
 const previewImage = ref('')
@@ -399,6 +437,7 @@ function updateAiLayout() {
 }
 
 watch(showAiQuestion, () => nextTick(updateAiLayout))
+watch(readingWide, () => nextTick(updateAiLayout))
 
 function openAiQuestion() {
   if (article.value.requiredLevel > 0) return
@@ -481,12 +520,15 @@ async function startGrowth(articleId: string) {
 
 // 获取文章详情
 async function fetchArticle() {
+  const ticket = detailRequests.begin()
+  articleLoading.value = true; articleError.value = ''
+  stopReading?.(); stopGrowth?.()
   try {
     const articleId = route.params.id
     console.log('获取文章详情:', articleId)
     
-    const res = await request.get(`/article/detail/${articleId}`)
-    if (detailDisposed || String(route.params.id) !== String(articleId)) return
+    const res = await request.get(`/article/detail/${articleId}`, { signal: ticket.signal })
+    if (!ticket.isCurrent() || detailDisposed || String(route.params.id) !== String(articleId)) return
     console.log('文章详情响应:', res)
     
     if (res.code === 200 && res.data) {
@@ -505,24 +547,29 @@ async function fetchArticle() {
       console.log('文章数据:', article.value)
       console.log('点赞状态:', article.value.hasLiked, '收藏状态:', article.value.hasCollected, '分享数:', shareCount.value)
       
-      // 等待DOM更新后生成目录和代码高亮
+      articleLoading.value = false
+      // Wait until the loading state has yielded the actual article DOM.
       await nextTick()
       if (detailDisposed || String(route.params.id) !== String(articleId)) return
       generateTOC()
       highlightCode()
       bindImagePreview()  // 绑定图片点击预览
+      if (aiLayoutObserver && onlineSidebarRef.value?.parentElement) aiLayoutObserver.observe(onlineSidebarRef.value.parentElement)
+      currentFingerprint = readingFingerprint(article.value.content || '')
+      resumeBookmark.value = article.value.canReadFull !== false && !window.location.hash ? readBookmark(String(articleId), currentFingerprint) : undefined
+      const linkedHeading = decodeSectionHash()
+      if (linkedHeading) requestAnimationFrame(() => { if (!detailDisposed) scrollToHeading(linkedHeading) })
       stopReading?.()
       if (article.value.canReadFull !== false) {
         stopReading = trackEffectiveReading(() => increaseViewCount(String(articleId)))
         void startGrowth(String(articleId))
       }
     } else {
-      alert(res.message || '获取文章失败')
+      throw new Error(res.message || '文章不存在或暂时无法读取')
     }
   } catch (error) {
-    console.error('获取文章详情失败:', error)
-    alert('获取文章失败')
-  }
+    if (ticket.isCurrent() && !detailDisposed) articleError.value = errorMessage(error, '获取文章失败，请稍后重试')
+  } finally { if (ticket.isCurrent() && !detailDisposed) articleLoading.value = false }
 }
 
 // 生成目录
@@ -532,11 +579,14 @@ function generateTOC() {
   
   const headings = contentRef.value.querySelectorAll('h1, h2, h3, h4, h5, h6')
   const items: any[] = []
+  const occurrences = new Map<string, number>()
   
-  headings.forEach((heading, index) => {
+  headings.forEach((heading) => {
     const level = parseInt(heading.tagName.substring(1))
     const text = heading.textContent || ''
-    const id = `heading-${index}`
+    const occurrence = occurrences.get(text.trim()) || 0
+    occurrences.set(text.trim(), occurrence + 1)
+    const id = sectionId(text, occurrence)
     
     // 给标题添加ID
     heading.id = id
@@ -551,12 +601,14 @@ function generateTOC() {
 // 代码高亮
 function highlightCode() {
   if (!contentRef.value) return
-  
-  const codeBlocks = contentRef.value.querySelectorAll('pre code')
-  codeBlocks.forEach((block) => {
-    hljs.highlightElement(block as HTMLElement)
-  })
-  console.log('代码高亮完成，共', codeBlocks.length, '个代码块')
+  decorateCodeBlocks(contentRef.value, true)
+}
+
+function handleCodeAction(event: MouseEvent) {
+  const code = clickedCode(event, contentRef.value)
+  if (!code) return
+  previewCode.value = code
+  codeViewerOpen.value = true
 }
 
 // 绑定文章内容图片点击预览
@@ -582,8 +634,9 @@ let settleTimer: ReturnType<typeof setTimeout> | undefined
 
 // 导航栏高度随断点变化，按实际渲染位置计算偏移
 function getHeadingOffset(): number {
-  const navbar = document.querySelector<HTMLElement>('.article-detail-page .navbar')
-  return (navbar?.getBoundingClientRect().bottom ?? 0) + HEADING_GAP
+  const navbar = document.querySelector<HTMLElement>('.app-header')
+  const tools = document.querySelector<HTMLElement>('.article-reading-tools')
+  return (navbar?.getBoundingClientRect().bottom ?? 0) + (tools ? tools.offsetHeight + 8 : 0) + HEADING_GAP
 }
 
 // 滚动到标题：一次性计算目标位置，避免两段平滑滚动互相打断
@@ -600,7 +653,55 @@ function scrollToHeading(id: string) {
 
 function scheduleSettle() {
   clearTimeout(settleTimer)
-  settleTimer = setTimeout(() => { pendingHeading = '' }, SCROLL_SETTLE_MS)
+  settleTimer = setTimeout(() => { pendingHeading = ''; persistReadingPosition() }, SCROLL_SETTLE_MS)
+}
+
+function decodeSectionHash(): string | undefined {
+  let hash = ''
+  try { hash = decodeURIComponent(window.location.hash.slice(1)) } catch { return }
+  if (tocItems.value.some(item => item.id === hash)) return hash
+  const legacy = /^heading-(\d+)$/.exec(hash)
+  return legacy ? tocItems.value[Number(legacy[1])]?.id : undefined
+}
+function handleSectionHashChange() {
+  const id = decodeSectionHash()
+  if (id) requestAnimationFrame(() => { if (!detailDisposed) scrollToHeading(id) })
+}
+watch(() => route.hash, handleSectionHashChange)
+function selectMobileHeading(id: string) { mobileHeading = id; mobileTocOpen.value = false }
+function finishMobileTocSelection() {
+  const id = mobileHeading; mobileHeading = ''
+  if (id) void nextTick(() => scrollToHeading(id))
+}
+async function shareSection() {
+  const item = tocItems.value.find(item => item.id === activeHeading.value) || tocItems.value[0]
+  if (!item) return
+  const url = new URL(window.location.href); url.hash = item.id
+  try { await navigator.clipboard.writeText(url.toString()); notify.success('已复制本节链接，打开后会定位到该章节') }
+  catch { notify.error('链接复制失败，请检查浏览器剪贴板权限后重试') }
+}
+function persistReadingPosition() {
+  const root = contentRef.value
+  if (!root || articleLoading.value || articleError.value || !currentFingerprint || article.value.canReadFull === false) return
+  const index = tocItems.value.findIndex(item => item.id === activeHeading.value)
+  if (index < 0) return
+  const item = tocItems.value[index], heading = document.getElementById(item.id)
+  if (!heading) return
+  const top = heading.getBoundingClientRect().top, next = document.getElementById(tocItems.value[index + 1]?.id || '')
+  const end = next?.getBoundingClientRect().top ?? root.getBoundingClientRect().bottom
+  saveBookmark({ articleId: currentArticleId, fingerprint: currentFingerprint, headingId: item.id, headingText: item.text.slice(0, 200), fraction: Math.max(0, Math.min(1, (getHeadingOffset() - top) / Math.max(1, end - top))), updatedAt: Date.now() })
+}
+async function resumeReading() {
+  const saved = resumeBookmark.value; resumeBookmark.value = undefined
+  await nextTick()
+  if (!saved || saved.fingerprint !== currentFingerprint) return
+  const index = tocItems.value.findIndex(item => item.id === saved.headingId), heading = document.getElementById(saved.headingId)
+  if (index < 0 || !heading || !contentRef.value) return
+  const top = heading.getBoundingClientRect().top, next = document.getElementById(tocItems.value[index + 1]?.id || '')
+  const end = next?.getBoundingClientRect().top ?? contentRef.value.getBoundingClientRect().bottom
+  activeHeading.value = saved.headingId; pendingHeading = saved.headingId
+  window.scrollTo({ top: Math.max(0, top + scrollY + saved.fraction * (end - top) - getHeadingOffset()), behavior: 'auto' })
+  scheduleSettle()
 }
 
 // 点赞
@@ -988,7 +1089,7 @@ function handleScroll() {
     scheduleSettle()
     return
   }
-  const headings = document.querySelectorAll('[id^="heading-"]')
+  const headings = contentRef.value?.querySelectorAll('h1,h2,h3,h4,h5,h6') || []
   // 与跳转偏移使用同一基准，跳转后的标题即为当前高亮项
   const threshold = getHeadingOffset() + 1
   let currentActive = ''
@@ -1001,6 +1102,8 @@ function handleScroll() {
   })
   
   activeHeading.value = currentActive
+  clearTimeout(bookmarkTimer)
+  bookmarkTimer = setTimeout(persistReadingPosition, 250)
 }
 
 // 登录过期处理
@@ -1014,6 +1117,8 @@ onMounted(() => {
   eventBus.on(EVENT_AUTH_EXPIRED, handleAuthExpired)
   fetchArticle()
   window.addEventListener('scroll', handleScroll)
+  window.addEventListener('pagehide', persistReadingPosition)
+  window.addEventListener('hashchange', handleSectionHashChange)
   window.addEventListener('resize', updateAiLayout)
   updateAiLayout()
   aiLayoutObserver = new ResizeObserver(updateAiLayout)
@@ -1025,10 +1130,14 @@ onMounted(() => {
 })
 
 // 清理事件监听
+onBeforeUnmount(persistReadingPosition)
 onUnmounted(() => {
   detailDisposed = true
   eventBus.off(EVENT_AUTH_EXPIRED, handleAuthExpired)
   window.removeEventListener('scroll', handleScroll)
+  window.removeEventListener('pagehide', persistReadingPosition)
+  window.removeEventListener('hashchange', handleSectionHashChange)
+  detailRequests.cancel(); clearTimeout(bookmarkTimer)
   window.removeEventListener('resize', updateAiLayout)
   aiLayoutObserver?.disconnect()
   clearTimeout(settleTimer)
@@ -1041,6 +1150,8 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.mobile-article-outline .toc-item a { display:block; white-space:normal; overflow-wrap:anywhere; color:var(--ej-muted); }
+.mobile-article-outline .toc-item.active a { background:var(--studio-lime-soft); color:var(--ej-ink); border-left-color:var(--ej-ink); }
 .article-detail-page {
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   min-height: 100vh;
@@ -1151,6 +1262,8 @@ onUnmounted(() => {
 
 /* 左侧目录 */
 .toc-sidebar {
+  display: flex;
+  flex-direction: column;
   position: sticky;
   top: 100px;
   width: 280px;
@@ -1160,12 +1273,13 @@ onUnmounted(() => {
   border-radius: 15px;
   padding: 20px;
   max-height: calc(100vh - 150px);
-  overflow-y: auto;
+  overflow: hidden;
   flex-shrink: 0;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
 .toc-title {
+  flex-shrink: 0;
   font-size: 16px;
   font-weight: 600;
   color: #1a1a1a;
@@ -1178,10 +1292,18 @@ onUnmounted(() => {
   list-style: none;
 }
 
+.toc-scroll {
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scroll-padding-block: 8px;
+}
+
 .toc-item {
   margin: 8px 0;
   cursor: pointer;
-  transition: all 0.3s;
 }
 
 .toc-item a {
@@ -1192,7 +1314,7 @@ onUnmounted(() => {
   border-radius: 6px;
   font-size: 14px;
   line-height: 1.5;
-  transition: all 0.3s;
+  transition: color .18s, background-color .18s, border-color .18s;
   border-left: 3px solid transparent;
 }
 
@@ -1200,7 +1322,6 @@ onUnmounted(() => {
   background: rgba(17, 17, 15, 0.1);
   color: var(--ej-accent);
   border-left-color: var(--ej-accent);
-  transform: translateX(5px);
 }
 
 .toc-item.active a {
@@ -1211,10 +1332,11 @@ onUnmounted(() => {
 }
 
 .toc-item.level-1 { padding-left: 0; }
-.toc-item.level-2 { padding-left: 15px; font-size: 13px; }
-.toc-item.level-3 { padding-left: 30px; font-size: 12px; }
-.toc-item.level-4 { padding-left: 45px; font-size: 12px; }
-.toc-item.level-5 { padding-left: 60px; font-size: 12px; }
+.toc-item.level-2 { padding-left: 8px; }
+.toc-item.level-3 { padding-left: 16px; }
+.toc-item.level-4 { padding-left: 24px; }
+.toc-item.level-5 { padding-left: 32px; }
+.toc-item.level-6 { padding-left: 40px; }
 
 .toc-empty {
   color: #999;

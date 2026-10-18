@@ -22,6 +22,7 @@ from app.graph.staged_plan import DependencyPlan, DelegatedTask, DraftRequest
 from app.graph.state_factory import create_initial_state
 from app.graph.nodes import writing_worker
 from app.models.draft import DraftOutput
+from app.services.tool_recovery import ToolTaskError
 from fakes import repository, RUN_ID
 from test_main_agent import llm, evidence, run_updates
 
@@ -40,6 +41,31 @@ def search_result(tid, status="succeeded"):
 
 
 class ActionLoopTests(unittest.IsolatedAsyncioTestCase):
+    async def test_exhausted_tool_repair_reaches_main_and_blocks_only_dependents(self):
+        tasks = [DelegatedTask(task_id='a', subagent='search', instruction='A'),
+                 DelegatedTask(task_id='b', subagent='search', instruction='B'),
+                 DelegatedTask(task_id='c', subagent='analysis', instruction='C needs A and B',
+                               depends_on=['a', 'b'], requires_evidence=True)]
+        model, control = llm([delegate(tasks), MainDecision(action='answer', reply='Only A completed [a:1]')])
+        async def search(state):
+            if state['task_id'] == 'b':
+                raise ToolTaskError('TOOL_REPAIR_EXHAUSTED', '工具参数修正一次后仍不合法',
+                                    tool='lookup', repair_attempts=1)
+            return search_result('a')
+        with patch.object(agent, 'get_llm', return_value=model), \
+             patch.object(runtime, 'search_worker_node', side_effect=search), \
+             patch.object(runtime, 'analysis_worker_node', AsyncMock()) as dependent:
+            result, _ = await run_updates(builder._build_graph().compile(checkpointer=InMemorySaver()),
+                                           create_initial_state(7, 'compare', []))
+        self.assertEqual(result['task_results']['a']['status'], 'succeeded')
+        self.assertEqual(result['task_results']['b']['status'], 'tool_error')
+        self.assertEqual(result['task_results']['c']['status'], 'blocked')
+        dependent.assert_not_awaited()
+        context = json.loads(control.ainvoke.await_args_list[1].args[0][1].content)
+        report = context['observations'][0]['tool_failures']['b']
+        self.assertEqual((report['code'], report['tool'], report['repair_attempts']),
+                         ('TOOL_REPAIR_EXHAUSTED', 'lookup', 1))
+
     async def test_main_observes_tool_error_and_changes_strategy_without_exposing_error_details(self):
         model, control = llm([retrieve("first"), retrieve("narrower", "new_source"),
                               MainDecision(action="answer", reply="found [new_source:1]")])

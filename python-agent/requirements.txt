@@ -19,10 +19,12 @@ setuptools==80.9.0
 # MCP 1.19 imports a private Pydantic helper removed in newer releases.
 # Keep the version validated with the pinned MCP SDK below.
 pydantic==2.12.5
+jsonschema>=4.23,<5.0
 python-dotenv>=1.0.1,<2.0
 
 # MySQL 异步驱动
 aiomysql>=0.2,<1.0
+PyMySQL[rsa]>=1.1,<2.0
 # 异步 ORM（轻量级，比 SQLAlchemy 更简洁）
 databases[mysql]>=0.9,<1.0
 # 图片压缩

@@ -1,12 +1,12 @@
 <template>
   <section class="review-panel">
-    <div class="review-toolbar"><p>逐版本审核，已发布文章的修改通过后才会替换公开内容。</p><select v-model.number="state" aria-label="审核状态" @change="page=1;load()"><option :value="1">待审核</option><option :value="2">已通过</option><option :value="3">已驳回</option><option :value="4">已撤回</option></select><button @click="load">刷新</button></div>
+    <div class="review-toolbar"><p>逐版本审核，已发布文章的修改通过后才会替换公开内容。</p><AppSelect v-model.number="state" aria-label="审核状态" @change="page=1;load()"><AppSelectOption :value="1">待审核</AppSelectOption><AppSelectOption :value="2">已通过</AppSelectOption><AppSelectOption :value="3">已驳回</AppSelectOption><AppSelectOption :value="4">已撤回</AppSelectOption></AppSelect><button @click="load">刷新</button></div>
     <ContentState v-if="loading" kind="loading" title="正在加载审核队列" />
     <ContentState v-else-if="error" kind="error" title="审核队列加载失败" :description="error" @retry="load" />
     <ContentState v-else-if="!rows.length" kind="empty" title="暂无审核记录" />
     <div v-else class="review-table-wrap"><table><thead><tr><th>文章</th><th>作者</th><th>版本</th><th>提交于</th><th></th></tr></thead><tbody><tr v-for="row in rows" :key="row.revisionId"><td><strong>{{ row.title }}</strong><small v-if="row.reason">驳回原因：{{ row.reason }}</small></td><td>{{ row.authorName }}</td><td>V{{ row.version }}</td><td>{{ time(row.submittedAt) }}</td><td><button :disabled="detailLoading" @click="open(row.revisionId)">{{ state===1?'查看并审核':'查看记录' }}</button></td></tr></tbody></table></div>
     <div class="review-pagination"><span>共 {{ total }} 条</span><button :disabled="loading || page<=1" @click="page--;load()">上一页</button><span>{{ page }} / {{ Math.max(1,pages) }}</span><button :disabled="loading || page>=pages" @click="page++;load()">下一页</button></div>
-    <el-dialog v-model="visible" title="文章版本审核" width="min(1200px, 94vw)" :close-on-click-modal="false" destroy-on-close>
+    <el-dialog v-model="visible" title="文章版本审核" width="min(1200px, 94vw)" :close-on-click-modal="false" destroy-on-close append-to-body class="ej-dialog">
       <ContentState v-if="detailLoading" kind="loading" title="正在加载完整版本" />
       <template v-else-if="detail">
         <div class="review-version-note">V{{ detail.version }} · {{ revisionLabel(detail.state) }} · 内容校验 {{ detail.contentHash?.slice(0,12) }}<p v-if="!detail.hasPublishedVersion">首次发布，审核通过前社区无法阅读。</p><p v-else>左侧为提交时的公开基准版本，右侧为本次提交。审核通过后替换正文，保留文章 ID、发布时间和互动数据。</p></div>

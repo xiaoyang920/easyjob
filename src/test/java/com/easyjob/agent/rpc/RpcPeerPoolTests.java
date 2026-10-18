@@ -8,6 +8,42 @@ import java.util.concurrent.atomic.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class RpcPeerPoolTests {
+    @Test void failedConnectionIsReplacedAtSameHealthyAddressWithoutReplayingWork() {
+        var creates=new AtomicInteger();var disposed=new ArrayList<Integer>();
+        try(var pool=new RpcPeerPool<Integer>(2,Duration.ofMinutes(5),target -> creates.incrementAndGet(),disposed::add)) {
+            var failed=pool.acquire("agent:50051");assertEquals(1,failed.value());
+            failed.invalidate();failed.close();
+            pool.reconcile(List.of("agent:50051"));
+            try(var next=pool.acquire("agent:50051")) { assertEquals(2,next.value()); }
+            assertEquals(List.of(1),disposed);
+            assertEquals(2,creates.get());
+        }
+        assertEquals(List.of(1,2),disposed);
+    }
+    @Test void invalidTransportCannotBeRevivedWhileOtherCallsAreDraining() {
+        var creates=new AtomicInteger();var disposed=new ArrayList<Integer>();
+        try(var pool=new RpcPeerPool<Integer>(2,Duration.ofMinutes(5),target -> creates.incrementAndGet(),disposed::add)) {
+            var first=pool.acquire("agent");var ongoing=pool.acquire("agent");
+            assertEquals(1,first.value());assertEquals(1,ongoing.value());
+            first.invalidate();first.close();pool.reconcile(List.of("agent"));
+            assertTrue(disposed.isEmpty());
+            assertThrows(IllegalStateException.class,() -> pool.acquire("agent"));
+            ongoing.close();assertEquals(List.of(1),disposed);
+            try(var next=pool.acquire("agent")) { assertEquals(2,next.value()); }
+            first.invalidate();first.close();ongoing.invalidate();ongoing.close();
+            assertEquals(List.of(1),disposed); // Late callbacks never close it twice.
+        }
+        assertEquals(List.of(1,2),disposed);
+    }
+    @Test void lateStreamFailureAfterCancellationRetiresTheIdlePeerOnce() {
+        var disposed=new ArrayList<String>();
+        try(var pool=new RpcPeerPool<String>(2,Duration.ofMinutes(5),target -> target,disposed::add)) {
+            var cancelled=pool.acquire("agent");cancelled.value();cancelled.close();
+            cancelled.invalidate();cancelled.invalidate();
+            assertEquals(List.of("agent"),disposed);assertEquals(0,pool.size());
+        }
+        assertEquals(List.of("agent"),disposed);
+    }
     @Test void endpointChurnBeyondCapacityClosesWithdrawnPeers() {
         var closed=new ArrayList<String>();
         try(var pool=new RpcPeerPool<String>(4,Duration.ofMinutes(5),s -> s,closed::add)) {

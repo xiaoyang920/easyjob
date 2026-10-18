@@ -1,6 +1,6 @@
 <template>
   <div class="memory-page">
-    <nav class="navbar"><RouterLink class="logo" to="/">EasyJob</RouterLink><span class="page-title">长期记忆</span><AppNavigation /></nav>
+
     <main class="memory-layout">
       <header class="memory-heading"><div><h1>让助手更懂你</h1><p>查看它记住了什么，也由你决定保留什么。修改将在下一次提问时生效。</p></div><RouterLink class="memory-button" to="/ai-chat">回到对话 ↗</RouterLink></header>
       <ContentState v-if="loading && !data" kind="loading" title="正在读取记忆" />
@@ -46,7 +46,6 @@
 </template>
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import AppNavigation from '@/components/AppNavigation.vue'
 import ContentState from '@/components/ContentState.vue'
 import request from '@/utils/request'
 import { notify, errorMessage, confirmAction } from '@/utils/feedback'

@@ -1,11 +1,7 @@
 <template>
   <div class="edit-profile-page">
     <!-- 导航栏 -->
-    <nav class="navbar">
-      <div class="logo" @click="$router.push('/')">EasyJob</div>
-      <span class="page-title">编辑资料</span>
-      <AppNavigation />
-    </nav>
+
 
     <main class="container">
       <header class="page-header">
@@ -65,11 +61,11 @@
             <div class="form-row">
               <div class="form-item">
                 <label for="profile-sex">性别</label>
-                <select id="profile-sex" v-model="profile.sex">
-                  <option :value="2">未知</option>
-                  <option :value="1">男</option>
-                  <option :value="0">女</option>
-                </select>
+                <AppSelect id="profile-sex" v-model="profile.sex">
+                  <AppSelectOption :value="2">未知</AppSelectOption>
+                  <AppSelectOption :value="1">男</AppSelectOption>
+                  <AppSelectOption :value="0">女</AppSelectOption>
+                </AppSelect>
               </div>
               <div class="form-item">
                 <label for="profile-birthday">生日</label>
@@ -120,11 +116,11 @@
 
             <div class="form-item">
               <label for="profile-theme">主题</label>
-              <select id="profile-theme" v-model="profile.theme">
-                <option :value="1">默认主题</option>
-                <option :value="2">暗黑主题</option>
-                <option :value="3">梦幻主题</option>
-              </select>
+              <AppSelect id="profile-theme" v-model="profile.theme">
+                <AppSelectOption :value="1">默认主题</AppSelectOption>
+                <AppSelectOption :value="2">暗黑主题</AppSelectOption>
+                <AppSelectOption :value="3">梦幻主题</AppSelectOption>
+              </AppSelect>
             </div>
           </section>
 
@@ -139,17 +135,16 @@
     </main>
 
     <!-- 登录弹窗 -->
-    <el-dialog v-model="showLoginDialog" title="" :width="dialogWidth" :close-on-click-modal="true" class="modern-dialog">
+    <el-dialog v-model="showLoginDialog" title="" :width="dialogWidth" :close-on-click-modal="true" class="modern-dialog ej-dialog" append-to-body>
       <LoginForm @success="handleLoginSuccess" @switchToRegister="switchToRegister" />
     </el-dialog>
-    <el-dialog v-model="showRegisterDialog" title="" :width="dialogWidth" :close-on-click-modal="true" class="modern-dialog">
+    <el-dialog v-model="showRegisterDialog" title="" :width="dialogWidth" :close-on-click-modal="true" class="modern-dialog ej-dialog" append-to-body>
       <RegisterForm @success="handleRegisterSuccess" @switchToLogin="switchToLogin" />
     </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import AppNavigation from '@/components/AppNavigation.vue'
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { goBackOr } from '../utils/navigation'
@@ -184,7 +179,7 @@ async function fetchProfile() {
     router.push('/login')
     return
   }
-  
+
   try {
     const res = await request.get(`/user/space/${userId}`)
     console.log('个人资料:', res)
@@ -211,12 +206,12 @@ async function saveProfile() {
     alert('请输入昵称')
     return
   }
-  
+
   if (profile.value.nickName.length < 2 || profile.value.nickName.length > 20) {
     alert('昵称长度应在2-20个字符之间')
     return
   }
-  
+
   saving.value = true
   try {
     const res = await request.put('/user/update', {
@@ -229,7 +224,7 @@ async function saveProfile() {
       noticeInfo: profile.value.noticeInfo,
       theme: profile.value.theme
     })
-    
+
     if (res.code === 200) {
       // 更新本地存储（缓存用户信息，避免重复查询）
       localStorage.setItem('nickName', profile.value.nickName)
@@ -253,16 +248,16 @@ async function uploadAvatar(event: Event) {
   const target = event.target as HTMLInputElement
   const file = target.files?.[0]
   if (!file) return
-  
+
   // 验证文件大小
   if (file.size > 15 * 1024 * 1024) {
     alert('文件大小不能超过15MB')
     return
   }
-  
+
   avatarUploading.value = true
   avatarProgress.value = 0
-  
+
   try {
     const res = await uploadFile({
       url: '/file/upload-avatar',
@@ -271,7 +266,7 @@ async function uploadAvatar(event: Event) {
         avatarProgress.value = percent
       }
     })
-    
+
     if (res.code === 200 && res.data?.url) {
       profile.value.avatar = res.data.url
       // 同步更新本地缓存，保证聊天页面使用最新头像

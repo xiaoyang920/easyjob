@@ -66,6 +66,8 @@ public class WebMvcConfig implements WebMvcConfigurer {
                 .excludePathPatterns("/api/category/list") // 首页分类导航
                 .excludePathPatterns("/api/comment/list")// 评论
                 .excludePathPatterns("/api/comment/replies")
+                .excludePathPatterns("/api/comment/quotes")
+                .excludePathPatterns("/api/comment/quote-markers")
                 // 排除搜索接口（公开）
                 .excludePathPatterns("/api/search/**")
                 // 排除静态资源（所有HTML、CSS、JS文件）

@@ -33,6 +33,7 @@ def progress_snapshot(state, node, status):
             results[tid] = result
             remaining -= cost
     return {'node': node, 'status': status, 'round': state.get('main_round', 0),
+            **({'decision_contract_audit': state['decision_contract_audit']} if state.get('decision_contract_audit') else {}),
             **({'grounding_audit': state['grounding_audit']} if state.get('grounding_audit') else {}),
             'tasks': {tid: result.get('status') for tid, result in (state.get('task_results') or {}).items()},
             'results': results}

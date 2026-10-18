@@ -1,5 +1,5 @@
 <template>
-  <el-dialog v-model="visible" title="文章版本历史" width="min(960px,94vw)" destroy-on-close>
+  <el-dialog v-model="visible" title="文章版本历史" width="min(960px,94vw)" destroy-on-close append-to-body class="ej-dialog">
     <ContentState v-if="loading" kind="loading" title="正在读取版本历史" />
     <ContentState v-else-if="error" kind="error" title="版本加载失败" :description="error" @retry="load" />
     <ContentState v-else-if="!rows.length" kind="empty" title="这篇文章尚未保存版本快照" />

@@ -7,6 +7,7 @@ import co.elastic.clients.json.JsonData;
 import com.easyjob.entity.DocumentChunk;
 import com.easyjob.exception.BusinessException;
 import com.easyjob.agent.service.ZhipuEmbeddingService;
+import com.easyjob.agent.service.ArticleEmbeddingService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -24,6 +25,8 @@ public class EsVectorStore {
     private  ElasticsearchClient esClient;
     @Autowired
     private ZhipuEmbeddingService embeddingService;
+    @Autowired
+    private ArticleEmbeddingService articleEmbeddingService;
     /**
      * 初始化索引
      */
@@ -57,13 +60,9 @@ public class EsVectorStore {
         }
         try {
             List<BulkOperation> operations = new ArrayList<>();
-            List<List<Double>> vectors = new ArrayList<>();
-            for (int start = 0; start < chunks.size(); start += 16) {
-                List<DocumentChunk> batch = chunks.subList(start, Math.min(start + 16, chunks.size()));
-                List<List<Double>> embedded = embeddingService.embedBatch(batch.stream().map(DocumentChunk::getEmbeddingText).toList());
-                if (embedded.size() != batch.size()) throw new BusinessException("Embedding返回数量与文本块不一致");
-                vectors.addAll(embedded);
-            }
+            List<List<Double>> vectors = articleEmbeddingService.embed(
+                    chunks.stream().map(DocumentChunk::getEmbeddingText).toList());
+            if (vectors.size() != chunks.size()) throw new BusinessException("Embedding返回数量与文本块不一致");
             for(int i = 0; i < chunks.size(); i++){
                 DocumentChunk chunk = chunks.get(i);
                 List<Double> vector = vectors.get(i);

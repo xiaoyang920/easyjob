@@ -17,7 +17,12 @@ if (@($listeners | Where-Object { $_.OwningProcess -notin @($targets.ProcessId) 
     throw 'Port 8000 belongs to an unverified process; refusing to stop it.'
 }
 foreach ($process in $targets) {
-    Stop-Process -Id $process.ProcessId -Force
+    # Stopping the child can also terminate its venv launcher. Treat that race
+    # as an already completed stop, while still surfacing real stop failures.
+    try { Stop-Process -Id $process.ProcessId -Force }
+    catch {
+        if (Get-Process -Id $process.ProcessId -ErrorAction SilentlyContinue) { throw }
+    }
 }
 $env:PYTHONUTF8 = '1'
 $env:PYTHONIOENCODING = 'utf-8'

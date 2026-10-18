@@ -29,24 +29,27 @@ spring:
     virtual-host: ${RABBITMQ_VIRTUAL_HOST:/}
     publisher-confirm-type: correlated
     publisher-returns: true
+    listener:
+      simple:
+        prefetch: 1
+        acknowledge-mode: auto
   mail:
     host: ${MAIL_HOST:smtp.qq.com}
     port: ${MAIL_PORT:587}
     username: ${MAIL_USERNAME:}
     password: ${MAIL_PASSWORD:}
   ai:
+    model:
+      chat: deepseek
     deepseek:
       api-key: ${DEEPSEEK_API_KEY:}
       chat:
         options:
-          model: ${DEEPSEEK_MODEL:deepseek-chat}
+          model: ${DEEPSEEK_MODEL:deepseek-flash}
           temperature: 0.7
           max-tokens: 5000
     zhipuai:
       api-key: ${ZHIPUAI_API_KEY:}
-      chat:
-        options:
-          model: ${ZHIPU_VISION_MODEL:glm-4.6v}
       embedding:
         options:
           model: ${ZHIPU_EMBEDDING_MODEL:embedding-3}
@@ -62,6 +65,17 @@ mybatis:
     map-underscore-to-camel-case: true
 
 agent:
+  embedding:
+    execution:
+      core-pool-size: ${EMBEDDING_CORE_THREADS:8}
+      max-pool-size: ${EMBEDDING_MAX_THREADS:8}
+      queue-capacity: ${EMBEDDING_QUEUE_CAPACITY:16}
+      keep-alive-seconds: 60
+      per-article-parallelism: ${EMBEDDING_ARTICLE_PARALLELISM:4}
+      batch-size: 16
+      article-timeout: ${EMBEDDING_ARTICLE_TIMEOUT:120s}
+  index-outbox:
+    consumer-concurrency: ${ARTICLE_INDEX_CONCURRENCY:4}
   internal-transport: ${AGENT_INTERNAL_TRANSPORT:triple}
   rpc:
     target: ${AGENT_RPC_TARGET:127.0.0.1:50051}
@@ -78,14 +92,11 @@ agent:
     top-k: 5
     similarity-threshold: 0.7
     es-index: article_vectors
-  bocha:
-    enabled: ${BOCHA_ENABLED:false}
-    api-key: ${BOCHA_API_KEY:}
-    base-url: https://api.bocha.cn/v1/web-search
-    timeout: 30
-    max-results: 10
+  web-search:
+    enabled: ${AGENT_WEB_SEARCH_ENABLED:true}
+    base-url: ${DEEPSEEK_TOOLS_BASE_URL:https://api.deepseek.com/v1}
+    max-results: 5
 
-# Generate a unique Base64-encoded secret of at least 64 bytes before starting.
 easyjob:
   jwt:
     secret-key: ${JWT_SECRET_KEY:}

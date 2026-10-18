@@ -71,6 +71,25 @@ test('parallel task updates are distinct, deduplicated and retained on completio
   assert.deepEqual(state.plan.map(task => task.status), ['done', 'done'])
 })
 
+test('complete plan text survives live events and history restoration beyond the old 120 character cut', () => {
+  const label = '核实角色出处，'.repeat(38) + '最后核对纳兰嫣然的服饰与原始发布来源。'
+  const event = { version: 1, kind: 'plan', tasks: [{ id: 'source', label, role: 'search', stage: 1 }] }
+  const state = createAgentState()
+  applyAgentEvent(state, event)
+  assert.equal(state.plan[0].label, label)
+  const restored = restoreAgentState({ runStatus: 'succeeded', agentEvents: [event] })
+  assert.equal(restored.plan[0].label, label)
+  assert.ok(restored.plan[0].label.endsWith('原始发布来源。'))
+})
+
+test('plan length guard respects Unicode characters without splitting an emoji', () => {
+  const state = createAgentState()
+  const label = '图'.repeat(3999) + '🙂' + '尾部超出服务端任务上限'
+  applyAgentEvent(state, { version: 1, kind: 'plan', tasks: [{ id: 'long', label, role: 'search', stage: 1 }] })
+  assert.equal(state.plan[0].label, '图'.repeat(3999) + '🙂')
+  assert.equal(Array.from(state.plan[0].label).length, 4000)
+})
+
 test('draft approval is paused until save and errors are not shown as successes', () => {
   const state = createAgentState()
   applyAgentEvent(state, { version: 1, kind: 'plan', tasks: [{ id: 'draft', label: '写草稿', role: 'writing', stage: 1 }] })

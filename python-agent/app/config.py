@@ -66,6 +66,7 @@ class Settings:
     # DeepSeek API
     DEEPSEEK_API_KEY: str = os.getenv("DEEPSEEK_API_KEY", "")
     DEEPSEEK_BASE_URL: str = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
+    DEEPSEEK_MODEL: str = os.getenv("DEEPSEEK_MODEL", "deepseek-flash")
     
     # DashScope (阿里云 Reranker)
     DASHSCOPE_API_KEY: str = os.getenv("DASHSCOPE_API_KEY", "")
@@ -86,9 +87,8 @@ class Settings:
     REDIS_STACK_DB: int = int(os.getenv("REDIS_STACK_DB", "0"))
     REDIS_STACK_PASSWORD: str = os.getenv("REDIS_STACK_PASSWORD")
     
-    # 博查搜索
-    BOCHA_API_KEY: str = os.getenv("BOCHA_API_KEY", "")
-    BOCHA_BASE_URL: str = os.getenv("BOCHA_BASE_URL", "https://api.bocha.cn/v1/web-search")
+    # DeepSeek Search / Fetch 与模型共用 API Key，工具端点独立于聊天代理地址。
+    DEEPSEEK_TOOLS_BASE_URL: str = os.getenv("DEEPSEEK_TOOLS_BASE_URL", "https://api.deepseek.com/v1")
     
     # RAG 参数
     COARSE_TOP_K: int = max(1, min(100, int(os.getenv("COARSE_TOP_K", "20"))))
@@ -102,7 +102,6 @@ class Settings:
     ZHIPUAI_API_KEY: str = os.getenv("ZHIPUAI_API_KEY", "")
     ZHIPU_EMBEDDING_MODEL: str = os.getenv("ZHIPU_EMBEDDING_MODEL", "embedding-3")
     ZHIPU_EMBEDDING_DIMENSIONS: int = int(os.getenv("ZHIPU_EMBEDDING_DIMENSIONS", "2048"))
-    ZHIPU_VISION_MODEL: str = os.getenv("ZHIPU_VISION_MODEL", "glm-4.6v")
 
     # 文件上传
     FILE_UPLOAD_PATH: str = os.getenv("FILE_UPLOAD_PATH", "E:/easyjob/uploads")
@@ -133,19 +132,10 @@ def get_llm(temperature: float = 0.7, **kwargs):
     extra_body.setdefault("thinking", {"type": "disabled"})
 
     return ChatOpenAI(
-        model="deepseek-v4-flash",
+        model=settings.DEEPSEEK_MODEL,
         api_key=settings.DEEPSEEK_API_KEY,
         base_url=settings.DEEPSEEK_BASE_URL,
         temperature=temperature,
         extra_body=extra_body,
-        **kwargs,
-    )
-
-def get_vision_llm(**kwargs):
-    """GLM-4V 视觉模型"""
-    return ChatOpenAI(
-        model=settings.ZHIPU_VISION_MODEL,
-        api_key=settings.ZHIPUAI_API_KEY,
-        base_url="https://open.bigmodel.cn/api/paas/v4",
         **kwargs,
     )

@@ -2,7 +2,6 @@ package com.easyjob.agent.config;
 
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.deepseek.DeepSeekChatModel;
-import org.springframework.ai.zhipuai.ZhiPuAiChatModel;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -77,15 +76,6 @@ public class ChatClientConfiguration {
             }
             """;
     /**
-     * 智谱视觉模型系统提示词
-     */
-    private static final String ZHIPU_VISION_SYSTEM_PROMPT = """
-            你是一个图片理解助手。
-            请详细描述图片的内容，包括图片中的文字、物体、场景等信息。
-            描述要准确、客观、有条理。
-            """;
-    
-    /**
      * DeepSeek 主对话客户端
      */
     @Bean
@@ -95,15 +85,6 @@ public class ChatClientConfiguration {
                 .build();
     }
     
-    /**
-     * 智谱视觉模型客户端（用于图片理解）
-     */
-    @Bean("zhipuVisionClient")
-    public ChatClient zhipuVisionClient(ZhiPuAiChatModel zhiPuAiChatModel) {
-        return ChatClient.builder(zhiPuAiChatModel)
-                .defaultSystem(ZHIPU_VISION_SYSTEM_PROMPT)
-                .build();
-    }
     /**
      * 查询重写客户端
      */

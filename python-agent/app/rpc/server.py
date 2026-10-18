@@ -2,6 +2,8 @@
 import asyncio
 import hmac
 import logging
+import traceback
+from pathlib import Path
 from contextlib import aclosing
 from datetime import datetime
 from uuid import UUID
@@ -41,7 +43,11 @@ def fault(exc):
         return pb.Error(status=exc.status_code, message=str(exc.detail))
     if isinstance(exc, (ValidationError, ValueError, TypeError)):
         return pb.Error(status=422, message='请求参数无效')
-    log.error('Agent RPC failed: %s', type(exc).__name__)
+    # Keep useful server-side locations without logging prompts, credentials,
+    # SQL parameters or exception messages that might contain user content.
+    locations = ' > '.join(f'{Path(frame.filename).name}:{frame.lineno}:{frame.name}'
+        for frame in traceback.extract_tb(exc.__traceback__)[-6:])
+    log.error('Agent RPC failed: %s at %s', type(exc).__name__, locations or 'unknown')
     return pb.Error(status=500, message='Agent 服务暂时不可用')
 
 

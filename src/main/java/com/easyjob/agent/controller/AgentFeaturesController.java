@@ -33,4 +33,14 @@ public class AgentFeaturesController {
         Long uid=UserContext.getUserId();admin.requirePermission(uid,"metrics.read");
         return ResponseVO.success(rpc.serviceQuery(uid,"feedback_report","","",page,size,source));
     }
+    @GetMapping("/admin/agent-feedback/{id}") public ResponseVO<?> feedbackDetail(@PathVariable String id){
+        Long uid=UserContext.getUserId();admin.requirePermission(uid,"feedback.read");
+        return ResponseVO.success(rpc.edit(uid,"feedback_detail",id,Map.of()));
+    }
+    public record FeedbackReview(String state,String note,Long version,String commandId,String generation){}
+    @PutMapping("/admin/agent-feedback/{id}/review") public ResponseVO<?> reviewFeedback(@PathVariable String id,@RequestBody FeedbackReview request){
+        Long uid=UserContext.getUserId();admin.requirePermission(uid,"feedback.manage");
+        var data=new HashMap<String,Object>();data.put("state",request.state());data.put("note",request.note());data.put("version",request.version());data.put("commandId",request.commandId());data.put("generation",request.generation());
+        return ResponseVO.success(rpc.edit(uid,"feedback_review",id,data));
+    }
 }

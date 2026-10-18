@@ -32,6 +32,8 @@ public class CommentCreateDTO implements Serializable {
      * 评论配图URL（可选，通过上传接口获得）
      */
     private String imgPath;
+    /** Optional top-level comment anchored to selected article text. */
+    private CommentQuote quote;
     
     /**
      * 父评论ID（可选，0或不传表示顶级评论）

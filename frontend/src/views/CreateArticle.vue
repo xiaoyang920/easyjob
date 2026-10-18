@@ -1,22 +1,5 @@
 <template>
   <div class="article-editor-page">
-    <!-- 顶部导航栏 -->
-    <nav class="top-bar">
-      <div class="top-bar-left">
-        <div class="logo" @click="$router.push('/')">
-          <svg class="logo-icon" viewBox="0 0 1024 1024" fill="currentColor">
-            <path d="M512 1024c282.771692 0 512-229.228308 512-512S794.771692 0 512 0 0 229.228308 0 512s229.228308 512 512 512z m0-59.076923C261.858462 964.923077 59.076923 762.141538 59.076923 512S261.858462 59.076923 512 59.076923s452.923077 202.781538 452.923077 452.923077-202.781538 452.923077-452.923077 452.923077z"/>
-            <path d="M464.945231 748.642462c15.399385 3.042462 31.133538 4.588308 47.054769 4.588307 133.228308 0 241.230769-108.002462 241.230769-241.230769S645.228308 270.769231 512 270.769231 270.769231 378.771692 270.769231 512c0 15.921231 1.545846 31.655385 4.588307 47.054769a24.615385 24.615385 0 0 0 48.295385-9.550769A193.053538 193.053538 0 0 1 320 512c0-106.043077 85.956923-192 192-192S704 405.956923 704 512 618.043077 704 512 704c-12.701538 0-25.245538-1.230769-37.494154-3.652923a24.615385 24.615385 0 1 0-9.550769 48.295385z"/>
-            <path d="M512 512m-78.769231 0a78.769231 78.769231 0 1 0 157.538462 0 78.769231 78.769231 0 1 0-157.538462 0Z"/>
-            <path d="M510.385231 498.294154C396.465231 543.123692 320 653.351385 320 777.846154a24.615385 24.615385 0 1 0 49.230769 0 251.145846 251.145846 0 0 1 159.182769-233.737846 24.615385 24.615385 0 0 0-18.018461-45.814154z"/>
-          </svg>
-          <span class="logo-text">EasyJob</span>
-        </div>
-        <span class="page-title">{{ isEditMode ? '编辑文章' : '写文章' }}</span>
-      </div>
-      <AppNavigation />
-    </nav>
-
       <div class="editor-action-bar">
         <span class="autosave-status" role="status">{{ autosaveMessage }}</span>
         <button class="btn btn-cancel" @click="goBack">取消</button>
@@ -105,12 +88,12 @@
           <!-- 文章分类 -->
           <div class="setting-item">
             <label class="category-setting-label">文章分类 <span class="required">*</span><button v-if="categoryAdmin" type="button" class="category-create-link" @click="creatingCategory=true">＋ 新增分类</button></label>
-            <select ref="categorySelect" v-model="article.categoryId" class="category-select" :class="{ 'placeholder': !article.categoryId }" @focus="fetchCategories">
-              <option value="">请选择分类</option>
-              <option v-for="category in categories" :key="category.categoryId" :value="category.categoryId">
+            <AppSelect aria-label="文章分类" ref="categorySelect" v-model="article.categoryId" class="category-select" :class="{ 'placeholder': !article.categoryId }" @focus="fetchCategories">
+              <AppSelectOption value="">请选择分类</AppSelectOption>
+              <AppSelectOption v-for="category in categories" :key="category.categoryId" :value="category.categoryId">
                 {{ category.categoryName }}
-              </option>
-            </select>
+              </AppSelectOption>
+            </AppSelect>
           </div>
           
           <!-- 文章类型 -->
@@ -207,10 +190,10 @@
 
   <!-- 登录弹窗 -->
   <AdminCategoryCreator v-if="categoryAdmin" v-model="creatingCategory" @created="categoryCreated" />
-  <el-dialog v-model="showLoginDialog" title="" :width="dialogWidth" :close-on-click-modal="true" class="modern-dialog">
+  <el-dialog v-model="showLoginDialog" title="" :width="dialogWidth" :close-on-click-modal="true" class="modern-dialog ej-dialog" append-to-body>
     <LoginForm @success="handleLoginSuccess" @switchToRegister="switchToRegister" />
   </el-dialog>
-  <el-dialog v-model="showRegisterDialog" title="" :width="dialogWidth" :close-on-click-modal="true" class="modern-dialog">
+  <el-dialog v-model="showRegisterDialog" title="" :width="dialogWidth" :close-on-click-modal="true" class="modern-dialog ej-dialog" append-to-body>
     <RegisterForm @success="handleRegisterSuccess" @switchToLogin="switchToLogin" />
   </el-dialog>
 </template>
@@ -218,7 +201,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
-import AppNavigation from '@/components/AppNavigation.vue'
 import AdminCategoryCreator from '@/components/AdminCategoryCreator.vue'
 import { categoryOptions,type CategoryRow } from '@/utils/categories'
 import { ElMessageBox } from 'element-plus'
@@ -268,7 +250,7 @@ let searchTimeout: any = null  // 防抖定时器
 
 // 分类列表
 const categories = ref<any[]>([])
-const categorySelect = ref<HTMLSelectElement | null>(null)
+const categorySelect = ref<{focus:(options?:FocusOptions)=>void;scrollIntoView:(options?:ScrollIntoViewOptions)=>void} | null>(null)
 const categoryAdmin=ref(false),creatingCategory=ref(false)
 
 // 窄屏下设置面板排在正文之后，提示缺少分类时直接把选择框带到视野中

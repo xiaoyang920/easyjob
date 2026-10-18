@@ -45,6 +45,7 @@
                       <span class="username clickable" @click="goToUserSpace(comment.userId)">{{ comment.userNickName }}</span>
                       <span v-if="comment.userId === articleAuthorId" class="up-tag">UP</span>
                     </div>
+                    <CommentQuotePreview :quote="comment.quote" @locate="emit('locateQuote', $event)" />
                     <div class="content">{{ comment.content }}</div>
                     <div v-if="comment.imgPath" class="comment-image" @click="openImagePreview(comment.imgPath)">
                       <img :src="comment.imgPath" />
@@ -250,7 +251,8 @@
               <span class="username clickable" @click="goToUserSpace(comment.userId)">{{ comment.userNickName }}</span>
               <span v-if="comment.userId === articleAuthorId" class="up-tag">UP</span>
             </div>
-            <div class="content">{{ comment.content }}</div>
+              <CommentQuotePreview :quote="comment.quote" @locate="emit('locateQuote', $event)" />
+              <div class="content">{{ comment.content }}</div>
             <!-- 评论图片 -->
             <div v-if="comment.imgPath" class="comment-image" @click="openImagePreview(comment.imgPath)">
               <img :src="comment.imgPath" />
@@ -459,6 +461,10 @@ import { ref, nextTick, watch, onMounted, onUnmounted } from 'vue'
 import request from '../utils/request'
 import { uploadFile } from '../utils/upload'
 import { avatarUrl, onAvatarError } from '../utils/avatar'
+import CommentQuotePreview from './CommentQuotePreview.vue'
+import type { CommentQuote } from '@/utils/commentAnchors'
+
+const emit = defineEmits<{ locateQuote: [quote: CommentQuote]; changed: [] }>()
 
 const props = defineProps<{
   articleId: string
@@ -691,6 +697,7 @@ async function submitTopComment() {
       topImgPath.value = ''
       topInputFocused.value = false
       fetchComments()
+      emit('changed')
     }
   } finally {
     submitting.value = false
@@ -751,6 +758,7 @@ async function submitReply() {
       await loadReplies(rootComment)
       // 更新回复数
       rootComment.replyCount = (rootComment.replyCount || 0) + 1
+      emit('changed')
     }
   } finally {
     submitting.value = false
@@ -841,6 +849,7 @@ async function deleteComment(comment: any, isReply: boolean = false, rootComment
         // 删除的是顶级评论，刷新评论列表
         await fetchComments()
       }
+      emit('changed')
     }
   } catch (e: any) {
     alert(e.message || '删除失败')
@@ -995,6 +1004,7 @@ function autoResize(e: Event) {
 watch(() => props.articleId, () => {
   if (props.articleId && !isMobile.value) fetchComments()
 })
+defineExpose({ refresh: () => fetchComments() })
 </script>
 
 <style scoped>

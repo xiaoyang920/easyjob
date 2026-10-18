@@ -314,7 +314,7 @@ class RecoveryTests(unittest.IsolatedAsyncioTestCase):
 
     def test_callback_manager_metrics_keep_pending_call_reservations(self):
         metrics = RunMetrics()
-        metrics.reserve('pending', 'prompt', {'invocation_params': {'max_tokens': 1000}})
+        metrics.reserve('pending', 10, {'invocation_params': {'max_tokens': 1000}})
         snapshot = metrics_from({'callbacks': SimpleNamespace(handlers=[metrics])})
         self.assertGreaterEqual(snapshot['budget_charged_tokens'], 1000)
         self.assertEqual(RunMetrics(snapshot).charged, snapshot['budget_charged_tokens'])

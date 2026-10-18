@@ -14,6 +14,7 @@ from app.services.private_drafts import retrieve_drafts
 from app.graph.staged_plan import load_execution_plan, merge_task_results
 from app.services.agent_events import activity
 from app.services.task_artifacts import task_artifacts, task_fingerprint
+from app.services.tool_recovery import ToolTaskError
 
 RECOVERABLE = (TimeoutError, ConnectionError, httpx.RequestError, APIConnectionError, EsConnectionError)
 
@@ -33,6 +34,7 @@ def observe(state, results):
                 {"round": state["main_round"], "action": state["main_action"],
                  "tasks": {tid: r["status"] for tid, r in results.items()},
                  "retrieval_reports": {tid: r["retrieval_report"] for tid, r in results.items() if r.get("retrieval_report")},
+                 "tool_failures": {tid: r["tool_failure"] for tid, r in results.items() if r.get("tool_failure")},
                  "failures": failures}],
             "correction_count": state.get("correction_count", 0) + bool(failures)}
 
@@ -68,6 +70,8 @@ async def main_retrieve_node(state):
         if memory_lookup:
             update.update({k: evidence[k] for k in ("memory_sources", "memory_found", "memory_match_count")})
         result = runtime.task_result(context, update, raw_retrieval=not (memory_lookup or draft_lookup))
+    except ToolTaskError as exc:
+        result = {**failed_result(task, "tool_error", str(exc)), "tool_failure": exc.report}
     except RECOVERABLE:
         result = failed_result(task, "tool_error", "检索服务暂时不可用，可调整查询或稍后重试。")
     await runtime.assert_run(state)
@@ -85,6 +89,9 @@ async def run_subagent(context, task):
             return {task.task_id: cached}
     try:
         result = (await runtime.subagent_node(context))["task_results"]
+    except ToolTaskError as exc:
+        await runtime.assert_run(context)
+        result = {task.task_id: {**failed_result(task, "tool_error", str(exc)), "tool_failure": exc.report}}
     except RECOVERABLE:
         # Cancellation, permissions, stale sources and persistence errors propagate.
         await runtime.assert_run(context)

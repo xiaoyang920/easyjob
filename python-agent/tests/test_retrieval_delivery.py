@@ -97,6 +97,30 @@ class RetrievalDeliveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result['retrieval_report']['platform']['status'], 'empty')
         web.assert_not_awaited()
 
+    async def test_body_after_preview_reaches_generation_and_independent_verifier(self):
+        from app.services.grounding import source_contents
+        from app.services.execution_facts import delivery_notices
+        body = '正文 ' * 600 + '关键条件位于末尾：仅在提交事务后删除缓存。'
+        with patch.object(settings, 'AGENT_WEB_SEARCH_ENABLED', True):
+            result, _ = await self.retrieve(self.state(), [{'url': 'https://spring.io/guides/', 'title': 'Guide',
+                'content': body, 'contentScope': 'page_content', 'contentTruncated': False}], docs=[])
+        citation = result['citations'][0]
+        self.assertEqual(len(citation['excerpt']), 1200)
+        self.assertIn('关键条件位于末尾', result['rag_context'])
+        state = {'task_results': {'source': result}}
+        raw = source_contents(state, result['citations'])[0]
+        self.assertEqual(raw['content'], body)
+        self.assertEqual(raw['contentScope'], 'page_content')
+        self.assertNotIn('网页依据来自搜索返回的摘要，尚未核验网页全文。', delivery_notices(state, result['citations']))
+        self.assertEqual(result['retrieval_report']['web']['provider'], 'deepseek')
+        self.assertEqual(result['retrieval_report']['web']['page_contents'], 1)
+
+    def test_summary_and_truncated_body_have_distinct_delivery_notices(self):
+        from app.services.execution_facts import delivery_notices
+        self.assertIn('摘要', ' '.join(delivery_notices({}, [{'contentScope': 'search_excerpt'}])))
+        self.assertIn('节选', ' '.join(delivery_notices({}, [{'contentScope': 'page_excerpt'}])))
+        self.assertFalse(delivery_notices({}, [{'contentScope': 'page_content'}]))
+
     async def test_constraint_blocks_web_and_is_observed_as_blocked(self):
         with patch.object(settings, 'AGENT_WEB_SEARCH_ENABLED', True):
             state = self.state()

@@ -1,11 +1,12 @@
 """Shared Phase 0 input and result contracts for chat and resume protocols."""
 import logging
 import json
+import asyncio
 
 from fastapi import HTTPException
 
 from app.graph.state_factory import create_initial_state
-from app.services.image_understanding import preprocess_message
+from app.services.multimodal import validate_current_images
 from app.services.run_repository import run_repository, digest
 from app.services.durable_jobs import durable_jobs
 from app.services.article_context import article_context_service
@@ -106,7 +107,8 @@ class RunService:
                     config['configurable']['user_message_id'] = str(message_id)
                 if message_id and hasattr(self.repository, 'record_input'):
                     await self.repository.record_input(run['run_id'], run['execution_token'], message_id)
-                message = await preprocess_message(request.message, request.image_paths)
+                await asyncio.to_thread(validate_current_images, request.image_paths, request.user_id)
+                message = request.message
                 # No embedding or recall model on this path.
                 memory_context = await self.memory.load_context(request.user_id, conv_id)
                 previous_run, reusable = ({}, {})
@@ -118,6 +120,7 @@ class RunService:
         state = create_initial_state(request.user_id, message, context)
         state.update(run_id=run["run_id"], execution_token=run["execution_token"],
                      conversation_id=conv_id, memory_source_message=request.message, **memory_context)
+        state['user_image_paths'] = list(request.image_paths or [])
         state["origin_article_id"] = origin
         state['previous_run'] = {**previous_run, 'reusable_results': reusable} if previous_run else {}
         if origin is not None and article is None:

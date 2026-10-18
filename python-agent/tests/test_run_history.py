@@ -185,18 +185,17 @@ class PreparationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_preparation_supplies_candidates_without_auto_importing_them(self):
         service, request = self.service()
-        with patch('app.services.run_service.preprocess_message', AsyncMock(return_value='继续')):
-            _, _, state = await service.prepare_chat(request, None)
+        _, _, state = await service.prepare_chat(request, None)
         service.repository.record_input.assert_awaited_once_with(RID, 'executor', 123)
         self.assertIn('old', state['previous_run']['reusable_results'])
         self.assertFalse(state['task_results'])
 
-    async def test_image_preprocessing_failure_still_records_question_anchor(self):
+    async def test_image_validation_failure_still_records_question_anchor(self):
         service, request = self.service()
-        async def fail(*args):
+        def fail(*args):
             service.repository.record_input.assert_awaited_once_with(RID, 'executor', 123)
             raise TimeoutError('image unavailable')
-        with patch('app.services.run_service.preprocess_message', fail), self.assertRaises(TimeoutError):
+        with patch('app.services.run_service.validate_current_images', fail), self.assertRaises(TimeoutError):
             await service.prepare_chat(request, None)
         service.repository.fail.assert_awaited_once_with(RID, 'executor')
         service.history.previous.assert_not_awaited()

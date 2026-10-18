@@ -3,7 +3,6 @@ Search Worker 节点
 对应 Java: SearchWorkerNode.java
 """
 from datetime import datetime
-from urllib.parse import urlparse
 import hashlib
 import asyncio
 import json
@@ -23,7 +22,7 @@ from app.services.observability import trace_node
 from app.services.query_rewrite import QueryRewriteService, QueryFilters
 from app.services.reranker import RerankerService
 from app.services.citation_builder import CitationBuilder
-from app.tools.web_search import do_search, WebSearchError
+from app.tools.web_search import do_search, public_url, WebSearchError
 from app.services.agent_events import activity
 # 服务实例
 query_rewrite_service = QueryRewriteService()
@@ -191,7 +190,7 @@ async def retrieve_evidence(state: AgentState) -> dict:
         need_web_search = False
     report = {"assessment_owner": "main", "platform": {"status": "empty", "candidates": 0},
               "web": {"status": "not_requested" if not state["current_task"].get("allow_web") else "blocked",
-                      "candidates": 0}}
+                      "candidates": 0, "provider": "deepseek"}}
     report["query_rewrite"] = {"status": rewrite_result.get("status", "completed")}
     if scoped and state["current_task"].get("allow_web"):
         report["web"].update(status="blocked", reason="required_platform_filters")
@@ -236,7 +235,7 @@ async def retrieve_evidence(state: AgentState) -> dict:
             await activity(state, "web", "搜索公开网页")
             try:
                 # Use short search queries rather than a long procedural task description.
-                web_query = rewrite_result.get("web_query") or " ".join(rewrite_result.get("keywords") or [])[:200] or rewrite_result["semantic_queries"][0][:200]
+                web_query = rewrite_result.get("web_query") or " ".join(rewrite_result.get("keywords") or []) or rewrite_result["semantic_queries"][0]
                 web_results = await _measure_stage(state, 'web_search', asyncio.wait_for(do_search(web_query, size=5), settings.RETRIEVAL_TIMEOUT_SECONDS))
             except (WebSearchError, TimeoutError) as exc:
                 log.warning("[retrieval] 联网搜索不可用: %s", exc)
@@ -247,13 +246,14 @@ async def retrieve_evidence(state: AgentState) -> dict:
                 seen_urls, valid_web = set(), []
                 for item in web_results:
                     url = item.get("url", "")
-                    parsed = urlparse(url)
-                    if parsed.scheme not in ("https", "http") or not parsed.hostname or not item.get("content") or url in seen_urls:
+                    if not public_url(url) or not item.get("content") or url in seen_urls:
                         continue
                     seen_urls.add(url)
                     valid_web.append(item)
                 web_results = valid_web
-                report["web"].update(status="found" if web_results else "empty", candidates=len(web_results))
+                report["web"].update(status="found" if web_results else "empty", candidates=len(web_results),
+                    page_contents=sum(item.get('contentScope') in ('page_content', 'page_excerpt') for item in web_results),
+                    fetch_succeeded=sum(item.get('fetchStatus') == 'succeeded' for item in web_results))
                 await activity(state, "web", "搜索公开网页", "done", f"获得 {len(web_results)} 条网页资料")
         return web_results, web_error
 
@@ -283,9 +283,12 @@ async def retrieve_evidence(state: AgentState) -> dict:
         cid = f"{state.get('task_id', 'web')}:web{len(citation_dicts)+1}"
         citation_dicts.append({"id": cid, "articleId": "", "title": item.get("title", "网页资料"),
                               "chunkIndex": 0, "excerpt": item["content"][:1200], "url": item["url"], "source": "web",
-                              "contentScope": "search_excerpt"})
-        citation_contents[cid] = item['content'][:1200]
-        rag_context += f"\n\n[{cid}] {item.get('title', '')}\n{item['content'][:1200]}"
+                              "contentScope": item.get("contentScope", "search_excerpt"),
+                              "contentTruncated": item.get("contentTruncated", False)})
+        citation_contents[cid] = item['content']
+        scope_label = {'page_content': '返回的网页正文', 'page_excerpt': '网页正文节选',
+                       'search_excerpt': '搜索摘要'}.get(item.get('contentScope'), '搜索摘要')
+        rag_context += f"\n\n[{cid}] {item.get('title', '')}\n【{scope_label}，仍需核验结论】\n{item['content']}"
     if web_error:
         rag_context += f"\n\n联网搜索未完成：{web_error}。不得声称已核实实时网页信息。"
     if not citation_dicts:
@@ -325,13 +328,14 @@ async def search_worker_node(state: AgentState) -> dict:
         tools=all_tools,
         max_rounds=2,
         tag="search_worker",
+        execution_state=state,
     )
     from app.graph.staged_runtime import invalid_references
     if invalid_references(reply, citation_dicts):
         reply = await run_tool_agent(
             system_prompt=system_prompt,
             user_input=f"任务：{task_input}\n仅使用这些证据编号，修正引用：\n{rag_context}",
-            tools=[], max_rounds=1, tag="search_regenerate")
+            tools=[], max_rounds=1, tag="search_regenerate", execution_state=state)
 
     log.info("[search_worker] 完成 | 卡片数=%d | citation数=%d | reply_len=%d",
              len(evidence["article_cards"]), len(citation_dicts), len(reply or ""))

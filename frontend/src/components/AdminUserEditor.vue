@@ -1,5 +1,5 @@
 <template>
-  <el-dialog v-model="visible" class="admin-user-dialog" title="编辑用户" width="min(680px, 94vw)" align-center :close-on-click-modal="false" :close-on-press-escape="!saving" :show-close="!saving" :before-close="close">
+  <el-dialog v-model="visible" class="admin-user-dialog ej-dialog" title="编辑用户" width="min(680px, 94vw)" align-center :close-on-click-modal="false" :close-on-press-escape="!saving" :show-close="!saving" :before-close="close" append-to-body>
     <ContentState v-if="loading" kind="loading" title="正在加载用户资料" />
     <ContentState v-else-if="!original" kind="error" title="暂时无法加载资料" :description="error" @retry="load" />
     <form v-else id="admin-user-form" class="user-editor" @submit.prevent="save">
@@ -8,8 +8,8 @@
         <label>昵称<input v-model="form.nickName" required maxlength="20" autocomplete="off" /></label>
         <label>个人简介<textarea v-model="form.personIntroduction" rows="3" maxlength="200" placeholder="可留空" /></label>
         <div class="user-editor-grid">
-          <label>角色<select v-model.number="form.role" :disabled="ownAccount"><option :value="1">普通用户</option><option :value="2">管理员</option><option :value="3">审核员</option><option :value="4">运营员</option></select></label>
-          <label>账号状态<select v-model.number="form.status" :disabled="ownAccount"><option :value="1">正常</option><option :value="0">禁用</option></select></label>
+          <label>角色<AppSelect v-model.number="form.role" :disabled="ownAccount"><AppSelectOption :value="1">普通用户</AppSelectOption><AppSelectOption :value="2">管理员</AppSelectOption><AppSelectOption :value="3">审核员</AppSelectOption><AppSelectOption :value="4">运营员</AppSelectOption></AppSelect></label>
+          <label>账号状态<AppSelect v-model.number="form.status" :disabled="ownAccount"><AppSelectOption :value="1">正常</AppSelectOption><AppSelectOption :value="0">禁用</AppSelectOption></AppSelect></label>
         </div>
         <p class="user-editor-note">{{ ownAccount ? '当前账号的管理员身份和启用状态受保护。' : '修改角色或状态后，用户需重新登录；禁用后无法继续使用账号。' }}</p>
         <section class="user-growth-editor">

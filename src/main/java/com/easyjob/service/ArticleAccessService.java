@@ -24,7 +24,7 @@ public class ArticleAccessService {
     public boolean isAdmin(Long uid) {
         return uid!=null && !store.findAdmin(uid).isEmpty();
     }
-    public static final Set<String> ADMIN_PERMISSIONS=Set.of("overview.read","statistics.read","articles.read","articles.manage","reviews.read","reviews.manage","categories.read","categories.manage","users.read","users.manage","operations.read","operations.manage","metrics.read","logs.read");
+    public static final Set<String> ADMIN_PERMISSIONS=Set.of("overview.read","statistics.read","articles.read","articles.manage","reviews.read","reviews.manage","categories.read","categories.manage","users.read","users.manage","operations.read","operations.manage","metrics.read","feedback.read","feedback.manage","logs.read");
     public Set<String> permissions(Long uid){
         if(isAdmin(uid))return ADMIN_PERMISSIONS;
         if(uid==null)return Set.of();

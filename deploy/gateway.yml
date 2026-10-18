@@ -1,0 +1,57 @@
+server:
+  port: ${GATEWAY_PORT:8090}
+  address: ${GATEWAY_BIND:127.0.0.1}
+spring:
+  application:
+    name: easyjob-gateway
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2s
+  cloud:
+    consul:
+      host: ${CONSUL_HOST:127.0.0.1}
+      port: ${CONSUL_PORT:8500}
+      discovery:
+        register: false
+        query-passing: true
+        acl-token: ${CONSUL_TOKEN:}
+    loadbalancer:
+      cache:
+        ttl: 5s
+    gateway:
+      discovery:
+        locator:
+          enabled: false
+      httpclient:
+        connect-timeout: 3000
+        response-timeout: 330s
+        pool:
+          max-connections: 200
+          acquire-timeout: 2000
+      routes:
+        - id: blog-websocket
+          uri: lb:ws://easyjob-blog
+          predicates:
+            - Path=/ws,/ws/**
+        - id: blog-api
+          uri: lb://easyjob-blog
+          predicates:
+            - Path=/api/**,/uploads/**
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+easyjob:
+  jwt:
+    secret-key: ${JWT_SECRET_KEY}
+  gateway:
+    api-per-minute: ${GATEWAY_API_LIMIT:300}
+    auth-per-minute: ${GATEWAY_AUTH_LIMIT:20}
+    ai-per-minute: ${GATEWAY_AI_LIMIT:12}

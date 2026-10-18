@@ -95,7 +95,8 @@ function offsetInContainer(element: HTMLElement): number {
 
 function updateActive() {
   frame = 0
-  const list = questions.value.filter(q => messageElement(q.id))
+  const mounted = new Map(Array.from(props.container.querySelectorAll<HTMLElement>('[data-question-id]')).map(el => [el.dataset.questionId,el]))
+  const list = questions.value.filter(q => mounted.has(q.id))
   if (!list.length) return
   const { scrollTop, clientHeight, scrollHeight } = props.container
   // 已滚到顶：无法再往上滚，相邻的短问答都挤在顶部时也应选中第一问
@@ -111,7 +112,7 @@ function updateActive() {
   const activeLine = scrollTop + JUMP_GAP + ACTIVE_LINE_TOLERANCE
   let current = list[0].id
   for (const q of list) {
-    const element = messageElement(q.id)
+    const element = mounted.get(q.id)
     if (element && offsetInContainer(element) <= activeLine) current = q.id
   }
   activeId.value = current

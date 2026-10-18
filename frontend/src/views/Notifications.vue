@@ -1,19 +1,7 @@
 <template>
   <div class="notify-page">
     <!-- 导航栏 -->
-    <nav class="navbar">
-      <div class="logo" @click="$router.push('/')">
-        <svg class="logo-icon" viewBox="0 0 1024 1024" fill="currentColor">
-          <path d="M512 1024c282.771692 0 512-229.228308 512-512S794.771692 0 512 0 0 229.228308 0 512s229.228308 512 512 512z m0-59.076923C261.858462 964.923077 59.076923 762.141538 59.076923 512S261.858462 59.076923 512 59.076923s452.923077 202.781538 452.923077 452.923077-202.781538 452.923077-452.923077 452.923077z"/>
-          <path d="M464.945231 748.642462c15.399385 3.042462 31.133538 4.588308 47.054769 4.588307 133.228308 0 241.230769-108.002462 241.230769-241.230769S645.228308 270.769231 512 270.769231 270.769231 378.771692 270.769231 512c0 15.921231 1.545846 31.655385 4.588307 47.054769a24.615385 24.615385 0 0 0 48.295385-9.550769A193.053538 193.053538 0 0 1 320 512c0-106.043077 85.956923-192 192-192S704 405.956923 704 512 618.043077 704 512 704c-12.701538 0-25.245538-1.230769-37.494154-3.652923a24.615385 24.615385 0 1 0-9.550769 48.295385z"/>
-          <path d="M512 512m-78.769231 0a78.769231 78.769231 0 1 0 157.538462 0 78.769231 78.769231 0 1 0-157.538462 0Z"/>
-          <path d="M510.385231 498.294154C396.465231 543.123692 320 653.351385 320 777.846154a24.615385 24.615385 0 1 0 49.230769 0 251.145846 251.145846 0 0 1 159.182769-233.737846 24.615385 24.615385 0 0 0-18.018461-45.814154z"/>
-        </svg>
-        <span class="logo-text">EasyJob</span>
-      </div>
-      <div class="page-title">消息通知</div>
-      <AppNavigation />
-    </nav>
+
 
     <div class="main">
       <header class="page-header">
@@ -49,7 +37,8 @@
       </div>
 
       <!-- 列表 -->
-      <div v-if="loading" class="state-block">加载中...</div>
+      <ContentState v-if="loading" kind="loading" title="正在读取通知" />
+      <ContentState v-else-if="loadError" kind="error" title="通知暂时无法加载" :description="loadError" @retry="loadList" />
       <div v-else-if="items.length === 0" class="state-block empty">
         <div class="empty-icon">
           <svg viewBox="0 0 24 24" fill="currentColor">
@@ -104,7 +93,6 @@
 </template>
 
 <script setup lang="ts">
-import AppNavigation from '@/components/AppNavigation.vue'
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { notificationPath,isReviewNotification } from '@/utils/notificationTarget'
@@ -112,6 +100,8 @@ import { latestRequest } from '@/utils/latestRequest'
 import { avatarUrl, onAvatarError } from '@/utils/avatar'
 import { ElMessage } from 'element-plus'
 import request from '@/utils/request'
+import ContentState from '@/components/ContentState.vue'
+import { errorMessage } from '@/utils/feedback'
 import {
   notifyUnreadCount,
   latestNotify,
@@ -135,6 +125,7 @@ const activeTab = ref<number | null>(null)
 
 const items = ref<NotifyMessage[]>([])
 const loading = ref(false)
+const loadError = ref('')
 const page = ref(1)
 const size = 20
 const total = ref(0)
@@ -165,6 +156,7 @@ async function loadList() {
   const ticket=listRequests.begin()
   const selected=activeTab.value
   loading.value = true
+  loadError.value = ''
   try {
       const res: any = await request.get('/notification/list', {
         params: { page: page.value, size, ...(selected===0?{unreadOnly:true}:selected!==null?{type:selected}:{}) },
@@ -177,7 +169,7 @@ async function loadList() {
   } catch (e: any) {
     if(!ticket.isCurrent())return
     console.error('加载通知失败', e)
-    ElMessage.error(e?.message || '加载通知失败')
+    loadError.value = errorMessage(e, '加载通知失败，请稍后重试')
   } finally {
     if(ticket.isCurrent())loading.value = false
   }

@@ -74,15 +74,26 @@ public final class TripleRuntime implements AutoCloseable {
                 args=args.clone();
                 args[args.length-1]=new org.apache.dubbo.common.stream.StreamObserver<java.lang.Object>() {
                     public void onNext(java.lang.Object value) { try { observer.onNext(value); } catch(Throwable error) { lease.close();throw error; } }
-                    public void onError(Throwable error) { try { observer.onError(error); } finally { lease.close(); } }
+                    public void onError(Throwable error) {
+                        // Application failures are typed Frame.error values;
+                        // observer errors mean this transport cannot be reused.
+                        lease.invalidate();
+                        try { observer.onError(error); } finally { lease.close(); }
+                    }
                     public void onCompleted() { try { observer.onCompleted(); } finally { lease.close(); } }
                 };
                 var cancellation=org.apache.dubbo.rpc.RpcContext.getCancellationContext();
                 if(cancellation!=null) cancellation.addListener(context -> lease.close());
             }
             try { return method.invoke(lease.value().remote(),args); }
-            catch(java.lang.reflect.InvocationTargetException e) { lease.close();throw e.getCause(); }
-            catch(Throwable error) { lease.close();throw error; }
+            catch(java.lang.reflect.InvocationTargetException e) {
+                if(e.getCause() instanceof org.apache.dubbo.rpc.RpcException rpc && !rpc.isBiz()) lease.invalidate();
+                lease.close();throw e.getCause();
+            }
+            catch(Throwable error) {
+                if(error instanceof org.apache.dubbo.rpc.RpcException rpc && !rpc.isBiz()) lease.invalidate();
+                lease.close();throw error;
+            }
             finally { if(!streaming) lease.close(); }
         });
     }

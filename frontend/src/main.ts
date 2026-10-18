@@ -15,5 +15,5 @@ const app = createApp(App)
 app.directive('lazyload', lazyload)
 
 app.use(router)
-app.mount('#app')
-startAuthRenewal()
+// Avoid exposing interactive navigation before the initial route is resolved.
+void router.isReady().then(() => { app.mount('#app'); startAuthRenewal() })

@@ -11,9 +11,14 @@
       <div v-for="(text, index) in state.commentary" :key="index" class="activity-commentary">{{ text }}</div>
       <div v-if="state.plan.length" class="task-plan">
         <div class="section-label">任务计划</div>
-        <div v-for="task in state.plan" :key="task.id" class="plan-item">
+        <div v-for="(task, index) in planRows" :key="task.id" class="plan-item">
           <span class="item-mark" :class="task.status">{{ task.status === 'done' ? '✓' : task.status === 'error' ? '!' : '·' }}</span>
-          <span>{{ task.label }}</span>
+          <div class="plan-content">
+            <div :id="`${planId}-${index}`" class="plan-text">{{ expandedPlans.has(task.id) ? task.label : task.preview }}</div>
+            <button v-if="task.hasMore" type="button" class="plan-toggle"
+              :aria-expanded="expandedPlans.has(task.id)" :aria-controls="`${planId}-${index}`"
+              @click="togglePlan(task.id)">{{ expandedPlans.has(task.id) ? '收起' : '展开完整计划' }}</button>
+          </div>
           <span class="task-type">{{ roleLabels[task.role] || '处理' }}</span>
         </div>
       </div>
@@ -34,11 +39,24 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, useId } from 'vue'
 import type { AgentStreamState } from '@/utils/agentStream'
 
 const props = defineProps<{ state: AgentStreamState }>()
 const expanded = ref<boolean | null>(null)
+const planId = `agent-plan-${useId()}`
+const expandedPlans = ref(new Set<string>())
+const planRows = computed(() => props.state.plan.map(task => {
+  const chars = Array.from(task.label)
+  return { ...task, hasMore: chars.length > 160,
+    preview: chars.length > 160 ? chars.slice(0, 160).join('') + '…' : task.label }
+}))
+function togglePlan(id: string) {
+  const next = new Set(expandedPlans.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  expandedPlans.value = next
+}
 const now = ref(Date.now())
 let timer: ReturnType<typeof setInterval>
 onMounted(() => { timer = setInterval(() => { now.value = Date.now() }, 1000) })
@@ -79,7 +97,12 @@ const summary = computed(() => {
 .task-plan { margin: 0 0 13px; padding: 8px 0; background: transparent; border: 0; border-radius: 0; }
 .section-label { color: #92969d; font-size: 11px; margin-bottom: 8px; }
 .plan-item { display: flex; align-items: flex-start; gap: 8px; padding: 4px 0; line-height: 1.6; }
-.plan-item > span:nth-child(2) { flex: 1; overflow-wrap: anywhere; }
+.plan-content { flex: 1; min-width: 0; }
+.plan-text { overflow-wrap: anywhere; white-space: pre-wrap; }
+.plan-toggle { display: block; margin-top: 3px; padding: 3px 0; border: 0; background: transparent; color: #60765a; font: inherit; font-size: 11px; cursor: pointer; }
+.plan-toggle:hover { text-decoration: underline; }
+.plan-toggle:focus-visible { outline: 2px solid #78876d; outline-offset: 3px; border-radius: 2px; }
+.plan-item > .task-type { flex-shrink: 0; }
 .task-type, .agent-badge { border: 0; border-radius: 3px; background: #eaf0e5; padding: 0 5px; font-size: 10px; color: #78876d; white-space: nowrap; font-weight: 400; }
 .activity-item { display: flex; align-items: flex-start; gap: 9px; padding: 6px 0; }
 .item-mark { display: inline-flex; width: 13px; flex-shrink: 0; justify-content: center; color: #a3a8af; line-height: 20px; }

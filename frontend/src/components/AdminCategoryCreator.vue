@@ -1,11 +1,11 @@
 <template>
-  <el-dialog v-model="visible" title="新增文章分类" width="min(540px, 94vw)" align-center :close-on-click-modal="false" :close-on-press-escape="!saving" :show-close="!saving" :before-close="close">
+  <el-dialog v-model="visible" title="新增文章分类" width="min(540px, 94vw)" align-center :close-on-click-modal="false" :close-on-press-escape="!saving" :show-close="!saving" :before-close="close" append-to-body class="ej-dialog">
     <ContentState v-if="loading" kind="loading" title="正在加载分类" />
     <ContentState v-else-if="loadError" kind="error" title="暂时无法加载分类" :description="loadError" @retry="load" />
     <form v-else id="category-create-form" class="category-form" @submit.prevent="save">
       <fieldset :disabled="saving">
         <label>分类名称<input v-model="name" maxlength="50" required autocomplete="off" placeholder="例如：后端开发" /></label>
-        <label>所属分类<select v-model="parent"><option value="0">一级分类</option><option v-for="row in roots" :key="row.categoryId" :value="row.categoryId">{{ row.categoryName }} / 二级分类</option></select></label>
+        <label>所属分类<AppSelect v-model="parent"><AppSelectOption value="0">一级分类</AppSelectOption><AppSelectOption v-for="row in roots" :key="row.categoryId" :value="row.categoryId">{{ row.categoryName }} / 二级分类</AppSelectOption></AppSelect></label>
         <label>排序<input v-model.number="order" type="number" min="0" max="9999" step="1" required /></label>
         <label>分类说明<textarea v-model="description" maxlength="200" rows="3" placeholder="可留空" /></label>
       </fieldset>

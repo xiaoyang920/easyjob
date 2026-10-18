@@ -1,179 +1,179 @@
-"""
-通用 Tool 调用循环
-
-search_worker / writing_worker / analysis_worker 都有一段几乎相同的代码：
-  LLM + bind_tools → 检查 tool_calls → 执行工具 → 追加结果 → 再调 LLM
-
-这个模块把这段逻辑抽成一个函数，只维护一份。
-"""
+"""Shared read-only tool loop with one bounded, permission-preserving repair."""
 import asyncio
-import time
+from difflib import get_close_matches
+import json
 
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, ToolMessage
 from langchain_core.tools import BaseTool
 from langchain_core.runnables.config import ensure_config, merge_configs
+from pydantic import ValidationError
 
 from app.config import get_llm, settings
-from app.utils.context_budget import ensure_request_budget
-from app.services.logging_config import get_logger, truncate
+from app.security.capabilities import require_capability
+from app.services.logging_config import get_logger
 from app.services.observability import get_langfuse_callback
+from app.services.tool_recovery import (
+    ToolPolicy, ToolTaskError, ToolInputError, argument_issues, error_message, invoke_read_only,
+)
+from app.utils.context_budget import ensure_request_budget
 
-MAX_RESULT_LENGTH = 3000  # 单次 Tool 返回最大字符数
 log = get_logger(__name__)
+MAX_RESULT_LENGTH = 3000
 
 
 async def run_tool_agent(
-    system_prompt: str,
-    user_input: str,
-    tools: list[BaseTool] | None = None,
-    max_rounds: int = 2,
-    history_messages: list[BaseMessage] | None = None,
-    timeout: float = 120.0,
-    tag: str = "tool_agent",
+    system_prompt: str, user_input: str, tools: list[BaseTool] | None = None,
+    max_rounds: int = 2, history_messages: list[BaseMessage] | None = None,
+    timeout: float = 120.0, tag: str = "tool_agent", *,
+    execution_state: dict | None = None, tool_policies: dict[str, ToolPolicy] | None = None,
+    tool_timeout: float = 30.0,
 ) -> str:
-    """
-    :param tag: 调用方标识，打日志时区分是 writing / search / analysis 等
-    """
     try:
-        return await asyncio.wait_for(
-            _run_tool_agent_inner(system_prompt, user_input, tools, max_rounds, history_messages, tag),
-            timeout,
-        )
+        return await asyncio.wait_for(_run_tool_agent_inner(
+            system_prompt, user_input, tools, max_rounds, history_messages, tag,
+            execution_state=execution_state, tool_policies=tool_policies, tool_timeout=tool_timeout), timeout)
     except asyncio.TimeoutError:
         log.warning("[%s] Tool Agent 超时 (%.0fs)", tag, timeout)
         raise
 
 
+async def _fence(state, policy=None):
+    if state is None:
+        return
+    if state.get('cancelled'):
+        raise asyncio.CancelledError()
+    # Lazy import: staged_runtime imports the workers that use this module.
+    from app.graph.staged_runtime import assert_run
+    await assert_run(state)
+    if policy is not None:
+        require_capability(state, policy.capability)
+
+
+def _calls(response):
+    calls = [*getattr(response, 'tool_calls', []), *getattr(response, 'invalid_tool_calls', [])]
+    ids = [call.get('id') for call in calls]
+    if len(calls) > 8 or any(not isinstance(i, str) or not i.strip() for i in ids) or len(ids) != len(set(ids)):
+        raise ToolTaskError('TOOL_CALL_PROTOCOL', '工具调用编号缺失、重复或单轮调用过多')
+    return calls
+
+
+def _content(response):
+    if _calls(response):
+        raise ToolTaskError('TOOL_CALL_PROTOCOL', '最终汇总仍返回工具调用，未将其作为成功答复')
+    content = response.content or ''
+    if not isinstance(content, str) or not content.strip():
+        raise RuntimeError('模型未产生有效内容')
+    return content
+
+
 async def _run_tool_agent_inner(
-    system_prompt: str,
-    user_input: str,
-    tools: list[BaseTool] | None = None,
-    max_rounds: int = 3,
-    history_messages: list[BaseMessage] | None = None,
-    tag: str = "tool_agent",
+    system_prompt: str, user_input: str, tools: list[BaseTool] | None = None,
+    max_rounds: int = 3, history_messages: list[BaseMessage] | None = None,
+    tag: str = "tool_agent", *, execution_state=None, tool_policies=None, tool_timeout=30.0,
 ) -> str:
-    """
-    通用的 LLM + Tool 多轮调用循环
-    """
+    if max_rounds < 1 or tool_timeout <= 0:
+        raise ValueError('工具轮数和超时必须为正数')
+    tools = tools or []
+    tool_map = {tool.name: tool for tool in tools}
+    if len(tool_map) != len(tools):
+        raise ValueError('工具白名单存在重名')
+    # Policies are server configuration, never inferred from model output or MCP
+    # readOnlyHint annotations. Unclassified tools fail closed.
+    from app.services.tool_registry import tool_registry
+    policies = {name: (tool_policies or {}).get(name) or tool_registry.policy_for(tool)
+                for name, tool in tool_map.items()}
+    if any(not policy or not policy.read_only for policy in policies.values()):
+        raise PermissionError('工具循环仅允许后端明确授权的只读工具')
+    await _fence(execution_state)
     llm = get_llm(max_tokens=settings.WORKER_OUTPUT_MAX_TOKENS)
-    tool_map = {t.name: t for t in tools} if tools else {}
-
-    log.info("[%s] 启动 | tools=%s | max_rounds=%d | input=%r",
-             tag, list(tool_map.keys()) or "无", max_rounds, truncate(user_input, 200))
-
-    if tools:
-        llm_bound = llm.bind_tools(tools)
-    else:
-        llm_bound = llm
-
-    messages: list[BaseMessage] = [SystemMessage(content=system_prompt)]
-
-    if history_messages:
-        messages.extend(history_messages)
-
-    messages.append(HumanMessage(content=user_input))
-    callbacks = []
-    lf_cb = get_langfuse_callback()
-    if lf_cb:
-        callbacks.append(lf_cb)
-    # Keep the parent graph's metrics/events instead of replacing them with a
-    # worker-local tracing list (including an empty list when tracing is off).
-    call_config = merge_configs(ensure_config(), {"callbacks": callbacks})
+    bound = llm.bind_tools(tools) if tools else llm
+    messages: list[BaseMessage] = [SystemMessage(content=system_prompt), *(history_messages or []),
+                                   HumanMessage(content=user_input)]
+    callback = get_langfuse_callback()
+    config = merge_configs(ensure_config(), {'callbacks': [callback] if callback else []})
     if tag == 'writing_worker' and not tools:
-        # Only the user-facing draft body is previewable; the later metadata
-        # extraction call and all tool-enabled workers remain private.
-        call_config = merge_configs(call_config, {'metadata': {'public_preview': 'draft'}})
+        config = merge_configs(config, {'metadata': {'public_preview': 'draft'}})
+    # Cache is task-local and read-only. A repair must not repeat successful calls.
+    cache, pending, repairs = {}, [], 0
+    round_idx, round_limit = 0, max_rounds
+    while round_idx < round_limit:
+        await _fence(execution_state)
+        ensure_request_budget(messages, tools, settings.WORKER_OUTPUT_MAX_TOKENS)
+        response = await bound.ainvoke(messages, config=config)
+        round_idx += 1
+        calls = _calls(response)
+        await _fence(execution_state)
+        log.info('[%s] round=%d calls=%d repair_attempts=%d', tag, round_idx, len(calls), repairs)
+        if not calls:
+            if pending:
+                raise ToolTaskError('TOOL_REPAIR_ABANDONED', '模型未修正失败的工具调用', repair_attempts=repairs)
+            if isinstance(response.content, str) and response.content.strip():
+                return response.content
+            messages.append(HumanMessage(content='请基于以上信息，直接给出最终答复。不要再调用工具。'))
+            ensure_request_budget(messages, output_tokens=settings.WORKER_OUTPUT_MAX_TOKENS)
+            response = await llm.ainvoke(messages, config=config)
+            await _fence(execution_state)
+            return _content(response)
 
-    for round_idx in range(max_rounds):
-        ensure_request_budget(messages, tools or [], settings.WORKER_OUTPUT_MAX_TOKENS)
-        t0 = time.perf_counter()
-        response = await llm_bound.ainvoke(messages, config=call_config)
-        cost = (time.perf_counter() - t0) * 1000
-
-        if not response.tool_calls:
-            log.info("[%s] round#%d LLM 无工具调用，直接出结果 | %.0fms | content=%r",
-                     tag, round_idx + 1, cost, truncate(response.content, 300))
-            content = response.content or ""
-            if not content.strip():
-                log.warning("[%s] round#%d 返回空 content 且无 tool_calls，强制再生成一次", tag, round_idx + 1)
-                messages.append(HumanMessage(
-                    content="请基于以上信息，直接给出最终答复。不要再调用工具。"
-                ))
-                t1 = time.perf_counter()
-                ensure_request_budget(messages, output_tokens=settings.WORKER_OUTPUT_MAX_TOKENS)
-                response = await llm.ainvoke(messages, config=call_config)
-                cost1 = (time.perf_counter() - t1) * 1000
-                content = response.content or ""
-                if not content.strip():
-                    raise RuntimeError("模型未产生有效内容")
-                log.info("[%s] 兜底生成完成 | %.0fms | content=%r", tag, cost1, truncate(content, 300))
-            return content
-
-        log.info("[%s] round#%d LLM 请求调用 %d 个工具 | %.0fms | calls=%s",
-                 tag, round_idx + 1, len(response.tool_calls), cost,
-                 [{"name": tc["name"], "args": truncate(tc.get("args"), 120)} for tc in response.tool_calls])
-
-        messages.append(response)
-        for tc in response.tool_calls:
-            tool_name = tc["name"]
-            tool_args = tc.get("args", {})
-            fn = tool_map.get(tool_name)
-
-            t_tool = time.perf_counter()
-            if fn:
-                allow, reason = _validate_args(tool_name, tool_args)
-                if not allow:
-                    log.warning("[%s] 工具 %s 参数校验不通过: %s", tag, tool_name, reason)
-                    raise ValueError(f"工具 {tool_name} 参数无效：{reason}")
-                else:
-                    try:
-                        # async tool 必须走 ainvoke；StructuredTool 的 invoke 对 async func 会抛 "does not support sync invocation"
-                        result = await fn.ainvoke(tool_args)
-                        result_raw_len = len(str(result))
-                        result = _truncate_result(result)
-                        elapsed = (time.perf_counter() - t_tool) * 1000
-                        log.info("[%s] 工具 %s 返回 | %.0fms | %d chars | %r",
-                                 tag, tool_name, elapsed, result_raw_len, truncate(result, 300))
-                    except Exception as e:
-                        elapsed = (time.perf_counter() - t_tool) * 1000
-                        log.error("[%s] 工具 %s 执行失败 | %.0fms | err=%s",
-                                  tag, tool_name, elapsed, e)
-                        raise RuntimeError(f"工具 {tool_name} 执行失败") from e
+        # Authorize the whole batch before executing any call. A typo may only
+        # suggest an already allowed tool; it never automatically selects one.
+        expected = []
+        for call in calls:
+            name = call.get('name')
+            if name in tool_map:
+                await _fence(execution_state, policies[name])
+                expected.append({name})
             else:
-                log.warning("[%s] 工具 %s 不存在", tag, tool_name)
-                raise ValueError(f"工具 {tool_name} 不存在或无权调用")
-            messages.append(ToolMessage(content=result, tool_call_id=tc["id"]))
-
-    # 轮数用完，最后一次调用拿最终回复
-    # 关键修复：最后一次汇总不再绑 tools。
-    # 若仍绑 tools，DeepSeek/OpenAI 在 function calling 模式下会选择继续 tool_call，
-    # 此时 response.content 为空字符串（content 与 tool_calls 互斥），导致上层拿到空回复。
-    log.info("[%s] 轮数用尽，最终一次 LLM 汇总（不带 tools，强制出 content）", tag)
-    messages.append(HumanMessage(
-        content="请基于以上所有信息，直接给出最终答复给用户。不要再调用工具，不要输出过渡语。"
-    ))
-    t0 = time.perf_counter()
+                candidates = get_close_matches(name or '', list(tool_map), n=2, cutoff=.84)
+                if tool_registry.is_registered(name) or len(candidates) != 1:
+                    raise PermissionError('模型请求了不在当前任务白名单中的工具')
+                await _fence(execution_state, policies[candidates[0]])
+                expected.append(set(candidates))
+        messages.append(response)
+        errors, succeeded = [], set()
+        for call, target in zip(calls, expected):
+            name = call['name']
+            fn = tool_map.get(name)
+            issues = argument_issues(fn, call.get('args')) if fn else [
+                {'field': 'name', 'message': '工具名不存在，请使用 available_tools 中的准确名称'}]
+            code = 'INVALID_ARGUMENTS' if fn else 'UNKNOWN_TOOL'
+            if not issues:
+                await _fence(execution_state, policies[name])
+                key = (name, json.dumps(call['args'], sort_keys=True, ensure_ascii=False, separators=(',', ':')))
+                try:
+                    if key not in cache:
+                        cache[key] = await invoke_read_only(fn, call, config, tool_timeout)
+                    result = cache[key]
+                except ToolInputError as exc:
+                    issues = [{'field': exc.field, 'message': '参数不符合工具输入要求'}]
+                except ValidationError:
+                    issues = [{'field': '$', 'message': '参数未通过工具输入校验，请按 Schema 修正'}]
+                except ToolTaskError as exc:
+                    exc.report['repair_attempts'] = repairs
+                    exc.report['tool'] = exc.report.get('tool') or name
+                    raise
+                if not issues:
+                    succeeded.add(name)
+                    messages.append(ToolMessage(content=result, tool_call_id=call['id'], name=name))
+            if issues:
+                errors.append(target)
+                messages.append(error_message(call, code, issues, list(tool_map)))
+        await _fence(execution_state)
+        if errors:
+            if repairs:
+                raise ToolTaskError('TOOL_REPAIR_EXHAUSTED', '工具参数或名称修正一次后仍不合法', repair_attempts=repairs)
+            repairs = 1
+            pending = errors
+            round_limit += 1
+        elif pending:
+            if any(not (names & succeeded) for names in pending):
+                raise ToolTaskError('TOOL_REPAIR_ABANDONED', '模型未完成失败工具的修正', repair_attempts=repairs)
+            pending = []
+    if pending:
+        raise ToolTaskError('TOOL_REPAIR_EXHAUSTED', '工具修正未完成', repair_attempts=repairs)
+    await _fence(execution_state)
+    messages.append(HumanMessage(content='请基于以上所有信息，直接给出最终答复。不要再调用工具，不要输出过渡语。'))
     ensure_request_budget(messages, output_tokens=settings.WORKER_OUTPUT_MAX_TOKENS)
-    response = await llm.ainvoke(messages, config=call_config)
-    cost = (time.perf_counter() - t0) * 1000
-    final_content = response.content or ""
-    log.info("[%s] 完成 | 最终回复 %.0fms | content=%r",
-             tag, cost, truncate(final_content, 300))
-
-    # 兜底：若仍为空（极少数 provider 异常），返回一条友好提示
-    if not final_content.strip():
-        log.warning("[%s] 最终回复为空，使用兜底文案", tag)
-        raise RuntimeError("模型未产生有效内容")
-    return final_content
-
-
-def _validate_args(tool_name: str, args: dict) -> tuple[bool, str]:
-    if tool_name == "web_search" and len(args.get("query", "")) > 200:
-        return False, "搜索查询过长，请精简后重试"
-    return True, ""
-
-
-def _truncate_result(result: str) -> str:
-    if len(result) > MAX_RESULT_LENGTH:
-        return result[:MAX_RESULT_LENGTH] + "\n...[结果已截断]"
-    return result
+    response = await llm.ainvoke(messages, config=config)
+    await _fence(execution_state)
+    return _content(response)

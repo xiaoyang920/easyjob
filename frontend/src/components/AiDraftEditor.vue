@@ -5,8 +5,8 @@
       <button class="edit-trigger" :disabled="disabled" @click="startEditing">直接编辑</button>
     </div>
     <div class="editor-preview"><slot :content="draft.content" :format="draft.content_format" /></div>
-    <ElDialog v-model="editing" class="ai-draft-dialog" title="编辑草稿" width="min(1200px, 96vw)"
-      align-center destroy-on-close :close-on-click-modal="false" :close-on-press-escape="false">
+    <ElDialog v-model="editing" class="ai-draft-dialog ej-dialog" title="编辑草稿" width="min(1200px, 96vw)"
+      align-center destroy-on-close :close-on-click-modal="false" :close-on-press-escape="false" append-to-body>
       <p class="modal-intro">与写文章使用相同的编辑器。应用修改后回到预览，确认后再保存到草稿箱。</p>
       <div class="editor-fields">
         <label>标题<input v-model="working.title" aria-label="草稿标题" maxlength="100" placeholder="请输入文章标题" /></label>

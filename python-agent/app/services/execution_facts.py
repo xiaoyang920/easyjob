@@ -62,6 +62,8 @@ def delivery_notices(state, citations):
         notes.append('部分联网检索未完成，不能据此认定没有相关网页。')
     if any(c.get('contentScope') == 'search_excerpt' for c in citations):
         notes.append('网页依据来自搜索返回的摘要，尚未核验网页全文。')
+    if any(c.get('contentScope') == 'page_excerpt' for c in citations):
+        notes.append('部分网页正文较长，本次仅使用返回正文的节选，未覆盖整篇内容。')
     if facts['memory_write'] == 'pending':
         notes.append('长期记忆变更正在后台保存，结果可在记忆管理页查看。')
     elif facts['memory_write'] == 'failed':

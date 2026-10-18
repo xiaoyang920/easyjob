@@ -175,13 +175,14 @@ class MainBudgetTests(unittest.IsolatedAsyncioTestCase):
     async def test_worker_counts_bound_tool_schema_before_a_model_call(self):
         from langchain_core.tools import StructuredTool
         from app.graph.tool_executor import run_tool_agent
+        from app.services.tool_recovery import ToolPolicy
         tool = StructuredTool.from_function(lambda query: query, name='search', description='description ' * 1600)
         model = SimpleNamespace(bind_tools=Mock(), ainvoke=AsyncMock())
         model.bind_tools.return_value = model
         with budgets(MAIN_CONTEXT_MAX_TOKENS=4000, WORKER_OUTPUT_MAX_TOKENS=2000, CONTEXT_SAFETY_TOKENS=1000), \
              patch('app.graph.tool_executor.get_llm', return_value=model):
             with self.assertRaises(ContextBudgetExceeded):
-                await run_tool_agent('system', 'query', tools=[tool])
+                await run_tool_agent('system', 'query', tools=[tool], tool_policies={'search': ToolPolicy(True)})
         model.ainvoke.assert_not_awaited()
 
     async def test_large_latest_question_stops_before_call_and_is_not_truncated(self):
@@ -217,7 +218,7 @@ class FakeStore:
         return SimpleNamespace(_mapping={'summary': self.summary, 'summary_upto_msg_id': self.cursor})
 
     async def _all(self, sql, params):
-        return [SimpleNamespace(_mapping=message) for message in self.history if message['message_id'] > (params.get('cursor') or 0)]
+        return [SimpleNamespace(_mapping={'image_paths': None, **message}) for message in self.history if message['message_id'] > (params.get('cursor') or 0)]
 
     async def _execute(self, sql, params):
         self.updates.append((sql, params.copy()))

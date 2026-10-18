@@ -31,6 +31,7 @@ def _to_camel_dict(d: dict) -> dict:
 
 
 SUMMARY_PROMPT = """请将以下对话内容压缩成简洁的摘要。
+图片原图未提供给本次文本摘要；保留用户曾上传图片及相关任务的事实，不推测图中细节，不把助手对图片的描述当作用户明确确认的事实。
 
 【按以下栏目保留必要事实，空栏目可省略】
 1. 用户确认的事实与背景：关键名词、标识符、引用编号及其对应来源
@@ -230,7 +231,7 @@ class ConversationService:
         if cursor_id:
             rows = await db.fetch_all(
                 """
-                SELECT message_id, role, content FROM ai_message
+                SELECT message_id, role, content, image_paths FROM ai_message
                 WHERE conversation_id = :cid AND message_id > :cursor
                 ORDER BY message_id ASC
                 """,
@@ -239,7 +240,7 @@ class ConversationService:
         else:
             rows = await db.fetch_all(
                 """
-                SELECT message_id, role, content FROM ai_message
+                SELECT message_id, role, content, image_paths FROM ai_message
                 WHERE conversation_id = :cid
                 ORDER BY message_id ASC
                 """,
@@ -247,7 +248,15 @@ class ConversationService:
             )
 
         for r in rows:
-            context.append({"message_id": r._mapping["message_id"], "role": r._mapping["role"], "content": r._mapping["content"]})
+            # databases' MySQL Row supports column indexing, not dict.get().
+            # All four columns are selected explicitly, including nullable images.
+            item={"message_id": r._mapping["message_id"], "role": r._mapping["role"], "content": r._mapping["content"]}
+            raw=r._mapping['image_paths']
+            try: paths=json.loads(raw) if isinstance(raw,str) else raw
+            except (ValueError,TypeError): paths=None
+            if item['role']=='user' and isinstance(paths,list) and paths:
+                item['image_paths']=[path for path in paths if isinstance(path,str)][:4]
+            context.append(item)
 
         log.debug(
             "构建上下文: conv=%s, 有摘要=%s, 游标后消息=%d条",
@@ -431,11 +440,16 @@ class ConversationService:
                 raise
 
         _, units = split_history(to_summarize)
+        def turn_text(turn):
+            return '\n'.join(f"{message['role']}: {message['content']}" +
+                (f" [用户上传了{len(message['image_paths'])}张图片；本摘要未载入原图。]"
+                 if message.get('role') == 'user' and message.get('image_paths') else '')
+                for message in turn)
         position = 0
         while position < len(units) and calls < settings.SUMMARY_MAX_CALLS:
             batch, end = [], position
             while end < len(units):
-                text = '\n'.join(f"{message['role']}: {message['content']}" for message in units[end])
+                text = turn_text(units[end])
                 if count_tokens('\n'.join([*batch, text])) > source_budget:
                     break
                 batch.append(text)
@@ -445,7 +459,7 @@ class ConversationService:
             else:
                 # Only a completely summarized turn can become the new cursor;
                 # otherwise its assistant reply would be separated from the user.
-                text = '\n'.join(f"{message['role']}: {message['content']}" for message in units[position])
+                text = turn_text(units[position])
                 chunks = list(text_chunks(text, source_budget))
                 if len(chunks) > settings.SUMMARY_MAX_CALLS - calls:
                     break
@@ -499,7 +513,7 @@ class ConversationService:
         return f"py_conv:{conversation_id}"
 
     def _llm_cache_key(self, conversation_id: int) -> str:
-        return f"py_ctx:full:v3:{conversation_id}"
+        return f"py_ctx:full:v4:{conversation_id}"
     async def _save_cache(self, conversation_id: int, messages: list[dict]):
         await self._redis.set(
             self._cache_key(conversation_id),

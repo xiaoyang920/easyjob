@@ -36,6 +36,7 @@ class AgentState(TypedDict):
     retrieval_status: str
     main_round: int
     main_decision: dict
+    decision_contract_audit: dict
     action_history: list[dict]
     observations: list[dict]
     previous_run: dict
@@ -63,6 +64,7 @@ class AgentState(TypedDict):
     """
     # 用户输入
     user_message: str
+    user_image_paths: list[str]
     #当前用户 ID，从请求参数传入
     user_id: int
 

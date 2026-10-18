@@ -11,7 +11,9 @@ async def main():
     try:
         await apply_product_features(db)
         await apply_product_features(db,'023_draft_create_request.sql')
-        print('Product feature migrations 022 and 023 applied.')
+        await apply_product_features(db,'024_feedback_review.sql')
+        await apply_product_features(db,'025_article_comment_anchors.sql')
+        print('Product feature migrations 022 through 025 applied.')
     finally:await db.disconnect()
 
 if __name__=='__main__':asyncio.run(main())

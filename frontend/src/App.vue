@@ -1,5 +1,6 @@
 <template>
   <div class="easyjob-shell">
+    <AppHeader />
     <router-view v-slot="{ Component, route }">
       <Transition name="page" mode="out-in">
         <div :key="route.path" class="page-frame">
@@ -14,6 +15,7 @@
 <script setup lang="ts">
 import './styles/theme.css'
 import AiRunPanel from './components/AiRunPanel.vue'
+import AppHeader from './components/AppHeader.vue'
 import { onMounted, onUnmounted } from 'vue'
 import { startAiRunMonitor, stopAiRunMonitor } from './utils/aiRuns'
 onMounted(startAiRunMonitor)

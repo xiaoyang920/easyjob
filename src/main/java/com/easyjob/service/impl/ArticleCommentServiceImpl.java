@@ -18,6 +18,9 @@ import com.easyjob.mapper.ArticleMapper;
 import com.easyjob.mapper.UserActionMapper;
 import com.easyjob.mapper.UserMapper;
 import com.easyjob.service.ArticleCommentService;
+import com.easyjob.service.ArticleCommentAnchorService;
+import com.easyjob.service.ArticleAccessService;
+import com.easyjob.entity.Article;
 import com.easyjob.utils.UserContext;
 import com.easyjob.vo.ArticleCommentVO;
 import com.easyjob.vo.CommentActionVO;
@@ -43,6 +46,10 @@ public class ArticleCommentServiceImpl extends ServiceImpl<ArticleCommentMapper,
     private UserActionMapper userActionMapper;
     @Autowired
     private NotificationServiceImpl notificationService;
+    @Autowired
+    private ArticleCommentAnchorService anchors;
+    @Autowired
+    private ArticleAccessService access;
     /**
      * 获取文章评论列表
      * @param articleId
@@ -53,10 +60,11 @@ public class ArticleCommentServiceImpl extends ServiceImpl<ArticleCommentMapper,
      */
     @Override
     public PageVO getCommentList(Long articleId, Integer page, Integer size, String sort) {
-        if(sort.isEmpty()) {
+        requireReadable(articleMapper.selectById(articleId));
+        if(sort == null || sort.isEmpty()) {
             sort = "create_time";
         }
-        Page<ArticleComment> pageParam = new Page<>(page,size);
+        Page<ArticleComment> pageParam = new Page<>(safePage(page),safeSize(size));
         LambdaQueryWrapper<ArticleComment> queryWrapper = new LambdaQueryWrapper<>();
         queryWrapper
                .eq(ArticleComment::getArticleId,articleId)
@@ -69,7 +77,31 @@ public class ArticleCommentServiceImpl extends ServiceImpl<ArticleCommentMapper,
         }
         IPage<ArticleComment> pageData = articleCommentMapper.selectPage(pageParam, queryWrapper);
         List<ArticleComment> comments = pageData.getRecords();
-        
+        return PageVO.fromIPage(pageData,views(comments));
+    }
+
+    @Override
+    public PageVO getQuoteComments(Long articleId, Integer page, Integer size) {
+        requireReadable(articleMapper.selectById(articleId));
+        var result = anchors.page(articleId,safePage(page),safeSize(size));
+        return PageVO.fromIPage(result,views(result.getRecords()));
+    }
+    @Override
+    public PageVO getSelectedQuoteComments(Long articleId,Integer page,Integer size,List<Long> ids) {
+        requireReadable(articleMapper.selectById(articleId));
+        if(ids == null || ids.isEmpty() || ids.size()>50 || ids.stream().anyMatch(id->id == null || id<=0))
+            throw new BusinessException(400,"评论定位参数无效");
+        var result=anchors.selectedPage(articleId,safePage(page),safeSize(size),ids.stream().distinct().toList());
+        return PageVO.fromIPage(result,views(result.getRecords()));
+    }
+    @Override
+    public Map<String,Object> getQuoteMarkers(Long articleId,Long afterId,Integer size) {
+        requireReadable(articleMapper.selectById(articleId));
+        if(afterId == null || afterId < 0) throw new BusinessException(400,"评论位置游标无效");
+        return anchors.markers(articleId,afterId,size == null?200:Math.max(1,Math.min(200,size)));
+    }
+
+    private List<ArticleCommentVO> views(List<ArticleComment> comments) {
         // 批量查询当前用户的点赞/点踩状态
         Long currentUserId = UserContext.getUserId();
         Map<Long, Integer> actionTypeMap = new HashMap<>();
@@ -106,7 +138,17 @@ public class ArticleCommentServiceImpl extends ServiceImpl<ArticleCommentMapper,
                     return vo;
                 })
                 .toList();
-        return PageVO.fromIPage(pageData,list);
+        anchors.attach(list);
+        return list;
+    }
+    private int safePage(Integer page) { return page == null ? 1 : Math.max(1,page); }
+    private int safeSize(Integer size) { return size == null ? 20 : Math.max(1,Math.min(50,size)); }
+    private Article requireReadable(Article article) {
+        if(article == null || !Integer.valueOf(1).equals(article.getStatus()) || Integer.valueOf(1).equals(article.getDeleted()))
+            throw new BusinessException(404,"文章不存在或不可访问");
+        if(!access.canRead(UserContext.getUserId(),article.getUserId(),article.getRequiredLevel() == null ? 0 : article.getRequiredLevel()))
+            throw new BusinessException(403,"尚未达到文章阅读等级");
+        return article;
     }
     /**
      * 获取评论回复列表(顶级评论)
@@ -117,7 +159,10 @@ public class ArticleCommentServiceImpl extends ServiceImpl<ArticleCommentMapper,
      */
     @Override
     public PageVO getReplies(Long commentId, Integer page, Integer size) {
-        Page<ArticleComment> pageParam = new Page<>(page,size);
+        var parent = articleCommentMapper.selectById(commentId);
+        if(parent == null || !Integer.valueOf(0).equals(parent.getStatus())) throw new BusinessException(404,"评论不存在");
+        requireReadable(articleMapper.selectById(parent.getArticleId()));
+        Page<ArticleComment> pageParam = new Page<>(safePage(page),safeSize(size));
         IPage<ArticleComment> pageData = articleCommentMapper.selectPage(pageParam,
                 new LambdaQueryWrapper<>(ArticleComment.class)
                         .eq(ArticleComment::getParentId,commentId)
@@ -176,21 +221,30 @@ public class ArticleCommentServiceImpl extends ServiceImpl<ArticleCommentMapper,
     @Override
     @Transactional
     public ArticleCommentVO create(CommentCreateDTO commentCreateDTO) {
+        if(UserContext.getUserId() == null) throw new BusinessException(401,"请先登录");
         if (!commentCreateDTO.isContentValid()) {
             throw new BusinessException("评论内容无效");
         }
+        Article liveArticle = requireReadable(anchors.lockArticle(commentCreateDTO.getArticleId()));
+        if(!commentCreateDTO.isTopLevelComment() && commentCreateDTO.getQuote() != null)
+            throw new BusinessException(400,"回复沿用所属评论的原文，不另建引用");
+        var quote = anchors.validate(commentCreateDTO.getQuote(),liveArticle.getContent());
         ArticleComment articleComment = new ArticleComment();
         //传入dto中的属性
-        articleComment.setArticleUserId(commentCreateDTO.getArticleUserId());
+        articleComment.setArticleUserId(liveArticle.getUserId());
         articleComment.setArticleId(commentCreateDTO.getArticleId());
         articleComment.setContent(commentCreateDTO.getContent());
         articleComment.setImgPath(commentCreateDTO.getImgPath());
         articleComment.setReplyCount(0);
+        articleComment.setStatus(0);
+        articleComment.setLikeCount(0);
+        articleComment.setTopType(0);
         //设置创建时间
         articleComment.setCreateTime(LocalDateTime.now());
         articleComment.setUpdateTime(LocalDateTime.now());
         //设置评论者的冗余字段
         User user = userMapper.selectById(UserContext.getUserId());
+        if(user == null) throw new BusinessException(401,"请重新登录");
         articleComment.setUserId(UserContext.getUserId());
         articleComment.setUserNickName(user.getNickName());
         articleComment.setUserAvatar(user.getAvatar());
@@ -200,13 +254,15 @@ public class ArticleCommentServiceImpl extends ServiceImpl<ArticleCommentMapper,
             articleComment.setReplyCount(0);
             //插入顶级评论
             articleCommentMapper.insert(articleComment);
+            anchors.save(articleComment.getCommentId(),quote);
             //更新文章的评论数
             articleMapper.changeCommentCount(commentCreateDTO.getArticleId(),1);
 
         }else {
             //不是顶级评论，则是回复，获取父级评论（必须是顶级评论）
             ArticleComment parentComment = articleCommentMapper.selectById(commentCreateDTO.getParentId());
-            if(parentComment==null){
+            if(parentComment==null || !Objects.equals(parentComment.getArticleId(),liveArticle.getArticleId())
+                    || !Integer.valueOf(0).equals(parentComment.getStatus())){
                 throw new BusinessException("父级评论不存在");
             }
             // 所有二级评论的 parentId 都指向顶级评论
@@ -230,13 +286,12 @@ public class ArticleCommentServiceImpl extends ServiceImpl<ArticleCommentMapper,
         }
         // ---- 发通知 ----
         // 查文章标题（冗余进通知）
-        com.easyjob.entity.Article articleForNotify = articleMapper.selectById(commentCreateDTO.getArticleId());
-        String articleTitle = articleForNotify != null ? articleForNotify.getTitle() : null;
+        String articleTitle = liveArticle.getTitle();
         String preview = truncate(commentCreateDTO.getContent(), 100);
 
         // 给文章作者（评论了你的文章）
         notificationService.send(NotificationMessage.builder()
-                .userId(commentCreateDTO.getArticleUserId())
+                .userId(liveArticle.getUserId())
                 .senderId(UserContext.getUserId())
                 .senderNickname(user.getNickName())
                 .senderAvatar(user.getAvatar())
@@ -251,7 +306,7 @@ public class ArticleCommentServiceImpl extends ServiceImpl<ArticleCommentMapper,
         // 如果是回复别人的评论，再通知被回复者（去重避免文章作者=被回复者时重复发）
         if (commentCreateDTO.getReplyUserId() != null
                 && !commentCreateDTO.getReplyUserId().equals(UserContext.getUserId())
-                && !commentCreateDTO.getReplyUserId().equals(commentCreateDTO.getArticleUserId())) {
+                && !commentCreateDTO.getReplyUserId().equals(liveArticle.getUserId())) {
             notificationService.send(NotificationMessage.builder()
                     .userId(commentCreateDTO.getReplyUserId())
                     .senderId(UserContext.getUserId())
@@ -266,7 +321,9 @@ public class ArticleCommentServiceImpl extends ServiceImpl<ArticleCommentMapper,
                     .build()
             );
         }
-        return convertToVO(articleComment);
+        var created = convertToVO(articleComment);
+        created.setQuote(quote);
+        return created;
     }
     /**
      * 删除评论
@@ -281,6 +338,9 @@ public class ArticleCommentServiceImpl extends ServiceImpl<ArticleCommentMapper,
         if (articleComment == null) {
             throw new BusinessException("评论不存在");
         }
+        Long actor = UserContext.getUserId();
+        if(actor == null || (!actor.equals(articleComment.getUserId()) && !access.isAdmin(actor)))
+            throw new BusinessException(403,"只能删除自己的评论");
         //检查pid是否是0,不是0代表是2级评论，直接删，并且更新父评论的回复数
         if (articleComment.getParentId() != 0) {
             articleCommentMapper.deleteById(commentId);

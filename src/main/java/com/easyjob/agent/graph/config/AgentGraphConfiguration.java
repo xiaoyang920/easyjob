@@ -7,7 +7,7 @@ import com.easyjob.agent.component.EsVectorStore;
 import com.easyjob.agent.graph.node.*;
 import com.easyjob.agent.graph.state.AgentStateFactory;
 import com.easyjob.agent.tool.ArticleTool;
-import com.easyjob.agent.tool.BochaSearchTool;
+import com.easyjob.agent.tool.DeepSeekSearchTool;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.deepseek.DeepSeekChatModel;

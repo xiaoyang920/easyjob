@@ -11,7 +11,7 @@ async function login(page:Page,key:string){
 test('administrator exports a real workbook and changes statistical source',async({page},info)=>{
  await login(page,'admin');await page.goto('/admin')
  await expect(page.getByRole('heading',{name:'概览',exact:true})).toBeVisible()
- const scope=page.getByRole('combobox',{name:'统计数据来源'});await expect(scope).toHaveValue('business');await scope.selectOption('evaluation')
+ const scope=page.getByRole('combobox',{name:'统计数据来源'});await expect(page.locator('.statistics-controls > .ej-select')).toContainText('真实业务');await scope.click();await page.getByRole('option',{name:'评测样例',exact:true}).click()
  const button=page.getByRole('button',{name:'导出 Excel',exact:true});await expect(button).toBeEnabled()
  const [download]=await Promise.all([page.waitForEvent('download'),button.click()]);expect(download.suggestedFilename()).toContain('评测样例')
  const filename=info.outputPath('statistics.xlsx');await download.saveAs(filename);expect(fs.readFileSync(filename).subarray(0,2).toString()).toBe('PK')

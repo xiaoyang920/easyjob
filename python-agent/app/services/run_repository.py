@@ -121,8 +121,9 @@ class RunRepository:
                 current = await self.db.fetch_one("""SELECT status, draft_article_id,JSON_EXTRACT(result_json,'$.draft_commit') AS draft_commit,
                     (deadline<=UTC_TIMESTAMP(6) OR (status='running' AND executor_lease_until<=UTC_TIMESTAMP(6))) AS expired FROM agent_run
                     WHERE run_id=:rid FOR UPDATE""", {"rid": active._mapping["run_id"]})
+                current_values = dict(current._mapping) if current else {}
                 if current and current._mapping["status"] in ("running", "awaiting_approval"):
-                    if not current._mapping["expired"] or current._mapping["draft_article_id"] is not None or current._mapping.get('draft_commit'):
+                    if not current_values["expired"] or current_values["draft_article_id"] is not None or current_values.get('draft_commit'):
                         raise HTTPException(409, "当前会话已有运行或待处理审批")
                     # Expiration fences old executors; a committed draft must
                     # still be reconciled instead of opening a new run.

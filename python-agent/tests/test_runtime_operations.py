@@ -11,6 +11,33 @@ from app.services.operations import Operations
 
 
 class TokenBudgetTests(unittest.IsolatedAsyncioTestCase):
+    async def test_native_image_reservation_does_not_tokenize_base64(self):
+        def image_message(size):
+            return HumanMessage(content=[{'type':'text','text':'继续识别这张图片'},
+                {'type':'image_url','image_url':{'url':'data:image/png;base64,'+'A'*size}}])
+        measured = {'budget_charged_tokens':33311, 'llm_calls':2,
+                    'measured_input_tokens':31677, 'measured_output_tokens':1634}
+        small, large = RunMetrics(measured), RunMetrics(measured)
+        params = {'max_tokens':8192}
+        with patch.object(settings, 'RUN_TOTAL_TOKEN_BUDGET', 524288):
+            await small.on_chat_model_start({}, [[image_message(100)]], run_id='image', invocation_params=params)
+            await large.on_chat_model_start({}, [[image_message(4_000_000)]], run_id='image', invocation_params=params)
+        self.assertEqual(small.reservations, large.reservations)
+        self.assertGreaterEqual(large.reservations['image'], 8192+1024)
+        self.assertLess(large.snapshot()['budget_charged_tokens'], 50000)
+
+    async def test_schema_and_visual_tokens_still_obey_the_total_budget(self):
+        image = HumanMessage(content=[{'type':'image_url','image_url':{'url':'data:image/png;base64,AAAA'}}])
+        with patch.object(settings, 'RUN_TOTAL_TOKEN_BUDGET', 1000):
+            with self.assertRaises(RunTokenBudgetExceeded):
+                await RunMetrics().on_chat_model_start({}, [[image]], run_id='image', invocation_params={'max_tokens':100})
+        schema = {'type':'function','function':{'name':'tool','description':'details '*500,
+                  'parameters':{'type':'object','properties':{}}}}
+        with patch.object(settings, 'RUN_TOTAL_TOKEN_BUDGET', 400):
+            with self.assertRaises(RunTokenBudgetExceeded):
+                await RunMetrics().on_chat_model_start({}, [[HumanMessage('hello')]], run_id='tool',
+                    invocation_params={'max_tokens':100,'tools':[schema]})
+
     async def test_parallel_reservations_cannot_both_spend_remaining_budget(self):
         metrics = RunMetrics()
         with patch.object(settings, 'RUN_TOTAL_TOKEN_BUDGET', 200):

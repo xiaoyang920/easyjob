@@ -1,11 +1,7 @@
 <template>
   <div class="follow-page">
     <!-- 导航栏 -->
-    <nav class="navbar">
-      <div class="logo" @click="$router.push('/')">EasyJob</div>
-      <span class="page-title">粉丝与关注</span>
-      <AppNavigation />
-    </nav>
+
 
     <div class="container">
       <header class="page-header">
@@ -33,7 +29,7 @@
 
       <!-- 用户列表 -->
       <div v-if="loading" class="loading-state">加载中...</div>
-      
+
       <div v-else-if="userList.length === 0" class="empty-state">
         {{ currentTab === 'followers' ? '暂无粉丝' : '暂无关注' }}
       </div>
@@ -86,17 +82,16 @@
     </div>
 
     <!-- 登录弹窗 -->
-    <el-dialog v-model="showLoginDialog" title="" :width="dialogWidth" :close-on-click-modal="true" class="modern-dialog">
+    <el-dialog v-model="showLoginDialog" title="" :width="dialogWidth" :close-on-click-modal="true" class="modern-dialog ej-dialog" append-to-body>
       <LoginForm @success="handleLoginSuccess" @switchToRegister="switchToRegister" />
     </el-dialog>
-    <el-dialog v-model="showRegisterDialog" title="" :width="dialogWidth" :close-on-click-modal="true" class="modern-dialog">
+    <el-dialog v-model="showRegisterDialog" title="" :width="dialogWidth" :close-on-click-modal="true" class="modern-dialog ej-dialog" append-to-body>
       <RegisterForm @success="handleRegisterSuccess" @switchToLogin="switchToLogin" />
     </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import AppNavigation from '@/components/AppNavigation.vue'
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { goBackOr } from '../utils/navigation'
@@ -130,20 +125,20 @@ async function fetchUserList(reset = false) {
   if (reset) {
     currentPage.value = 1
   }
-  
+
   loading.value = true
   try {
     const url = currentTab.value === 'followers'
       ? `/user/${userId.value}/followers?page=${currentPage.value}&size=10`
       : `/user/${userId.value}/following?page=${currentPage.value}&size=10`
-    
+
     const res = await request.get(url)
     console.log('用户列表:', res)
-    
+
     if (res.code === 200 && res.data) {
       userList.value = res.data.records || []
       totalPages.value = res.data.pages || 0
-      
+
       // 更新计数
       if (currentTab.value === 'followers') {
         followersCount.value = res.data.total || 0
@@ -198,12 +193,12 @@ async function toggleFollow(user: any) {
     router.push('/login')
     return
   }
-  
+
   try {
     const url = user.isFollowing
       ? `/user/${user.userId}/unfollow`
       : `/user/${user.userId}/follow`
-    
+
     const res = await request.post(url)
     if (res.code === 200) {
       user.isFollowing = !user.isFollowing
@@ -497,16 +492,16 @@ onUnmounted(() => {
     padding: 0 15px;
     height: 55px;
   }
-  
+
   .logo {
     font-size: 20px;
   }
-  
+
   .nav-btn {
     padding: 6px 12px;
     font-size: 12px;
   }
-  
+
   .container {
     margin-top: 82px;
     padding: 0 16px;
@@ -515,29 +510,29 @@ onUnmounted(() => {
   .page-header h1 {
     font-size: 24px;
   }
-  
+
   .card-header h2 {
     font-size: 20px;
   }
-  
+
   .tab-btn {
     padding: 10px 20px;
     font-size: 14px;
   }
-  
+
   .user-item {
     padding: 15px 0;
   }
-  
+
   .user-avatar {
     width: 48px;
     height: 48px;
   }
-  
+
   .user-name {
     font-size: 15px;
   }
-  
+
   .follow-btn {
     padding: 6px 18px;
     font-size: 13px;
@@ -549,68 +544,68 @@ onUnmounted(() => {
     padding: 0 12px;
     height: 50px;
   }
-  
+
   .logo {
     font-size: 18px;
   }
-  
+
   .nav-btn {
     padding: 5px 10px;
     font-size: 11px;
   }
-  
+
   .main-container {
     margin-top: 65px;
     padding: 15px 10px;
   }
-  
+
   .content-card {
     padding: 15px;
     border-radius: 12px;
   }
-  
+
   .card-header h2 {
     font-size: 18px;
   }
-  
+
   .tabs {
     gap: 0;
   }
-  
+
   .tab-btn {
     padding: 8px 15px;
     font-size: 13px;
     flex: 1;
     text-align: center;
   }
-  
+
   .user-item {
     padding: 12px 0;
     gap: 12px;
   }
-  
+
   .user-avatar {
     width: 42px;
     height: 42px;
   }
-  
+
   .user-name {
     font-size: 14px;
   }
-  
+
   .user-intro {
     font-size: 12px;
   }
-  
+
   .follow-btn {
     padding: 5px 14px;
     font-size: 12px;
   }
-  
+
   .pagination {
     gap: 10px;
   }
-  
+
   .page-btn {
     padding: 6px 12px;
     font-size: 12px;

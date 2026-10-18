@@ -4,6 +4,7 @@ import asyncio
 from langchain_core.callbacks import AsyncCallbackHandler
 from app.config import settings
 from app.utils.token_utils import count_tokens
+from app.utils.context_budget import request_tokens
 
 
 class RunTokenBudgetExceeded(RuntimeError):
@@ -33,22 +34,27 @@ class RunMetrics(AsyncCallbackHandler):
             async with self.persist_lock:
                 await asyncio.wait_for(self.persist(self.snapshot()), 5)
 
-    def reserve(self, key, text, kwargs):
+    def reserve(self, key, input_tokens, kwargs):
         if key in self.reservations or key in self.finished: return
         params = kwargs.get('invocation_params') or {}
         output = params.get('max_tokens') or params.get('max_completion_tokens') or settings.WORKER_OUTPUT_MAX_TOKENS
-        reservation = count_tokens(text) + int(output) + 32
+        reservation = input_tokens + int(output) + 32
         if self.charged + sum(self.reservations.values()) + reservation > settings.RUN_TOTAL_TOKEN_BUDGET:
             raise RunTokenBudgetExceeded('本次运行累计 Token 预算不足，请缩小任务范围后重试')
         self.reservations[key] = reservation
 
     async def on_chat_model_start(self, serialized, messages, *, run_id, **kwargs):
-        self.reserve(str(run_id), '\n'.join(str(m.content) for batch in messages for m in batch), kwargs)
+        # Use the same image-aware accounting as context admission. Serializing
+        # content as text would tokenize the Base64 transport payload and reject
+        # ordinary image follow-ups as if they had spent hundreds of thousands.
+        schemas = (kwargs.get('invocation_params') or {}).get('tools') or ()
+        input_tokens = sum(request_tokens(batch, schemas) for batch in messages)
+        self.reserve(str(run_id), input_tokens, kwargs)
         self.calls.add(str(run_id))
         await self.checkpoint()
 
     async def on_llm_start(self, serialized, prompts, *, run_id, **kwargs):
-        self.reserve(str(run_id), '\n'.join(prompts), kwargs)
+        self.reserve(str(run_id), count_tokens('\n'.join(prompts)), kwargs)
         self.calls.add(str(run_id))
         await self.checkpoint()
 
@@ -102,7 +108,7 @@ class RunMetrics(AsyncCallbackHandler):
                 'output_tokens': output_measured if complete else None,
                 'measured_input_tokens': input_measured, 'measured_output_tokens': output_measured,
                 'active_duration_ms': previous.get('active_duration_ms', 0) + round((perf_counter() - self.started) * 1000),
-                'scope': 'agent_graph_llm; excludes embedding, rerank, background extraction, image preprocessing and human approval wait'}
+                'scope': 'agent_graph_llm; includes native image input; excludes embedding, rerank, background jobs and human approval wait'}
 
 
 def metrics_from(config):

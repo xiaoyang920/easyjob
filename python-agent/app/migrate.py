@@ -533,7 +533,9 @@ async def main():
         await apply_service_boundaries(db)
         await apply_product_features(db)
         await apply_product_features(db,'023_draft_create_request.sql')
-        print("001..021: applied (legacy data preserved)")
+        await apply_product_features(db,'024_feedback_review.sql')
+        await apply_product_features(db,'025_article_comment_anchors.sql')
+        print("001..024: applied (legacy data preserved)")
     finally:
         await db.disconnect()
 
@@ -737,6 +739,9 @@ async def check_product_features(database):
           OR (table_name='ai_message' AND column_name='run_id'))""")
     table=await database.fetch_val("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='agent_answer_feedback'")
     if columns!=3 or table!=1:raise RuntimeError('功能迁移未就绪，请执行 python scripts/migrate-product-features.py')
+    review=await database.fetch_val("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='agent_answer_feedback' AND column_name IN ('review_state','review_note','review_version','handled_by','handled_at','feedback_generation')")
+    log=await database.fetch_val("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='agent_feedback_review_log'")
+    if review!=6 or log!=1:raise RuntimeError('反馈处理迁移未就绪，请执行 python scripts/migrate-product-features.py')
 
 if __name__ == "__main__":
     asyncio.run(main())

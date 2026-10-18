@@ -2,7 +2,7 @@ package com.easyjob.agent.component;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch.core.BulkResponse;
-import com.easyjob.agent.service.ZhipuEmbeddingService;
+import com.easyjob.agent.service.ArticleEmbeddingService;
 import com.easyjob.dto.ArticleVectorMessage;
 import com.easyjob.constants.RabbitMqConstants;
 import com.easyjob.entity.Article;
@@ -83,6 +83,17 @@ class ArticleChunkIndexTests {
         assertThrows(BusinessException.class, () -> f.listener.handleVectorMessage(message));
         verify(outbox, never()).complete(anyString(), anyLong());
     }
+    @Test void embeddingFailureCannotCompleteOutboxOrRemovePreviousChunks() throws Exception {
+        var f = fixture(true);var outbox=mock(ArticleIndexOutbox.class);
+        ReflectionTestUtils.setField(f.listener,"indexOutbox",outbox);
+        when(f.mapper.selectById(42L)).thenReturn(article("<p>current</p>"));
+        doThrow(new BusinessException("batch failed")).when(f.store).saveChunks(anyList());
+        var message=message();message.setIndexJobId("job");
+        assertThrows(BusinessException.class,()->f.listener.handleVectorMessage(message));
+        verify(outbox,never()).complete(anyString(),anyLong());
+        verify(f.store,never()).retainChunks(anyString(),anyList());
+        verifyNoInteractions(f.text);verify(f.release).release("easyjob_rag_42");
+    }
     @Test void successfulIndexCompletesDeliveryAfterRetainingChunks() throws Exception {
         var f = fixture(true); var outbox = mock(ArticleIndexOutbox.class);
         ReflectionTestUtils.setField(f.listener, "indexOutbox", outbox);
@@ -147,11 +158,11 @@ class ArticleChunkIndexTests {
     @Test void partialBulkFailureIsPropagatedToRabbitRetry() throws Exception {
         var store = new EsVectorStore();
         var client = mock(ElasticsearchClient.class);
-        var embedding = mock(ZhipuEmbeddingService.class);
-        when(embedding.embedBatch(anyList())).thenReturn(List.of(Collections.nCopies(2048, 0.1)));
+        var embedding = mock(ArticleEmbeddingService.class);
+        when(embedding.embed(anyList())).thenReturn(List.of(Collections.nCopies(2048, 0.1)));
         when(client.bulk(any(Function.class))).thenReturn(BulkResponse.of(b -> b.errors(true).took(1).items(List.of())));
         ReflectionTestUtils.setField(store, "esClient", client);
-        ReflectionTestUtils.setField(store, "embeddingService", embedding);
+        ReflectionTestUtils.setField(store, "articleEmbeddingService", embedding);
         var chunks = new DocumentChunkService().chunk("42", "RAG", "<p>text</p>", 7L, List.of());
         assertThrows(BusinessException.class, () -> store.saveChunks(chunks));
         verify(client).bulk(any(Function.class));
@@ -227,10 +238,10 @@ class ArticleChunkIndexTests {
     @Test void invalidVectorNeverReachesBulkWrite() {
         var store = new EsVectorStore();
         var client = mock(ElasticsearchClient.class);
-        var embedding = mock(ZhipuEmbeddingService.class);
-        when(embedding.embedBatch(anyList())).thenReturn(List.of(List.of(Double.NaN)));
+        var embedding = mock(ArticleEmbeddingService.class);
+        when(embedding.embed(anyList())).thenReturn(List.of(List.of(Double.NaN)));
         ReflectionTestUtils.setField(store, "esClient", client);
-        ReflectionTestUtils.setField(store, "embeddingService", embedding);
+        ReflectionTestUtils.setField(store, "articleEmbeddingService", embedding);
         var chunks = new DocumentChunkService().chunk("42", "RAG", "<p>text</p>", 7L, List.of());
         assertThrows(BusinessException.class, () -> store.saveChunks(chunks));
         verifyNoInteractions(client);

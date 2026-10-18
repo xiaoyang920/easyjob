@@ -4,6 +4,7 @@ from app.graph.state import AgentState
 def create_initial_state(user_id: int, user_message: str, history_messages: list[dict]) -> AgentState:
     return {
         "user_id": user_id, "user_message": user_message,
+        "user_image_paths": [],
         "history_messages": list(history_messages),
         "origin_article_id": None, "article_context": {},
         "context_compaction": {"attempted_versions": []},
@@ -20,6 +21,7 @@ def create_initial_state(user_id: int, user_message: str, history_messages: list
         "main_action": "", "execution_mode": "", "retrieval_status": "",
         "current_task": {}, "task_id": "", "capabilities": [],
         "main_round": 0, "main_decision": {}, "action_history": [],
+        "decision_contract_audit": {},
         "observations": [], "correction_count": 0, "business_complete": False,
         "action_task_ids": [],
         "previous_run": {},

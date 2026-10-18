@@ -1,20 +1,5 @@
 <template>
   <div class="chat-page">
-    <!-- 导航栏 -->
-    <nav class="navbar">
-      <div class="logo" @click="$router.push('/')">
-        <svg class="logo-icon" viewBox="0 0 1024 1024" fill="currentColor">
-          <path d="M512 1024c282.771692 0 512-229.228308 512-512S794.771692 0 512 0 0 229.228308 0 512s229.228308 512 512 512z m0-59.076923C261.858462 964.923077 59.076923 762.141538 59.076923 512S261.858462 59.076923 512 59.076923s452.923077 202.781538 452.923077 452.923077-202.781538 452.923077-452.923077 452.923077z"/>
-          <path d="M464.945231 748.642462c15.399385 3.042462 31.133538 4.588308 47.054769 4.588307 133.228308 0 241.230769-108.002462 241.230769-241.230769S645.228308 270.769231 512 270.769231 270.769231 378.771692 270.769231 512c0 15.921231 1.545846 31.655385 4.588307 47.054769a24.615385 24.615385 0 0 0 48.295385-9.550769A193.053538 193.053538 0 0 1 320 512c0-106.043077 85.956923-192 192-192S704 405.956923 704 512 618.043077 704 512 704c-12.701538 0-25.245538-1.230769-37.494154-3.652923a24.615385 24.615385 0 1 0-9.550769 48.295385z"/>
-          <path d="M512 512m-78.769231 0a78.769231 78.769231 0 1 0 157.538462 0 78.769231 78.769231 0 1 0-157.538462 0Z"/>
-          <path d="M510.385231 498.294154C396.465231 543.123692 320 653.351385 320 777.846154a24.615385 24.615385 0 1 0 49.230769 0 251.145846 251.145846 0 0 1 159.182769-233.737846 24.615385 24.615385 0 0 0-18.018461-45.814154z"/>
-        </svg>
-        <span class="logo-text">EasyJob</span>
-      </div>
-      <div class="page-title">私信</div>
-      <AppNavigation />
-    </nav>
-
     <!-- 主容器 -->
     <div class="chat-container">
       <!-- 左侧：会话列表 -->
@@ -102,13 +87,14 @@
           </div>
 
           <!-- 消息列表 -->
-          <div class="message-list" ref="messageListRef">
+          <div class="message-list" ref="messageListRef" :data-message-count="messages.length" :data-virtualized="messages.length > 60">
             <div v-if="loadingMessages" class="loading-messages">加载中...</div>
             <div v-if="hasMoreMessages && !loadingMessages" class="load-more" @click="loadMoreMessages">
               加载更多消息
             </div>
             
-            <template v-for="(msg, index) in messages" :key="msg.messageId">
+            <div ref="virtualSpacer" class="virtual-spacer" :style="{height:`${virtual.before.value}px`}" aria-hidden="true"></div>
+            <div v-for="{item:msg,index} in virtual.items.value" :key="msg.messageId" :ref="virtual.measure" :data-virtual-key="String(msg.messageId)">
               <!-- 时间分隔线 -->
               <div v-if="showTimeDivider(index)" class="time-divider">
                 {{ formatFullTime(msg.createTime) }}
@@ -151,7 +137,8 @@
                   @error="onAvatarError($event, myNickName)"
                 >
               </div>
-            </template>
+            </div>
+            <div class="virtual-spacer" :style="{height:`${virtual.after.value}px`}" aria-hidden="true"></div>
           </div>
 
           <!-- 输入区域 -->
@@ -216,11 +203,14 @@
       </div>
     </div>
 
+    <Teleport to="body">
     <!-- 图片预览 -->
     <div v-if="previewImageUrl" class="image-preview-overlay" role="dialog" aria-modal="true" aria-label="图片预览" @click="closeImagePreview" @keydown.esc="closeImagePreview" @keydown.tab.prevent="previewCloseRef?.focus()">
       <button ref="previewCloseRef" class="preview-close" aria-label="关闭图片预览" @click.stop="closeImagePreview">×</button>
       <img :src="previewImageUrl" alt="完整聊天图片" class="preview-image" @click.stop>
     </div>
+
+    </Teleport>
 
     <!-- 消息右键菜单 -->
     <div 
@@ -240,17 +230,17 @@
     </div>
 
     <!-- 登录弹窗 -->
-    <el-dialog v-model="showLoginDialog" title="" :width="dialogWidth" :close-on-click-modal="true" class="modern-dialog">
+    <el-dialog v-model="showLoginDialog" title="" :width="dialogWidth" :close-on-click-modal="true" class="modern-dialog ej-dialog" append-to-body>
       <LoginForm @success="handleLoginSuccess" @switchToRegister="switchToRegister" />
     </el-dialog>
-    <el-dialog v-model="showRegisterDialog" title="" :width="dialogWidth" :close-on-click-modal="true" class="modern-dialog">
+    <el-dialog v-model="showRegisterDialog" title="" :width="dialogWidth" :close-on-click-modal="true" class="modern-dialog ej-dialog" append-to-body>
       <RegisterForm @success="handleRegisterSuccess" @switchToLogin="switchToLogin" />
     </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import AppNavigation from '@/components/AppNavigation.vue'
+import { useVirtualMessages } from '@/composables/useVirtualMessages'
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { goBackOr } from '@/utils/navigation'
@@ -288,6 +278,8 @@ const lastMessageId = ref<string | null>(null)
 // 输入
 const messageInput = ref('')
 const messageListRef = ref<HTMLElement>()
+const virtual = useVirtualMessages(() => messages.value, messageListRef, m => String(m.messageId), m => m.messageType === 1 ? 300 : 100 + Math.min(300,String(m.content || '').length / 40 * 22))
+const virtualSpacer = virtual.spacer
 const inputRef = ref<HTMLTextAreaElement>()
 const imageUploading = ref(false)
 const imageUploadProgress = ref(0)
@@ -489,7 +481,10 @@ async function fetchMessages(loadMore = false) {
 
 // 加载更多消息
 async function loadMoreMessages() {
+  const anchor = virtual.captureAnchor()
   await fetchMessages(true)
+  await nextTick()
+  await virtual.restoreAnchor(anchor)
 }
 
 // 发送消息

@@ -12,7 +12,9 @@ declare module 'vue-router' {
 
 const router = createRouter({
   history: createWebHistory(),
-  scrollBehavior(_to, _from, savedPosition) {
+  scrollBehavior(to, _from, savedPosition) {
+    // Article headings arrive asynchronously and account for the sticky reading toolbar.
+    if (to.name === 'ArticleDetail' && to.hash) return false
     return savedPosition || { top: 0, left: 0 }
   },
   routes: [

@@ -6,7 +6,7 @@
   </div>
 </template>
 <script setup lang="ts">
-import { onBeforeUnmount, shallowRef } from 'vue'
+import { onBeforeUnmount, onUnmounted, shallowRef } from 'vue'
 import { ElMessage } from 'element-plus'
 import '@wangeditor/editor/dist/css/style.css'
 import { Editor, Toolbar } from '@wangeditor/editor-for-vue'
@@ -15,6 +15,7 @@ import request from '@/utils/request'
 defineProps<{ modelValue: string; height?: string }>()
 const emit = defineEmits<{ 'update:modelValue': [value: string]; ready: [html: string] }>()
 const editorRef = shallowRef<IDomEditor>()
+let disposed = false
 const toolbarConfig = { toolbarKeys: [
   'headerSelect', 'blockquote', '|', 'bold', 'underline', 'italic', 'through', 'color', 'bgColor', '|',
   'fontSize', 'lineHeight', '|', 'bulletedList', 'numberedList', 'todo', '|',
@@ -31,7 +32,7 @@ const editorConfig = {
         try {
           const res = await request.post('/file/upload-article-image', form, { headers: { 'Content-Type': 'multipart/form-data' } })
           if (res.code !== 200 || !res.data?.url) throw new Error(res.message || '图片上传失败')
-          insertFn(res.data.url, '', res.data.url)
+          if (!disposed) insertFn(res.data.url, '', res.data.url)
         } catch (error) { ElMessage.error(error instanceof Error ? error.message : '图片上传失败') }
       },
     },
@@ -45,12 +46,15 @@ const editorConfig = {
   },
 }
 function handleCreated(editor: IDomEditor) {
+  if (disposed) { editor.destroy(); return }
   editorRef.value = editor
   const html = editor.getHtml()
   emit('update:modelValue', html)
   emit('ready', html)
 }
-onBeforeUnmount(() => editorRef.value?.destroy())
+onBeforeUnmount(() => { disposed = true })
+// Toolbar is a child and may access the editor while it unmounts.
+onUnmounted(() => { editorRef.value?.destroy(); editorRef.value = undefined })
 </script>
 <style scoped>
 .article-rich-editor{--w-e-toolbar-bg-color:var(--ej-surface,#fffdf7);--w-e-textarea-bg-color:var(--ej-surface,#fffdf7);--w-e-toolbar-color:#333;--w-e-toolbar-active-color:#111;--w-e-toolbar-active-bg-color:#e8f6be;--w-e-toolbar-border-color:#e5e3dc;border:1px solid var(--ej-line,#dedbd2);border-radius:14px;background:var(--ej-surface,#fffdf7);overflow:hidden;min-width:0}

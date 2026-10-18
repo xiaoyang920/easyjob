@@ -9,8 +9,11 @@ import ts from 'typescript'
 import { JSDOM } from 'jsdom'
 
 test('real chat component switches, receives parallel replies, resumes and cancels only its own run', async () => {
-  const dom = new JSDOM('<div id="root"></div>', { url:'http://localhost:3000/ai-chat' })
+  const dom = new JSDOM('<div id="root"></div>', { url:'http://localhost:3000/ai-chat', pretendToBeVisual:true })
   for (const key of ['window','document','Element','HTMLElement','SVGElement','Node','localStorage','DOMParser']) globalThis[key] = dom.window[key]
+  globalThis.requestAnimationFrame = dom.window.requestAnimationFrame.bind(dom.window)
+  globalThis.cancelAnimationFrame = dom.window.cancelAnimationFrame.bind(dom.window)
+  globalThis.CSS = dom.window.CSS || {escape:value=>String(value).replace(/[^a-zA-Z0-9_-]/g, character=>'\\'+character)}
   globalThis.getComputedStyle = dom.window.getComputedStyle.bind(dom.window)
   localStorage.setItem('token', 'isolated-unit-test')
   localStorage.setItem('userId', 'qa')
@@ -61,6 +64,8 @@ test('real chat component switches, receives parallel replies, resumes and cance
   }
   script = script.replace(/^import .* from ['"]([^'"]+\.vue)['"]\s*$/gm, line => {
     const name=line.match(/^import (\w+)/)[1]
+    if(name==='AiConversationItem') return `const {h:conversationRow}=await import('vue');const AiConversationItem={props:['conversation','status'],emits:['select'],setup:(props,{emit})=>()=>conversationRow('button',{class:'conversation-item',onClick:()=>emit('select')},props.conversation.title+' '+(props.status || ''))}`
+    if(name==='CodeContent') return `const {h:codeRoot}=await import('vue');const CodeContent={props:['html'],setup:props=>()=>codeRoot('div',{innerHTML:props.html})}`
     return name==='AiDraftEditor'?`const AiDraftEditor=(await import('${pathToFileURL(editorPath).href}')).default`:`const ${name} = {render:()=>null}`
   })
   script = script.replace(/^import .* from ['"]vue-router['"]\s*$/gm, 'const useRouter=()=>globalThis.__chatQa.router, useRoute=()=>globalThis.__chatQa.route')
@@ -76,7 +81,7 @@ test('real chat component switches, receives parallel replies, resumes and cance
   const modulePath = fileURLToPath(new URL(`.chat-session-qa-${process.pid}.mjs`,import.meta.url))
   await writeFile(modulePath, compiled)
   let app
-  const tick = async () => { await new Promise(resolve=>setImmediate(resolve)); await vue.nextTick() }
+  const tick = async () => { await new Promise(resolve=>setTimeout(resolve,5)); await vue.nextTick() }
   const settle = async (predicate) => {
     for(let i=0;i<100;i++) { if(predicate()) return; await tick() }
     assert.ok(predicate(),'expected UI update')
@@ -136,10 +141,10 @@ test('real chat component switches, receives parallel replies, resumes and cance
     assert.ok(calls.some(([method,url])=>method==='post'&&url==='/agent/chat/102/cancel'))
     assert.equal(streams[0].signal.aborted,false)
     assert.equal(streams[1].signal.aborted,true)
-    await click(button('新对话'))
+    await click(button('开启新对话'))
     await send('没有 ID 时发起的问题')
     await settle(()=>streams.length===3)
-    await click(button('新对话'))
+    await click(button('开启新对话'))
     input().value='新对话未发送的输入'; input().dispatchEvent(new window.Event('input',{bubbles:true}))
     streams[2].emit('__CONV_ID__:103')
     reply(streams[2],'晚到的新会话回答')

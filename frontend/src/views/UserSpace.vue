@@ -1,23 +1,5 @@
 <template>
   <div class="user-space-page">
-    <!-- 导航栏 -->
-    <nav class="navbar">
-      <div class="logo" @click="$router.push('/')">
-        <svg class="logo-icon" viewBox="0 0 1024 1024" fill="currentColor">
-          <path d="M512 1024c282.771692 0 512-229.228308 512-512S794.771692 0 512 0 0 229.228308 0 512s229.228308 512 512 512z m0-59.076923C261.858462 964.923077 59.076923 762.141538 59.076923 512S261.858462 59.076923 512 59.076923s452.923077 202.781538 452.923077 452.923077-202.781538 452.923077-452.923077 452.923077z"/>
-          <path d="M464.945231 748.642462c15.399385 3.042462 31.133538 4.588308 47.054769 4.588307 133.228308 0 241.230769-108.002462 241.230769-241.230769S645.228308 270.769231 512 270.769231 270.769231 378.771692 270.769231 512c0 15.921231 1.545846 31.655385 4.588307 47.054769a24.615385 24.615385 0 0 0 48.295385-9.550769A193.053538 193.053538 0 0 1 320 512c0-106.043077 85.956923-192 192-192S704 405.956923 704 512 618.043077 704 512 704c-12.701538 0-25.245538-1.230769-37.494154-3.652923a24.615385 24.615385 0 1 0-9.550769 48.295385z"/>
-          <path d="M512 512m-78.769231 0a78.769231 78.769231 0 1 0 157.538462 0 78.769231 78.769231 0 1 0-157.538462 0Z"/>
-          <path d="M510.385231 498.294154C396.465231 543.123692 320 653.351385 320 777.846154a24.615385 24.615385 0 1 0 49.230769 0 251.145846 251.145846 0 0 1 159.182769-233.737846 24.615385 24.615385 0 0 0-18.018461-45.814154z"/>
-        </svg>
-        <span class="logo-text">EasyJob</span>
-      </div>
-      
-      <!-- 搜索框 -->
-      <SearchBox v-model="searchKeyword" @search="handleSearch" />
-      
-      <AppNavigation />
-    </nav>
-
     <!-- 用户信息头部 -->
     <div class="space-header">
       <ContentState v-if="profileLoading" kind="loading" title="正在加载个人空间" />
@@ -270,6 +252,7 @@
       </div>
     </div>
 
+    <Teleport to="body">
     <!-- 编辑资料弹窗 -->
     <div v-if="showEditModal" class="modal-overlay" @click.self="closeEditModal">
       <div class="modal-content">
@@ -303,11 +286,11 @@
           <div class="edit-form-row">
             <div class="edit-form-item">
               <label>性别</label>
-              <select v-model="editProfile.sex">
-                <option :value="2">未知</option>
-                <option :value="1">男</option>
-                <option :value="0">女</option>
-              </select>
+              <AppSelect aria-label="性别" v-model="editProfile.sex">
+                <AppSelectOption :value="2">未知</AppSelectOption>
+                <AppSelectOption :value="1">男</AppSelectOption>
+                <AppSelectOption :value="0">女</AppSelectOption>
+              </AppSelect>
             </div>
             <div class="edit-form-item">
               <label>生日</label>
@@ -340,11 +323,13 @@
       </div>
     </div>
 
+    </Teleport>
+
     <!-- 登录弹窗 -->
-    <el-dialog v-model="showLoginDialog" title="" :width="dialogWidth" :close-on-click-modal="true" class="modern-dialog">
+    <el-dialog v-model="showLoginDialog" title="" :width="dialogWidth" :close-on-click-modal="true" class="modern-dialog ej-dialog" append-to-body>
       <LoginForm @success="handleLoginSuccess" @switchToRegister="switchToRegister" />
     </el-dialog>
-    <el-dialog v-model="showRegisterDialog" title="" :width="dialogWidth" :close-on-click-modal="true" class="modern-dialog">
+    <el-dialog v-model="showRegisterDialog" title="" :width="dialogWidth" :close-on-click-modal="true" class="modern-dialog ej-dialog" append-to-body>
       <RegisterForm @success="handleRegisterSuccess" @switchToLogin="switchToLogin" />
     </el-dialog>
   </div>
@@ -352,8 +337,6 @@
 
 <script setup lang="ts">
 import { signOutSession } from '@/utils/authSession'
-import AppNavigation from '@/components/AppNavigation.vue'
-import SearchBox from '@/components/SearchBox.vue'
 import ContentState from '@/components/ContentState.vue'
 import CoverPlaceholder from '@/components/CoverPlaceholder.vue'
 import { notify, errorMessage } from '@/utils/feedback'

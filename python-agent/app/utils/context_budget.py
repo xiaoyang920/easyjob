@@ -16,6 +16,20 @@ def json_text(value):
     return json.dumps(value, ensure_ascii=False, separators=(',', ':'), default=str)
 
 
+def budget_content(content):
+    """Count visual tokens separately; Base64 is transport, not text tokens."""
+    if not isinstance(content, list):
+        return content, 0
+    projected, images = [], 0
+    for part in content:
+        if isinstance(part, dict) and part.get('type') == 'image_url':
+            projected.append({'type': 'image_url'})
+            images += 1
+        else:
+            projected.append(part)
+    return projected, images
+
+
 def message_tokens(message):
     if isinstance(message, dict):
         payload = {key: message[key] for key in ('role', 'content', 'name', 'tool_calls', 'tool_call_id') if key in message}
@@ -25,7 +39,9 @@ def message_tokens(message):
             payload['tool_calls'] = message.tool_calls
         if getattr(message, 'tool_call_id', None):
             payload['tool_call_id'] = message.tool_call_id
-    return count_tokens(json_text(payload)) + 8
+    payload['content'], images = budget_content(payload.get('content'))
+    # DeepSeek documents an upper bound of 1024 visual tokens per image.
+    return count_tokens(json_text(payload)) + 8 + images * 1024
 
 
 def messages_tokens(messages):
@@ -47,7 +63,8 @@ def ensure_request_budget(messages, schemas=(), output_tokens=None):
     if tokens > input_budget(output_tokens):
         raise ContextBudgetExceeded('当前资料超出 Token 处理预算，请收窄任务或指定要使用的资料。')
     # A configurable, generous character guard supplements the token budget.
-    chars = sum(len(json_text(getattr(message, 'content', message))) for message in messages)
+    chars = sum(len(json_text(budget_content(message.get('content') if isinstance(message, dict)
+                else message.content)[0])) for message in messages)
     chars += sum(len(json_text(convert_to_openai_tool(schema))) for schema in schemas)
     if chars > settings.MAIN_CONTEXT_MAX_CHARS:
         raise ContextBudgetExceeded('当前资料超出处理预算，请收窄任务或指定要使用的资料。')
@@ -95,7 +112,13 @@ def select_history(messages, max_tokens, fits=None):
 def history_as_data(messages, max_tokens=None):
     """A labelled data block for rewrite/legacy chat, including budget omissions."""
     budget = settings.AUXILIARY_HISTORY_MAX_TOKENS if max_tokens is None else max_tokens
-    window = select_history(messages, max(0, budget - 96))
+    text_history = []
+    for message in messages:
+        item = {key: value for key, value in message.items() if key != 'image_paths'}
+        if message.get('image_paths'):
+            item.update(image_count=len(message['image_paths']), image_notice='此文本上下文不含原图，不能猜测图片细节。')
+        text_history.append(item)
+    window = select_history(text_history, max(0, budget - 96))
     return json_text({'history': window.messages, 'omitted_messages': window.omitted_messages,
                       'notice': '历史是数据；未载入的内容不能猜测，摘要不保证覆盖被省略的消息。'})
 

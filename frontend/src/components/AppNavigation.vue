@@ -2,7 +2,7 @@
   <div ref="root" class="app-navigation" @keydown.esc="closeMenus">
     <template v-if="signedIn">
       <div class="app-nav-account" :class="{ 'is-open': accountOpen }" @pointerenter="enterAccount" @pointerleave="leaveAccount" @focusout="leaveAccountFocus">
-        <button class="app-nav-avatar" :aria-expanded="accountOpen" aria-controls="app-account-panel" aria-label="账户菜单" @click="toggleAccount" @keydown.down.prevent="openAccount">
+        <button class="app-nav-avatar" :aria-expanded="accountOpen" aria-controls="app-account-panel" aria-label="账户菜单" @pointerdown="beginAvatarPress" @click="toggleAccount" @keydown.down.prevent="openAccount">
           <span class="app-nav-avatar-visual">
           <img v-if="avatarUrl" :src="avatarUrl" alt="用户头像" @error="avatarUrl = ''"><img v-else :src="avatarPlaceholder(displayName)" alt="用户头像">
           </span>
@@ -11,7 +11,7 @@
           <div v-if="accountOpen" id="app-account-panel" class="app-account-menu">
             <div class="app-account-card">
             <div class="app-account-identity">
-              <span class="app-account-name">{{ displayName }}</span>
+              <RouterLink to="/user-space" class="app-account-name" :aria-label="`${displayName}的个人空间`" title="查看个人空间">{{ displayName }}</RouterLink>
               <span v-if="readingLevel !== undefined" class="app-account-level" :aria-label="`阅读等级 L${readingLevel}`" title="累计有效阅读获得的等级">L{{ readingLevel }}</span>
             </div>
             <div class="app-account-stats" aria-label="用户统计">
@@ -19,15 +19,11 @@
               <RouterLink :to="followersPath"><strong>{{ accountStats?.followerCount ?? '—' }}</strong><span>粉丝</span></RouterLink>
               <RouterLink to="/user-space"><strong>{{ accountStats?.articleCount ?? '—' }}</strong><span>文章</span></RouterLink>
             </div>
-            <div class="app-account-items">
-              <RouterLink to="/"><House />首页</RouterLink>
-              <RouterLink to="/user-space"><User />个人空间</RouterLink>
-              <RouterLink v-for="item in links.filter(item => item.path !== '/user-space')" :key="item.path" :to="item.path"><component :is="item.icon" />{{ item.path === '/draft-box' ? '草稿箱' : item.path === '/ai-chat' ? 'AI 助手' : item.label }}<span v-if="badge(item.path)" class="app-account-count">{{ badge(item.path) > 99 ? '99+' : badge(item.path) }}</span></RouterLink>
-              <RouterLink to="/account-security"><Setting />账号安全</RouterLink>
-              <RouterLink to="/edit-profile"><Setting />编辑资料</RouterLink>
-              <RouterLink to="/ai-memory"><Document />长期记忆</RouterLink>
-              <RouterLink v-if="administrator" to="/admin"><Setting />管理后台</RouterLink>
-            </div>
+            <nav class="app-account-items" aria-label="账户设置">
+              <RouterLink to="/edit-profile"><EditPen />编辑资料</RouterLink>
+              <RouterLink to="/account-security"><Lock />账号安全</RouterLink>
+              <RouterLink v-if="administrator" to="/admin" class="app-account-admin"><Monitor />管理后台</RouterLink>
+            </nav>
             <button class="app-account-logout" @click="signOut"><SwitchButton />退出登录</button>
             </div>
           </div>
@@ -56,7 +52,7 @@ import { aiRunCount } from '@/utils/aiRuns'
 import { ElMessage } from 'element-plus'
 import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { EditPen, Document, ChatDotRound, Bell, User, Menu, Close, SwitchButton, House, Setting } from '@element-plus/icons-vue'
+import { EditPen, Document, ChatDotRound, Bell, User, Menu, Close, SwitchButton, Lock, Monitor } from '@element-plus/icons-vue'
 import request from '@/utils/request'
 import { avatarPlaceholder } from '@/utils/avatar'
 import { eventBus, EVENT_AUTH_CHANGED } from '@/utils/eventBus'
@@ -106,15 +102,25 @@ function openAccount() {
   if (accountOpen.value) return
   accountOpen.value = true; mobileOpen.value = false; loadAccountStats()
 }
-function enterAccount(event: PointerEvent) { if (event.pointerType === 'mouse') { pointerInAccount = true; openAccount() } }
+function enterAccount(event: PointerEvent) { if (event.pointerType === 'mouse' && window.matchMedia('(hover: hover)').matches) { pointerInAccount = true; openAccount() } }
 function leaveAccount(event: PointerEvent) {
   if (event.pointerType !== 'mouse') return
-  pointerInAccount = false; cancelAccountClose(); accountCloseTimer = setTimeout(() => { accountOpen.value = false }, 240)
+  pointerInAccount = false; cancelAccountClose(); accountCloseTimer = setTimeout(() => { if (!root.value?.querySelector('.app-nav-account')?.matches(':hover')) accountOpen.value = false }, 240)
 }
 function toggleAccount(event: MouseEvent) {
+  if (pressedPointer === 'touch') {
+    if (pressedOpen) closeMenus(); else openAccount()
+    pressedPointer = ''
+    return
+  }
   // 鼠标进入时已经展开，点击不应立刻把悬停面板关掉。
-  if (event.detail > 0 && pointerInAccount) { openAccount(); return }
+  if (event.detail > 0 && pointerInAccount && window.matchMedia('(hover: hover)').matches) { openAccount(); return }
   if (accountOpen.value) closeMenus(); else openAccount()
+}
+let pressedPointer = '', pressedOpen = false
+function beginAvatarPress(event: PointerEvent) {
+  pressedPointer = event.pointerType; pressedOpen = accountOpen.value
+  if (event.pointerType === 'touch') { pointerInAccount = false; event.preventDefault() }
 }
 function leaveAccountFocus(event: FocusEvent) {
   if (!(event.currentTarget as HTMLElement).contains(event.relatedTarget as Node | null) && !pointerInAccount) { cancelAccountClose(); accountOpen.value = false }
@@ -163,7 +169,8 @@ async function signOut() {
   eventBus.emit(EVENT_AUTH_CHANGED)
   try { await revocation } catch { ElMessage.warning('本地已退出，服务端注销失败，请联网后再次退出') }
 }
-watch(() => route.fullPath, () => { closeMenus(); syncAccount() })
+// Route changes keep the same navigation instance and notification subscription.
+watch(() => route.path, closeMenus)
 watch(() => [props.authenticated, props.avatar, props.nickname], syncAccount)
 onMounted(() => { syncAccount(); document.addEventListener('pointerdown', clickOutside); eventBus.on(EVENT_AUTH_CHANGED, syncAccount) })
 onUnmounted(() => { cancelAccountClose(); document.removeEventListener('pointerdown', clickOutside); eventBus.off(EVENT_AUTH_CHANGED, syncAccount) })
@@ -195,13 +202,15 @@ onUnmounted(() => { cancelAccountClose(); document.removeEventListener('pointerd
 #app .app-account-level { flex-shrink: 0; padding: 3px 7px; border: 1px solid var(--ej-ink); border-radius: 99px; background: var(--studio-lime); color: var(--ej-ink); font-size: 11px; font-weight: 700; line-height: 1.2; }
 #app .app-account-menu :is(a,button) { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px; font: inherit; font-size: 13px; text-decoration: none; color: var(--ej-ink); border: 0; border-radius: 8px; background: transparent; text-align: left; cursor: pointer; }
 #app .app-account-menu :is(a,button):hover { background: var(--ej-canvas); }
+#app .app-account-identity .app-account-name { display: block; width: auto; padding: 0; border-radius: 0; font-size: 17px; font-weight: 700; line-height: 1.5; text-align: center; }
+#app .app-account-identity .app-account-name:hover { background: transparent; text-decoration: underline; text-underline-offset: 4px; }
 #app .app-account-stats { display: grid; grid-template-columns: repeat(3,1fr); padding: 8px 0; border-block: 1px solid var(--ej-hairline); }
 #app .app-account-stats a { flex-direction: column; gap: 4px; justify-content: center; padding: 8px 4px; }
 #app .app-account-stats strong { font-size: 20px; }
 #app .app-account-stats span { font-size: 11px; color: var(--ej-muted); }
 #app .app-account-items { padding-block: 8px; }
-#app .app-account-count { margin-left: auto; padding: 1px 6px; background: var(--studio-coral); border-radius: 99px; font-size: 11px; }
-#app .app-account-menu .app-account-logout { border-top: 1px solid var(--ej-hairline); border-radius: 0 0 10px 10px; }
+#app .app-account-items .app-account-admin { margin-top: 6px; border-top: 1px solid var(--ej-hairline); border-radius: 0 0 8px 8px; padding-top: 12px; }
+#app .app-account-menu .app-account-logout { border-top: 1px solid var(--ej-hairline); border-radius: 0 0 10px 10px; color: #9d4433; }
 #app .app-account-enter-active .app-account-card, #app .app-account-leave-active .app-account-card { transition: opacity 180ms, transform 220ms cubic-bezier(.4,0,.2,1); }
 #app .app-account-enter-from .app-account-card, #app .app-account-leave-to .app-account-card { opacity: 0; transform: translateY(8px) scale(.98); }
 #app .app-account-leave-active { pointer-events: none; }

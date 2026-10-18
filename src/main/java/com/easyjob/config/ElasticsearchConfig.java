@@ -11,15 +11,17 @@ import org.apache.http.HttpHost;
 import org.elasticsearch.client.RestClient;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.beans.factory.annotation.Value;
 
 @Configuration
 public class ElasticsearchConfig {
+    @Value("${ES_HOST:localhost}") private String host;
+    @Value("${ES_PORT:9200}") private int port;
 
     @Bean
     public ElasticsearchClient elasticsearchClient() {
        RestClient restClient = RestClient.builder(
-               //85.137.247.222
-               new HttpHost("localhost", 9200, "http")
+               new HttpHost(host, port, "http")
        ).build();
         // 2. 【核心改动】配置 Jackson 映射器，使其支持 LocalDateTime
 

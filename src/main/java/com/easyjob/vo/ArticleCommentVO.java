@@ -33,6 +33,7 @@ public class ArticleCommentVO {
      * 评论配图URL
      */
     private String imgPath;
+    private com.easyjob.dto.CommentQuote quote;
     
     // ========== 评论者信息 ==========
     

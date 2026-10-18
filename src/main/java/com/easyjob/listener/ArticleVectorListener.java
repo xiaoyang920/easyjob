@@ -56,7 +56,8 @@ public class ArticleVectorListener {
      * 处理文章向量索引消息
      * @param message
      */
-    @RabbitListener(queues = RabbitMqConstants.QUEUE_VECTOR_INDEX)
+    @RabbitListener(queues = RabbitMqConstants.QUEUE_VECTOR_INDEX,
+            concurrency = "${agent.index-outbox.consumer-concurrency:4}")
     public void handleVectorMessage(ArticleVectorMessage message) {
         consume(message);
     }

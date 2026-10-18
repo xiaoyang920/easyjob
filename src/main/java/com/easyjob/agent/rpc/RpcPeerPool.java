@@ -20,6 +20,8 @@ public final class RpcPeerPool<T> implements AutoCloseable {
         int active;
         long used;
         boolean retired;
+        boolean invalid;
+        final AtomicBoolean disposed = new AtomicBoolean();
         Entry(String target) { resource=new FutureTask<>(() -> factory.apply(target)); }
     }
     public RpcPeerPool(int capacity, Duration idle, Function<String,T> factory, Consumer<T> disposer) {
@@ -40,6 +42,16 @@ public final class RpcPeerPool<T> implements AutoCloseable {
             catch(ExecutionException error) { synchronized(RpcPeerPool.this) { entry.retired=true; }
                 throw new IllegalStateException("RPC initialization failed",error.getCause()); }
         }
+        /** Retire a failed connection; never replay the operation that failed. */
+        public void invalidate() {
+            boolean dispose;
+            synchronized(RpcPeerPool.this) {
+                entry.invalid=true;entry.retired=true;
+                dispose=entry.active==0;
+                if(dispose) entries.values().remove(entry);
+            }
+            if(dispose) dispose(entry);
+        }
         @Override public void close() {
             if(!released.compareAndSet(false,true)) return;
             boolean dispose;
@@ -56,6 +68,9 @@ public final class RpcPeerPool<T> implements AutoCloseable {
         synchronized(this) {
             if(closed) throw new IllegalStateException("RPC pool closed");
             entry=entries.get(target);
+            // A healthy catalog entry must not revive a transport known to be
+            // broken. Its existing calls drain, then the next acquire rebuilds.
+            if(entry!=null && entry.invalid) throw new IllegalStateException("RPC endpoint draining after failure");
             if(entry==null) {
                 if(entries.size()>=capacity) {
                     var victim=entries.entrySet().stream().filter(e -> e.getValue().active==0)
@@ -88,6 +103,7 @@ public final class RpcPeerPool<T> implements AutoCloseable {
     public synchronized int size() { return entries.size(); }
     private void dispose(Entry entry) {
         if(!entry.resource.isDone() || entry.resource.isCancelled()) return;
+        if(!entry.disposed.compareAndSet(false,true)) return;
         try { disposer.accept(entry.resource.get()); }
         catch(InterruptedException error) { Thread.currentThread().interrupt(); }
         catch(ExecutionException ignored) { /* Failed construction has no resource. */ }

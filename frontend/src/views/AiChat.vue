@@ -1,20 +1,5 @@
 <template>
   <div :class="['ai-chat-page', { 'embedded-chat': embedded }]">
-    <!-- 导航栏 -->
-    <nav v-if="!embedded" class="navbar">
-      <div class="logo" @click="$router.push('/')">
-        <svg class="logo-icon" viewBox="0 0 1024 1024" fill="currentColor">
-          <path d="M512 1024c282.771692 0 512-229.228308 512-512S794.771692 0 512 0 0 229.228308 0 512s229.228308 512 512 512z m0-59.076923C261.858462 964.923077 59.076923 762.141538 59.076923 512S261.858462 59.076923 512 59.076923s452.923077 202.781538 452.923077 452.923077-202.781538 452.923077-452.923077 452.923077z"/>
-          <path d="M464.945231 748.642462c15.399385 3.042462 31.133538 4.588308 47.054769 4.588307 133.228308 0 241.230769-108.002462 241.230769-241.230769S645.228308 270.769231 512 270.769231 270.769231 378.771692 270.769231 512c0 15.921231 1.545846 31.655385 4.588307 47.054769a24.615385 24.615385 0 0 0 48.295385-9.550769A193.053538 193.053538 0 0 1 320 512c0-106.043077 85.956923-192 192-192S704 405.956923 704 512 618.043077 704 512 704c-12.701538 0-25.245538-1.230769-37.494154-3.652923a24.615385 24.615385 0 1 0-9.550769 48.295385z"/>
-          <path d="M512 512m-78.769231 0a78.769231 78.769231 0 1 0 157.538462 0 78.769231 78.769231 0 1 0-157.538462 0Z"/>
-          <path d="M510.385231 498.294154C396.465231 543.123692 320 653.351385 320 777.846154a24.615385 24.615385 0 1 0 49.230769 0 251.145846 251.145846 0 0 1 159.182769-233.737846 24.615385 24.615385 0 0 0-18.018461-45.814154z"/>
-        </svg>
-        <span class="logo-text">EasyJob</span>
-      </div>
-      <div class="page-title">智能助手</div>
-      <AppNavigation />
-    </nav>
-
     <header v-if="embedded" class="article-chat-header">
       <div class="article-chat-heading"><span class="article-chat-mark">✎</span><div><strong>文章问答</strong><span>自己的对话，随时继续</span></div></div>
       <div class="article-chat-controls">
@@ -31,52 +16,45 @@
       <!-- 左侧会话列表 -->
       <div v-if="!embedded" :class="['conversation-sidebar', { hidden: !showSidebar }]">
         <div class="sidebar-header">
-          <h3>对话历史</h3>
+          <div class="sidebar-heading"><h3>我的对话</h3><p>随时回到之前的话题</p></div>
           <button class="new-chat-btn" @click="createNewConversation" :disabled="uploadingImage">
             <svg viewBox="0 0 24 24" width="18" height="18">
               <path fill="currentColor" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
             </svg>
-            新对话
+            开启新对话
           </button>
         </div>
         
-        <RouterLink to="/ai-memory" style="padding: 12px 20px; color: #69725b; font-size: 13px; text-decoration: none;">管理长期记忆 ↗</RouterLink>
-        <input v-model="libraryKeyword" class="conversation-search" aria-label="搜索对话" maxlength="80" placeholder="搜索标题或聊天内容…" /><div class="conversation-list" ref="conversationListRef" @scroll="handleConversationScroll">
+        <div class="conversation-search-wrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></svg>
+          <input v-model="libraryKeyword" class="conversation-search" aria-label="搜索对话" maxlength="80" placeholder="搜索对话…" />
+          <button v-if="libraryKeyword" class="conversation-search-clear" aria-label="清空对话搜索" @click="libraryKeyword = ''">×</button>
+        </div>
+        <div class="conversation-list" ref="conversationListRef" @scroll="handleConversationScroll">
           <section v-for="group in conversationGroups" :key="group.scope" class="conversation-group">
           <button class="conversation-group-toggle" @click="group.scope === 'article' ? articleGroupOpen = !articleGroupOpen : generalGroupOpen = !generalGroupOpen" :aria-expanded="group.open">
-            <span>{{ group.title }}</span><span>{{ group.open ? '−' : '+' }}</span>
+            <span>{{ group.title }}</span><svg :class="{ expanded: group.open }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>
           </button>
           <template v-if="group.open">
-          <div
+          <AiConversationItem
             v-for="conv in group.items"
             :key="conv.conversationId"
-            :class="['conversation-item', { active: currentConversationId === conv.conversationId }]"
-            @click="switchConversation(conv)"
-          >
-            <div class="conv-icon">
-              <svg viewBox="0 0 1024 1024" width="18" height="18">
-                <path fill="currentColor" d="M535.552 796.444444H739.555556q70.712889 0 120.661333-50.005333Q910.222222 696.490667 910.222222 625.777778V341.333333q0-70.712889-50.005333-120.661333Q810.268444 170.666667 739.555556 170.666667H284.444444q-70.712889 0-120.661333 50.005333Q113.777778 270.620444 113.777778 341.333333v284.444445q0 70.712889 50.005333 120.661333Q213.731556 796.444444 284.444444 796.444444h13.084445q4.266667 8.533333 9.898667 16.497778 21.219556 30.151111 55.751111 44.487111 34.531556 14.279111 70.883555 7.964445 39.310222-6.826667 68.152889-35.612445L535.552 796.444444zM739.555556 682.666667H512a56.888889 56.888889 0 0 0-40.220444 16.668444l-50.005334 50.005333q-6.485333 6.485333-15.018666 2.958223Q398.222222 748.771556 398.222222 739.555556a56.888889 56.888889 0 0 0-56.888889-56.888889H284.444444q-23.552 0-40.220444-16.668445T227.555556 625.777778V341.333333q0-23.552 16.668444-40.220444T284.444444 284.444444h455.111112q23.552 0 40.220444 16.668445T796.444444 341.333333v284.444445q0 23.552-16.668444 40.220444T739.555556 682.666667zM341.333333 540.444444a56.888889 56.888889 0 1 0 0-113.777777 56.888889 56.888889 0 0 0 0 113.777777z m170.666667 0a56.888889 56.888889 0 1 0 0-113.777777 56.888889 56.888889 0 0 0 0 113.777777z m170.666667 0a56.888889 56.888889 0 1 0 0-113.777777 56.888889 56.888889 0 0 0 0 113.777777z"/>
-              </svg>
-            </div>
-            <div class="conv-info">
-              <div v-if="conv.originArticleId" class="conv-article-title">{{ conv.originArticleTitle || '原文章已不可用' }}</div>
-              <div class="conv-title"><span v-if="conv.isPinned" title="已置顶">⌃ </span>{{ conv.title || '新对话' }}</div>
-              <div class="conv-time"><span v-if="conversationStatus(conv.conversationId)" class="conv-run-status" role="status">{{ conversationStatus(conv.conversationId) }}</span><span v-else>{{ formatTime(conv.updateTime) }}</span></div>
-            </div>
-            <div class="conv-actions"><button class="conv-edit" :aria-label="conv.isPinned ? '取消置顶' : '置顶对话'" @click.stop="editConversation(conv, {pinned: !conv.isPinned})">⌃</button><button class="conv-edit" aria-label="重命名对话" @click.stop="renameConversation(conv)">✎</button><button class="delete-btn" aria-label="删除对话" :disabled="!!sessions.get(String(conv.conversationId))?.loading" @click.stop="deleteConversation(conv.conversationId)">
-              <svg viewBox="0 0 24 24" width="16" height="16">
-                <path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
-              </svg>
-            </button></div>
-          </div>
-          <div v-if="group.items.length === 0 && !loadingConversations" class="no-conversations">{{ group.scope === 'article' ? '在文章页提问后，对话会出现在这里' : '暂无普通聊天' }}</div>
+            :conversation="conv"
+            :active="String(currentConversationId) === String(conv.conversationId)"
+            :time="formatTime(conv.updateTime)"
+            :status="conversationStatus(conv.conversationId)"
+            :busy="conversationBusy(conv.conversationId)"
+            :updating="updatingConversationIds.has(String(conv.conversationId))"
+            @select="switchConversation(conv)"
+            @pin="editConversation(conv, { pinned: !Number(conv.isPinned) })"
+            @rename="renameConversation(conv)"
+            @delete="confirmDeleteConversation(conv)"
+          />
+          <div v-if="group.items.length === 0 && !loadingConversations" class="no-conversations">{{ libraryKeyword.trim() ? '没有找到匹配的对话' : group.scope === 'article' ? '在文章页提问后，对话会出现在这里' : '开启新对话，聊聊你的想法' }}</div>
           <button v-if="hasMoreByScope[group.scope] && group.items.length" class="conversation-load-more" :disabled="loadingMoreConversations" @click="loadMoreConversations(group.scope)">加载更多</button>
           </template>
           </section>
           
-          <div v-if="conversations.length === 0 && !loadingConversations" class="no-conversations">
-            暂无对话历史
-          </div>
           <div v-if="loadingConversations" class="loading-conversations">
             加载中...
           </div>
@@ -84,6 +62,7 @@
             加载更多...
           </div>
         </div>
+        <RouterLink to="/ai-memory" class="sidebar-memory-link"><span class="sidebar-memory-icon" aria-hidden="true">✦</span><span><strong>长期记忆</strong><small>管理记住的偏好与信息</small></span><span aria-hidden="true">↗</span></RouterLink>
       </div>
 
       <!-- 右侧聊天区域 -->
@@ -94,7 +73,7 @@
         </div>
         <div v-if="historyLoadFailed" class="history-error">对话暂时无法加载。<button @click="initializeConversation">重新加载</button></div>
         <!-- 移动端返回按钮 -->
-        <button class="mobile-back-btn" @click="showSidebar = true" v-if="!embedded && !showSidebar">
+        <button class="mobile-back-btn" aria-label="返回对话列表" @click="showSidebar = true" v-if="!embedded && !showSidebar">
           <svg viewBox="0 0 24 24" width="24" height="24">
             <path fill="currentColor" d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/>
           </svg>
@@ -135,12 +114,15 @@
         </div>
 
         <!-- 消息列表 -->
-        <div v-else class="message-list" ref="messageListRef" @scroll="handleMessageScroll" @wheel.passive="handleHistoryWheel">
+        <div v-else class="message-list" ref="messageListRef" :data-message-count="messages.length" :data-virtualized="messages.length > 60" @scroll="handleMessageScroll" @wheel.passive="handleHistoryWheel">
           <button v-if="activeSession.historyWindow.hasOlder" class="load-earlier-btn" :disabled="activeSession.historyBusy" @click="showEarlierMessages">{{ activeSession.historyBusy ? '加载中…' : '加载更早的消息' }}</button>
           <button v-if="questionIndexFailed" class="load-earlier-btn" @click="loadQuestionIndex(activeSession)">提问导航加载失败，点击重试</button>
+          <div ref="virtualSpacer" class="virtual-spacer" :style="{height:`${virtual.before.value}px`}" aria-hidden="true"></div>
           <div 
             v-for="{ msg, index } in visibleMessages"
             :key="msg.itemId || index"
+            :ref="virtual.measure"
+            :data-virtual-key="msg.itemId || msg.messageId || `live:${index}`"
             :class="['message-item', msg.role]"
             :data-msg-index="index"
             :data-question-id="msg.role === 'user' ? (msg.messageId || msg.itemId) : undefined"
@@ -189,7 +171,8 @@
                   </div>
                 </footer>
               </article>
-              <div v-else-if="msg.content" class="message-bubble"><div v-html="renderMarkdown(msg.content, msg.provisional ? [] : msg.citations)"></div></div>
+              <div v-else-if="msg.content" class="message-bubble"><CodeContent :html="renderMarkdown(msg.content, msg.provisional ? [] : msg.citations)" @expand="openCodeViewer" /></div>
+              <button v-if="msg.role === 'assistant' && msg.content && !msg.provisional && !msg.isDraft && !msg.agent?.answerReceiving" type="button" class="copy-answer-btn" @click="copyAnswer(msg.content)">复制回答</button>
               <AnswerFeedback v-if="msg.role==='assistant' && msg.runId && msg.content && !msg.provisional && !msg.interrupted && !msg.isDraft && !msg.recoverable && (!msg.agent || msg.agent.status==='complete') && !loading && !resuming" :run-id="msg.runId" /><div v-if="msg.agent?.answerReceiving" class="generating-indicator"><div class="generating-dot-pulse"></div><span>{{ msg.provisional ? '正在生成，完成后确认正文…' : '正在接收回答…' }}</span></div>
               <div v-if="msg.interrupted && !msg.isDraft" class="interrupt-actions">
                 <div class="interrupt-hint">{{ msg.interruptPayload?.message || '需要您确认后继续' }}</div>
@@ -260,7 +243,7 @@
               </div>
             </div>
           </div>
-          
+          <div class="virtual-spacer" :style="{height:`${virtual.after.value}px`}" aria-hidden="true"></div>
         </div>
 
         <div v-if="activeSession.historyWindow.hasNewer" class="history-window-actions">
@@ -357,16 +340,19 @@
   </div>
 
   <!-- 登录弹窗 -->
-  <el-dialog v-model="showLoginDialog" title="" :width="dialogWidth" :close-on-click-modal="true" class="modern-dialog">
+  <CodeViewer v-model="codeViewerOpen" :code="previewCode.text" :language="previewCode.language" :initial-font-size="16" />
+  <el-dialog v-model="showLoginDialog" title="" :width="dialogWidth" :close-on-click-modal="true" class="modern-dialog ej-dialog" append-to-body>
     <LoginForm @success="handleLoginSuccess" @switchToRegister="switchToRegister" />
   </el-dialog>
-  <el-dialog v-model="showRegisterDialog" title="" :width="dialogWidth" :close-on-click-modal="true" class="modern-dialog">
+  <el-dialog v-model="showRegisterDialog" title="" :width="dialogWidth" :close-on-click-modal="true" class="modern-dialog ej-dialog" append-to-body>
     <RegisterForm @success="handleRegisterSuccess" @switchToLogin="switchToLogin" />
   </el-dialog>
 </template>
 
 <script setup lang="ts">
-import AppNavigation from '@/components/AppNavigation.vue'
+import { createDeliveryTiming } from '@/utils/deliveryTiming'
+import { useVirtualMessages } from '@/composables/useVirtualMessages'
+import AiConversationItem from '@/components/AiConversationItem.vue'
 import { historyPage, mergeHistory, questionPreviews } from '@/utils/historyPaging'
 import { aiConversationStatus, setViewedAiConversation, trackAiRun, refreshAiRuns } from '@/utils/aiRuns'
 import { createChatSession, bindConversationId, beginChatOperation, finishChatOperation, releaseChatSessions, type ChatSession } from '@/utils/chatSessions'
@@ -379,6 +365,8 @@ import { useRouter, useRoute } from 'vue-router'
 import { goBackOr } from '@/utils/navigation'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import AnswerFeedback from '@/components/AnswerFeedback.vue'
+import CodeContent from '@/components/CodeContent.vue'
+import CodeViewer from '@/components/CodeViewer.vue'
 import { renderChatMarkdown } from '@/utils/chatMarkdown'
 import { avatarUrl, onAvatarError } from '@/utils/avatar'
 import { safeHtml } from '@/utils/safeHtml'
@@ -396,6 +384,12 @@ import { eventBus, EVENT_AUTH_EXPIRED } from '@/utils/eventBus'
 
 const router = useRouter()
 const route = useRoute()
+const codeViewerOpen = ref(false), previewCode = ref({text:'',language:''})
+function openCodeViewer(code: {text:string;language:string}) { previewCode.value = code; codeViewerOpen.value = true }
+async function copyAnswer(content: string) {
+  try { await navigator.clipboard.writeText(content); ElMessage.success('已复制回答') }
+  catch { ElMessage.error('复制失败，请检查浏览器剪贴板权限后重试') }
+}
 const props = withDefaults(defineProps<{
   embedded?: boolean
   originArticleId?: string
@@ -451,8 +445,10 @@ function groupItems(scope: ConversationScope) {
   const items = conversations.value.filter(c => scope === 'article' ? !!c.originArticleId : !c.originArticleId)
   const selected = selectedConversation.value
   if (!libraryKeyword.value.trim() && selected && (scope === 'article' ? !!selected.originArticleId : !selected.originArticleId)
-      && !items.some(c => c.conversationId === selected.conversationId)) return [selected, ...items]
-  return items
+      && !items.some(c => String(c.conversationId) === String(selected.conversationId))) items.unshift(selected)
+  // Preserve server ordering within each pin tier, including a selected chat
+  // outside the loaded page; unpinned selection must never precede pinned rows.
+  return items.sort((a, b) => Number(!!Number(b.isPinned)) - Number(!!Number(a.isPinned)))
 }
 const conversationGroups = computed(() => [
   { scope: 'general' as const, title: '普通聊天', open: generalGroupOpen.value, items: groupItems('general') },
@@ -512,7 +508,7 @@ interface ChatMessage {
   draftArticleId?: string  // HITL 草稿确认后关联的 article_info.article_id，用 string 避免 JS 精度丢失
   draftTitle?: string  // 草稿标题，显示在"编辑草稿"按钮旁边
 }
-const visibleMessages = computed(() => messages.value.map((msg, index) => ({ msg, index })))
+
 const railQuestions = computed(() => questionPreviews(activeSession.value.questionIndex, messages.value))
 const questionIndexFailed = sessionField('questionIndexFailed')
 
@@ -588,11 +584,13 @@ async function showEarlierMessages() {
   const session = activeSession.value, el = messageListRef.value
   if (session.historyBusy || !session.historyWindow.beforeCursor) return
   const height = el?.scrollHeight || 0, top = el?.scrollTop || 0
+  const anchor = virtual.captureAnchor()
   autoScrollToBottom.value = false
   try {
     if (!await loadHistoryWindow(session, { before: session.historyWindow.beforeCursor }, 'older')) return
     await nextTick()
-    if (el && activeSession.value === session) el.scrollTop = top + el.scrollHeight - height
+    if (activeSession.value === session && session.messages.length > 60) await virtual.restoreAnchor(anchor)
+    if (el && activeSession.value === session && session.messages.length <= 60) el.scrollTop = top + el.scrollHeight - height
   } catch { ElMessage.warning('加载更早消息失败，可重新尝试') }
 }
 
@@ -616,7 +614,9 @@ async function returnToLatest() {
 async function resolveQuestion(id: string) {
   const session = activeSession.value
   autoScrollToBottom.value = false
-  if (messageListRef.value?.querySelector(`[data-question-id="${CSS.escape(id)}"]`)) {
+  const localIndex = session.messages.findIndex(m => (m.messageId || m.itemId) === id)
+  if (localIndex >= 0) {
+    await virtual.scrollToIndex(localIndex)
     // A newer click on an already loaded question cancels an older remote jump.
     if (session.historyBusy) { session.historyVersion++; session.historyBusy = false }
     return true
@@ -625,6 +625,7 @@ async function resolveQuestion(id: string) {
   try {
     const loaded = await loadHistoryWindow(session, { around: id })
     await nextTick()
+    if (loaded && activeSession.value === session) await virtual.scrollToIndex(session.messages.findIndex(m => (m.messageId || m.itemId) === id))
     return loaded && activeSession.value === session
   } catch { ElMessage.warning('无法定位该提问，请重新尝试'); return false }
 }
@@ -651,6 +652,9 @@ const loadingMessages = ref(false)  // 切换会话时的加载状态
 
 // 自动跟随滚动到底部（用户手动往上滚后暂停，回到底部附近恢复）
 const messageListRef = ref<HTMLElement>()
+const virtual = useVirtualMessages(() => messages.value, messageListRef, (m,i) => m.itemId || m.messageId || `live:${i}`, m => m.role === 'user' ? 110 : Math.min(1000,180 + m.content.length / 50 * 24))
+const virtualSpacer = virtual.spacer
+const visibleMessages = computed(() => virtual.items.value.map(({item,index}) => ({msg:item,index})))
 const inputRef = ref<HTMLTextAreaElement>()
 
 // 自动跟随滚动到底部（用户手动往上滚后暂停，回到底部附近恢复）
@@ -683,6 +687,11 @@ const quickQuestions = computed(() => props.embedded ? [
 ])
 
 const libraryKeyword = ref('')
+const updatingConversationIds = reactive(new Set<string>())
+function conversationBusy(id: string) {
+  const session = sessions.get(String(id))
+  return !!(session?.loading || session?.resuming || session?.cancelling)
+}
 const libraryPages: Record<ConversationScope,number> = { general: 1, article: 1 }
 let libraryGeneration = 0
 let librarySearchTimer: ReturnType<typeof setTimeout> | undefined
@@ -714,10 +723,24 @@ async function loadMoreConversations(scope:ConversationScope) {
   finally{loadingMoreConversations.value=false}
 }
 async function editConversation(conv:any,edit:Record<string,unknown>){
-  try{await request.patch(`/agent/conversations/${conv.conversationId}`,{...edit,version:conv.metadataVersion ?? 0});await loadConversations()}
-  catch(e){ElMessage.error(e instanceof Error?e.message:'修改失败');await loadConversations()}
+  const id=String(conv.conversationId)
+  if(updatingConversationIds.has(id))return
+  updatingConversationIds.add(id)
+  try{
+    const result=await request.patch(`/agent/conversations/${id}`,{...edit,version:conv.metadataVersion ?? 0})
+    const updated={...conv,metadataVersion:result.data?.version ?? (conv.metadataVersion ?? 0)+1,
+      ...(typeof edit.title==='string'?{title:edit.title}:{}),...(typeof edit.pinned==='boolean'?{isPinned:Number(edit.pinned)}:{})}
+    Object.assign(conv,updated)
+    if(String(selectedConversation.value?.conversationId)===id)selectedConversation.value=updated
+    ElMessage.success(typeof edit.pinned==='boolean'
+      ?edit.pinned?`已置顶，固定在${conv.originArticleId?'文章问答':'普通聊天'}顶部`:'已取消置顶，恢复按最近更新排序'
+      :'对话标题已更新')
+    await loadConversations()
+  }catch(e){ElMessage.error(e instanceof Error?e.message:'修改失败');await loadConversations()}
+  finally{updatingConversationIds.delete(id)}
 }
 async function renameConversation(conv:any){
+  if(updatingConversationIds.has(String(conv.conversationId)))return
   try{const {value}=await ElMessageBox.prompt('输入对话标题（1至80字）','重命名对话',{inputValue:conv.title||'',inputValidator:v=>!!v?.trim() && v.trim().length<=80 || '请输入1至80个字',confirmButtonText:'保存',cancelButtonText:'取消'});await editConversation(conv,{title:value.trim()})}catch{}
 }
 
@@ -811,9 +834,20 @@ function finishSession(session: Session, operation: number) {
 }
 
 // 删除会话
+async function confirmDeleteConversation(conv: any) {
+  if(conversationBusy(conv.conversationId) || updatingConversationIds.has(String(conv.conversationId)))return
+  try {
+    await ElMessageBox.confirm(`确定删除「${conv.title || '新对话'}」？删除后将无法恢复这段聊天记录。`,'删除对话',{
+      type:'warning',confirmButtonText:'删除对话',cancelButtonText:'保留对话',autofocus:false
+    })
+  } catch { return }
+  await deleteConversation(String(conv.conversationId))
+}
 async function deleteConversation(conversationId: string) {
   const session = sessions.get(String(conversationId))
   if (session?.loading || session?.resuming || session?.cancelling) { ElMessage.info('请先停止该对话的生成，再删除'); return }
+  if(updatingConversationIds.has(conversationId))return
+  updatingConversationIds.add(conversationId)
   try {
     const res = await request.delete(`/agent/conversations/${conversationId}`)
     if (res.code === 200) {
@@ -827,7 +861,7 @@ async function deleteConversation(conversationId: string) {
   } catch (error) {
     console.error('删除会话失败:', error)
     ElMessage.error('删除失败')
-  }
+  } finally { updatingConversationIds.delete(conversationId) }
 }
 
 // 图片上传
@@ -969,9 +1003,11 @@ async function sendMessage() {
   const msg = session.messages.at(-1)!
   session.liveMessages = session.messages.slice(-2)
   
+  const timing = createDeliveryTiming(document)
+  const stopTimingSelection = watch(activeSession, selected => { if (selected !== session) timing.invalidate() }, { flush:'sync' })
   try {
     session.streaming = true
-    await streamChat(content, imagePaths, msg, session)
+    await streamChat(content, imagePaths, msg, session, timing)
   } catch (error: any) {
     // 用户主动取消不算错误
     if (error.name === 'AbortError' || !mounted) return
@@ -996,12 +1032,14 @@ async function sendMessage() {
     msg.content = error.message || '处理失败，请稍后重试。'
     ElMessage.error(error.message || '请求失败')
   } finally {
+    stopTimingSelection()
+    timing.dispose()
     finishSession(session, operation)
   }
 }
 
 // SSE流式接收，标准SSE解析
-async function streamChat(message: string, imagePaths: string[], msg: ChatMessage, session: Session) {
+async function streamChat(message: string, imagePaths: string[], msg: ChatMessage, session: Session, timing: ReturnType<typeof createDeliveryTiming>) {
   const token = localStorage.getItem('token')
   session.abortController = new AbortController()
   
@@ -1026,14 +1064,14 @@ async function streamChat(message: string, imagePaths: string[], msg: ChatMessag
     signal: session.abortController.signal
   })
   
-  await consumeAgentStream(response, msg, session)
+  await consumeAgentStream(response, msg, session, timing)
 }
 
 function ensureAgent(msg: ChatMessage): AgentStreamState {
   return msg.agent ||= createAgentState()
 }
 
-async function consumeAgentStream(response: Response, msg: ChatMessage, session: Session) {
+async function consumeAgentStream(response: Response, msg: ChatMessage, session: Session, timing?: ReturnType<typeof createDeliveryTiming>) {
   const controller = session.abortController!
   let finished = false
   let runId = ''
@@ -1075,6 +1113,7 @@ async function consumeAgentStream(response: Response, msg: ChatMessage, session:
         } else if (!data.startsWith('__') && !(data.startsWith('{') && data.includes('conversationId'))) {
           msg.content += data.replace(/\\n/g, '\n')
         }
+        if (activeSession.value !== session) timing?.invalidate()
         if (activeSession.value === session) scrollToBottom()
         // Several events can arrive in one TCP read. Yield to rendering instead
         // of processing the entire buffer before Vue can paint any text.
@@ -1086,6 +1125,15 @@ async function consumeAgentStream(response: Response, msg: ChatMessage, session:
               // Hiding the tab can suspend animation frames after scheduling.
               const fallback = setTimeout(() => { cancelAnimationFrame(frame); resolve() }, 50)
             })
+          }
+          if (timing && runId && msg.content.trim()) {
+            const list = messageListRef.value
+            const bubble = list?.querySelector<HTMLElement>(`[data-virtual-key="${CSS.escape(msg.itemId || msg.messageId || '')}"] .message-bubble`)
+            const bounds = bubble?.getBoundingClientRect(), viewport = list?.getBoundingClientRect()
+            const visible = !!bounds && !!viewport && bounds.height > 0 && bounds.width > 0 &&
+              bounds.bottom > Math.max(viewport.top, 0) && bounds.top < Math.min(viewport.bottom, window.innerHeight)
+            const firstAnswerMs = timing.sample(visible)
+            if (firstAnswerMs !== null) void request.post(`/agent/runs/${runId}/delivery-metrics`, { firstAnswerMs }).catch(() => {})
           }
         }
       }
@@ -1103,6 +1151,7 @@ async function consumeAgentStream(response: Response, msg: ChatMessage, session:
       }
       await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)))
       if (!mounted || controller.signal.aborted) throw new DOMException('已停止', 'AbortError')
+      timing?.invalidate()
       response = await authenticatedFetch(`/api/agent/runs/${runId}/events?after=${after}`, {
         headers: { Accept: 'text/event-stream' }, signal: controller.signal,
       })
@@ -1782,9 +1831,19 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.conversation-search{margin:12px 16px;padding:10px 12px;min-width:0;border:1px solid var(--ej-line);border-radius:12px;background:var(--ej-surface)}
-.conv-actions{display:flex;gap:2px;flex-shrink:0}.conversation-item{gap:6px}.conv-edit{flex-shrink:0;background:transparent;border:0;padding:4px;color:var(--ej-muted);cursor:pointer}
-.conv-edit:hover{color:var(--ej-ink)}
+.sidebar-heading p { margin: 6px 0 0; color: var(--ej-muted); font-size: 12px; }
+.conversation-search-wrap { display: flex; align-items: center; gap: 8px; margin: 4px 16px 12px; padding: 0 10px; min-height: 40px; border: 1px solid var(--ej-line); border-radius: 10px; background: var(--ej-surface); }
+.conversation-search-wrap:focus-within { outline: 2px solid var(--ej-accent); outline-offset: 2px; }
+.conversation-search-wrap > svg { width: 16px; height: 16px; flex-shrink: 0; color: var(--ej-muted); }
+.conversation-search { flex: 1; min-width: 0; width: 0; padding: 10px 0; border: 0; background: transparent; font-size: 12px; color: var(--ej-ink); outline: 0; }
+.conversation-search-clear { width: 24px; height: 24px; flex-shrink: 0; border: 0; border-radius: 5px; background: transparent; color: var(--ej-muted); font-size: 19px; cursor: pointer; }
+.conversation-search-clear:hover { color: var(--ej-ink); background: var(--ej-soft); }
+.sidebar-memory-link { display: flex; align-items: center; gap: 10px; flex-shrink: 0; margin: 8px 16px 16px; padding: 14px 2px 0; border-top: 1px solid var(--ej-line); text-decoration: none; color: var(--ej-ink); }
+.sidebar-memory-icon { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 9px; background: var(--ej-surface); font-size: 20px; }
+.sidebar-memory-link > span:nth-child(2) { display: flex; flex: 1; flex-direction: column; gap: 4px; }
+.sidebar-memory-link strong { font-size: 12px; font-weight: 600; }
+.sidebar-memory-link small { color: var(--ej-muted); font-size: 10px; }
+.sidebar-memory-link:hover strong { text-decoration: underline; text-underline-offset: 3px; }
 .conv-run-status { color: var(--ej-ink); display: inline-flex; align-items: center; gap: 6px; }
 .conv-run-status::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--studio-lime); border: 1px solid var(--ej-ink); }
 .citation-list {
@@ -1936,8 +1995,8 @@ onUnmounted(() => {
 .conversation-item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px;
+  gap: 0;
+  padding: 0;
   border-radius: 10px;
   cursor: pointer;
   position: relative;
@@ -2969,7 +3028,7 @@ onUnmounted(() => {
   }
   
   .conversation-item {
-    padding: 10px 15px;
+    padding: 0;
   }
   
   /* 移动端删除按钮始终显示 */
@@ -3182,7 +3241,7 @@ onUnmounted(() => {
   }
   
   .conversation-item {
-    padding: 10px 12px;
+    padding: 0;
   }
   
   .welcome-area {
@@ -3475,6 +3534,8 @@ onUnmounted(() => {
 }
 .conversation-group + .conversation-group { margin-top: 20px; }
 .conversation-group-toggle { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 8px 12px; border: 0; background: transparent; color: var(--ej-muted); font-size: 12px; font-weight: 650; cursor: pointer; }
+.conversation-group-toggle svg { width: 12px; height: 12px; transition: transform 160ms; }
+.conversation-group-toggle svg.expanded { transform: rotate(90deg); }
 .conv-article-title { color: var(--ej-muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 4px; }
 .conversation-load-more { width: 100%; padding: 10px; background: transparent; border: 0; color: var(--ej-muted); cursor: pointer; font-size: 12px; }
 .article-context-strip { display: flex; align-items: center; gap: 10px; padding: 12px 24px; border-bottom: 1px solid #11110f18; flex-shrink: 0; font-size: 12px; min-width: 0; }

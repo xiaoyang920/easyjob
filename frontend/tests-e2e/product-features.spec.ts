@@ -50,8 +50,9 @@ test('conversation rename, pin, search and feedback persist after refresh',async
   await r.fulfill({json:{code:200,data}})
  })
  await page.goto('/ai-chat?conversationId=101')
- await page.getByRole('button',{name:'重命名对话'}).click();await page.locator('.el-message-box input').fill('缓存问题');await page.locator('.el-message-box').getByRole('button',{name:'保存',exact:true}).click()
- await expect(page.locator('.conv-title')).toContainText('缓存问题');await page.getByRole('button',{name:'置顶对话',exact:true}).click();await expect(page.getByRole('button',{name:'取消置顶',exact:true})).toBeVisible()
+ await page.locator('.conv-menu-trigger').click();await page.getByRole('menuitem',{name:/重命名对话/}).click();await page.locator('.el-message-box input').fill('缓存问题');await page.locator('.el-message-box').getByRole('button',{name:'保存',exact:true}).click()
+ await expect(page.locator('.conv-title')).toContainText('缓存问题');await page.locator('.conv-menu-trigger').click();await page.getByRole('menuitem',{name:/置顶对话/}).click();await expect(page.locator('.conv-pinned-badge')).toHaveText('已置顶')
+ await page.locator('.conv-menu-trigger').click();await expect(page.getByRole('menuitem',{name:/取消置顶/})).toBeVisible();await page.keyboard.press('Escape')
  await page.getByRole('button',{name:'有帮助',exact:true}).click();await expect(page.getByRole('button',{name:'✓ 有帮助'})).toBeVisible()
  await page.reload();await expect(page.getByRole('button',{name:'✓ 有帮助'})).toBeVisible()
  await page.getByRole('textbox',{name:'搜索对话'}).fill('不存在');await expect(page.locator('.conversation-item')).toHaveCount(0)
@@ -73,7 +74,7 @@ test('revision comparison marks changed text without creating snapshots',async({
   else if(p.endsWith('/agent/run-overview'))data={items:[]}
   await r.fulfill({json:{code:200,data}})
  })
- await page.goto('/draft-box');await page.getByRole('button',{name:'版本历史'}).click();await page.getByLabel('对比基准').selectOption('10')
+ await page.goto('/draft-box');await page.getByRole('button',{name:'版本历史'}).click();await page.getByRole('combobox',{name:'对比基准',exact:true}).click();await page.getByRole('option',{name:/V1 ·/}).click()
  await expect(page.locator('.revision-comparison .add').filter({hasText:'新增内容'})).toBeVisible();await expect(page.locator('.revision-comparison .remove').filter({hasText:'旧段落'})).toBeVisible();await page.screenshot({path:info.outputPath('revision-comparison.png'),fullPage:true,animations:'disabled'})
 })
 
@@ -86,7 +87,7 @@ test('lost first-save response retries the same request and then continues updat
   else if(p.endsWith('/agent/run-overview'))data={items:[]}
   await r.fulfill({json:{code:200,data}})
  })
- await page.goto('/create-article');await page.getByPlaceholder('请输入文章标题...').fill('首次保存');await page.locator('.category-select').selectOption('1')
+ await page.goto('/create-article');await page.getByPlaceholder('请输入文章标题...').fill('首次保存');await page.getByRole('combobox',{name:'文章分类',exact:true}).click();await page.getByRole('option',{name:'测试',exact:true}).click()
  await page.clock.fastForward(6000);await expect.poll(()=>creates.length).toBe(1);await expect(page.locator('.autosave-status')).toContainText('保存失败')
  await page.clock.fastForward(16000);await expect.poll(()=>creates.length).toBe(2);await expect(page).toHaveURL(/id=999/)
  expect(creates[0].clientRequestId).toBe(creates[1].clientRequestId);expect(creates[0].clientRequestId).toMatch(/^[a-f0-9-]{36}$/)

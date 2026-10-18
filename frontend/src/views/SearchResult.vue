@@ -1,16 +1,7 @@
 <template>
   <div class="search-page">
     <!-- 导航栏 -->
-    <nav class="navbar">
-      <div class="logo" @click="$router.push('/')">EasyJob</div>
-      
-      <div class="nav-center">
-        <!-- 搜索框 -->
-        <SearchBox v-model="keyword" @search="handleSearch" />
-      </div>
-      
-      <AppNavigation />
-    </nav>
+
 
     <div class="container">
       <!-- 搜索信息 -->
@@ -35,20 +26,20 @@
         </div>
         <div v-if="currentTab === 'article'" class="sort-options">
           <span>排序：</span>
-          <select v-model="sortBy" @change="doSearch">
-            <option value="">相关度</option>
-            <option value="1">最新发布</option>
-            <option value="0">最多点赞</option>
-            <option value="3">最多收藏</option>
-            <option value="2">最多评论</option>
-          </select>
+          <AppSelect aria-label="排序方式" v-model="sortBy" @change="doSearch">
+            <AppSelectOption value="">相关度</AppSelectOption>
+            <AppSelectOption value="1">最新发布</AppSelectOption>
+            <AppSelectOption value="0">最多点赞</AppSelectOption>
+            <AppSelectOption value="3">最多收藏</AppSelectOption>
+            <AppSelectOption value="2">最多评论</AppSelectOption>
+          </AppSelect>
         </div>
       </div>
 
       <!-- 搜索结果 -->
       <ContentState v-if="loading" kind="loading" title="正在搜索" />
       <ContentState v-else-if="searchError" kind="error" title="搜索暂时未完成" :description="searchError" @retry="doSearch" />
-      
+
       <div v-else-if="results.length === 0 && !loading" class="empty-state">
         <div class="empty-icon">🔍</div>
         <p>{{ submittedKeyword ? (currentTab === 'article' ? '未找到相关文章' : '未找到相关用户') : '输入关键词开始搜索' }}</p>
@@ -151,8 +142,6 @@
 </template>
 
 <script setup lang="ts">
-import AppNavigation from '@/components/AppNavigation.vue'
-import SearchBox from '@/components/SearchBox.vue'
 import ContentState from '@/components/ContentState.vue'
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { latestRequest } from '@/utils/latestRequest'
@@ -197,7 +186,7 @@ async function doSearch() {
   total.value = 0
   if (!submittedKeyword.value) { loading.value = false; return }
   loading.value = true
-  
+
   try {
     const params: any = {
       keyword: submittedKeyword.value,
@@ -205,15 +194,15 @@ async function doSearch() {
       pageSize: pageSize.value,
       highlight: true
     }
-    
+
     // 排序类型: 0=点赞, 1=时间, 2=评论, 3=收藏, 空=相关度
     if (currentTab.value === 'article' && sortBy.value !== '') {
       params.orderType = parseInt(sortBy.value)
     }
-    
+
     const res = await request.get(currentTab.value === 'user' ? '/search/users' : '/search', { params, signal: ticket.signal })
     if (!ticket.isCurrent()) return
-    
+
     if (res.code === 200 && res.data) {
       results.value = res.data.records || res.data.list || []
       total.value = res.data.total || 0
@@ -281,7 +270,7 @@ async function toggleFollow(user: any) {
     const url = user.isFollowing 
       ? `/user/${user.userId}/unfollow`
       : `/user/${user.userId}/follow`
-    
+
     const res = await request.post(url)
     if (res.code === 200) {
       if (actingUser === currentUserId.value) user.isFollowing = !user.isFollowing
@@ -310,13 +299,13 @@ function getImageUrl(url: string | undefined): string {
 function handleCoverError(e: Event, originalCover?: string) {
   const target = e.target as HTMLImageElement
   const currentSrc = target.src
-  
+
   // 缩略图加载失败，回退到原图
   if (currentSrc.includes('/thumbnails/') && originalCover) {
     target.src = getImageUrl(originalCover)
     return
   }
-  
+
   // 原图也加载失败，隐藏图片
   target.style.display = 'none'
 }
@@ -327,12 +316,12 @@ function formatDate(dateStr: string): string {
   const date = new Date(dateStr)
   const now = new Date()
   const diff = now.getTime() - date.getTime()
-  
+
   if (diff < 60000) return '刚刚'
   if (diff < 3600000) return Math.floor(diff / 60000) + '分钟前'
   if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前'
   if (diff < 2592000000) return Math.floor(diff / 86400000) + '天前'
-  
+
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
@@ -841,44 +830,44 @@ onUnmounted(() => {
     padding: 0 15px;
     height: 55px;
   }
-  
+
   .logo {
     font-size: 20px;
   }
-  
+
   .nav-center {
     margin: 0 10px;
     flex: 1;
   }
-  
+
   .search-box {
     margin: 0;
     max-width: none;
   }
-  
+
   .search-box input {
     height: 36px;
     font-size: 13px;
   }
-  
+
   .nav-menu {
     margin-left: 10px;
   }
-  
+
   .nav-btn {
     padding: 6px 12px;
     font-size: 12px;
   }
-  
+
   .main-content {
     padding: 20px 15px;
     margin-top: 75px;
   }
-  
+
   .article-card {
     flex-direction: column;
   }
-  
+
   .article-cover {
     --cover-glyph-size: 104px;
     width: 100%;
@@ -889,11 +878,11 @@ onUnmounted(() => {
   .article-content {
     padding: 14px 16px 16px;
   }
-  
+
   .article-info h3 {
     font-size: 16px;
   }
-  
+
   .article-summary {
     font-size: 13px;
   }
@@ -904,49 +893,49 @@ onUnmounted(() => {
     padding: 0 12px;
     height: 50px;
   }
-  
+
   .logo {
     font-size: 18px;
   }
-  
+
   .search-box input {
     height: 34px;
     font-size: 12px;
     padding: 0 35px 0 12px;
   }
-  
+
   .nav-btn {
     padding: 5px 10px;
     font-size: 11px;
   }
-  
+
   .main-content {
     padding: 15px 10px;
     margin-top: 65px;
   }
-  
+
   .search-header h2 {
     font-size: 18px;
   }
-  
+
   .filter-tabs {
     gap: 8px;
     flex-wrap: wrap;
   }
-  
+
   .filter-tab {
     padding: 6px 12px;
     font-size: 12px;
   }
-  
+
   .article-info h3 {
     font-size: 15px;
   }
-  
+
   .article-summary {
     font-size: 12px;
   }
-  
+
   .article-cover {
     height: 156px;
   }
@@ -954,7 +943,7 @@ onUnmounted(() => {
   .stats span:last-child {
     display: none;
   }
-  
+
   .article-meta {
     font-size: 11px;
   }

@@ -56,6 +56,6 @@ async def publish_route(state, action, plan_update=None):
         tasks = plan_update["plan"]["tasks"]
         stages = {tid: i + 1 for i, stage in enumerate(plan_update["stages"]) for tid in stage}
         await publish_event({"kind": "plan", "mode": action, "tasks": [
-            {"id": t["task_id"], "label": t["instruction"][:120],
+            {"id": t["task_id"], "label": t["instruction"],
              "role": "memory" if t.get("retrieval_target") == "memory" else t["kind"],
              "stage": stages[t["task_id"]], "dependsOn": t["depends_on"]} for t in tasks]})

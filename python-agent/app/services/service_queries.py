@@ -20,13 +20,31 @@ async def user_source(uid):
 
 async def query(q, uid, database=db):
     kind = q.kind
-    if kind in ('conversation_library','conversation_edit','answer_feedback','answer_feedback_get','feedback_report'):
+    if kind == 'delivery_metrics':
+        from app.rpc.codec import decode_object
+        try:
+            UUID(q.name)
+            edit = decode_object(q.edit)
+            elapsed = edit.get('first_answer_ms')
+            if type(elapsed) is not int or not 0 <= elapsed <= 3600000:
+                raise ValueError()
+        except (ValueError, TypeError, AttributeError):
+            raise HTTPException(422, '交付耗时无效') from None
+        # Separate key survives graph metrics checkpoints and final settlement.
+        row = await database.fetch_one('SELECT run_id FROM agent_run WHERE run_id=:rid AND user_id=:uid', {'rid':q.name,'uid':uid})
+        if not row: raise HTTPException(404, '运行不存在')
+        await database.execute('''UPDATE agent_run SET result_json=JSON_SET(COALESCE(result_json,JSON_OBJECT()),
+            '$.delivery_metrics',CAST(:metrics AS JSON)) WHERE run_id=:rid AND user_id=:uid
+            AND JSON_EXTRACT(result_json,'$.delivery_metrics.first_answer_ms') IS NULL''',
+            {'rid':q.name,'uid':uid,'metrics':json.dumps({'first_answer_ms':elapsed,'measurement':'browser_visible_answer'})})
+        return True
+    if kind in ('conversation_library','conversation_edit','answer_feedback','answer_feedback_get','feedback_report','feedback_detail','feedback_review'):
         from app.services.conversation_features import query as features
         return await features(q,uid,database)
     if kind == 'profile_topics':
         rows = await database.fetch_all('SELECT interests,tech_stack FROM user_profile WHERE user_id=:uid', {'uid':uid})
         return [dict(r._mapping) for r in rows]
-    if kind in ('metric_states','metric_rows','metric_daily'):
+    if kind in ('metric_states','metric_rows','metric_daily','metric_stages'):
         if q.source not in ('business','evaluation','all'):
             raise HTTPException(422, '指标来源无效')
         try:
@@ -40,9 +58,26 @@ async def query(q, uid, database=db):
         if q.source != 'all':
             where += ' AND data_source=:source'; values['source'] = q.source
         sql = {'metric_states': 'SELECT status,COUNT(*) AS count '+where+' GROUP BY status',
-            'metric_rows': "SELECT status,JSON_EXTRACT(result_json,'$.metrics') AS metrics "+where+' ORDER BY created_at DESC,run_id DESC LIMIT 10000',
-            'metric_daily': "SELECT CAST(DATE(created_at) AS CHAR) AS day,COUNT(*) AS count,SUM(status='failed') AS failed "+where+' GROUP BY day'}[kind]
-        return [dict(r._mapping) for r in await database.fetch_all(sql,values)]
+            'metric_rows': "SELECT status,JSON_EXTRACT(result_json,'$.metrics') AS metrics,JSON_EXTRACT(result_json,'$.delivery_metrics') AS delivery "+where+' ORDER BY created_at DESC,run_id DESC LIMIT 10000',
+            'metric_daily': "SELECT CAST(DATE(created_at) AS CHAR) AS day,COUNT(*) AS count,SUM(status='failed') AS failed "+where+' GROUP BY day',
+            'metric_stages': 'SELECT e.node,e.status,e.duration_ms FROM agent_run_event e JOIN (SELECT run_id '+where+' ORDER BY created_at DESC,run_id DESC LIMIT 10000) r ON r.run_id=e.run_id WHERE e.duration_ms IS NOT NULL ORDER BY e.event_id DESC LIMIT 50000'}[kind]
+        rows = [dict(r._mapping) for r in await database.fetch_all(sql,values)]
+        if kind == 'metric_stages':
+            from app.services.operations import latency_distribution
+            known = {'main_agent','main_retrieve','main_delegate','prepare_draft','collect_draft','final_gate',
+                     'generate_draft','approve_draft','save_draft','reject_draft','main_answer',
+                     'retrieval/query_rewrite','retrieval/coarse_retrieval','retrieval/rerank','retrieval/web_search','retrieval/evidence_verification'}
+            stages = {}
+            for row in rows:
+                name = row['node'] if row['node'] in known else row['node'].rsplit('.',1)[-1]
+                if name not in known: name = 'task'
+                stage = stages.setdefault(name, {'durations':[],'failed':0,'degraded':0})
+                if type(row['duration_ms']) is int and row['duration_ms'] >= 0: stage['durations'].append(row['duration_ms'])
+                stage['failed'] += row['status'] == 'failed'
+                stage['degraded'] += row['status'] == 'degraded'
+            return [{'name':name,**latency_distribution(stage['durations']),'failed':stage['failed'],'degraded':stage['degraded'],
+                     'eventSampleLimit':50000,'sampledEvents':len(rows)} for name,stage in sorted(stages.items())]
+        return rows
     if kind == 'run_summary':
         return [dict(r._mapping) for r in await database.fetch_all('SELECT status,COUNT(*) AS count FROM agent_run WHERE created_at>=TIMESTAMPADD(DAY,-1,NOW(6)) GROUP BY status')]
     if kind == 'memory_summary':

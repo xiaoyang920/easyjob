@@ -13,6 +13,10 @@
 !/docs/service-boundaries.md
 !/docs/runtime-quality.md
 !/docs/chinese-search.md
+!/docs/embedding-pool.md
+!/docs/article-quote-comments.md
+!/docs/human-answer-review.md
+!python-agent/docs/tool-recovery.md
 !python-agent/app/skills/definitions/*.md
 
 # Local IDE and AI assistant state
@@ -68,6 +72,7 @@ logs/
 uploads/
 temp/
 tmp/
+/frontend/tests/.*-qa-*.mjs
 
 # Root-level local media; application assets under public/static remain tracked
 /wangzhantouxiang.jpg
@@ -79,3 +84,6 @@ tmp/
 .DS_Store
 Thumbs.db
 Desktop.ini
+
+/deploy/.env
+/backups/

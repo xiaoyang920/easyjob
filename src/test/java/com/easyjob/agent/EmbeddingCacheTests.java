@@ -30,9 +30,11 @@ class EmbeddingCacheTests {
         when(model.embedForResponse(anyList())).thenAnswer(call -> {
             List<String> texts=call.getArgument(0);
             var response=mock(EmbeddingResponse.class);
-            List<Embedding> results=texts.stream().map(text -> {
-                var result=mock(Embedding.class); when(result.getOutput()).thenReturn(new float[]{.1f,.2f}); return result;
-            }).toList();
+            List<Embedding> results=new ArrayList<>();
+            for(int index=0;index<texts.size();index++) {
+                var result=mock(Embedding.class); when(result.getOutput()).thenReturn(new float[]{.1f,.2f});
+                when(result.getIndex()).thenReturn(index);results.add(result);
+            }
             when(response.getResults()).thenReturn(results); return response;
         });
     }
@@ -56,5 +58,18 @@ class EmbeddingCacheTests {
     @Test void cacheOutageDoesNotFailEmbedding() {
         when(values.multiGet(anyCollection())).thenThrow(new IllegalStateException("offline"));
         assertEquals(2,service.embed("text").size()); verify(model).embedForResponse(List.of("text"));
+    }
+    @Test void outOfOrderProviderResultsAreMatchedByInputIndex() {
+        when(model.embedForResponse(anyList())).thenReturn(new EmbeddingResponse(List.of(
+                new Embedding(new float[]{.3f,.4f},1),new Embedding(new float[]{.1f,.2f},0))));
+        var vectors=service.embedBatch(List.of("first","second"));
+        assertEquals(.1,vectors.get(0).get(0),.00001);
+        assertEquals(.3,vectors.get(1).get(0),.00001);
+    }
+    @Test void duplicateProviderIndexesCannotPopulateCache() {
+        when(model.embedForResponse(anyList())).thenReturn(new EmbeddingResponse(List.of(
+                new Embedding(new float[]{.3f,.4f},0),new Embedding(new float[]{.1f,.2f},0))));
+        assertThrows(IllegalStateException.class,()->service.embedBatch(List.of("first","second")));
+        assertTrue(stored.isEmpty());
     }
 }

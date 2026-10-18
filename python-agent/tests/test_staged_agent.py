@@ -122,8 +122,9 @@ class GraphExecutionTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(finished, {"a", "b"})
             self.assertEqual(set(json.loads(state["dependency_context"])), {"a", "b"})
             return {"worker_results": [{"worker_name": "analysis", "result": "comparison [a:1] [b:1]"}]}
-        async def draft(task_input, system_prompt):
+        async def draft(task_input, system_prompt, *, execution_state=None):
             self.assertIn("comparison [a:1] [b:1]", task_input)
+            self.assertEqual(execution_state['user_id'], 7)
             return DraftOutput(title="Review", summary="summary", content="# Review\nBased on [a:1] [b:1]")
         repo = repository()
         model, control = llm([MainDecision(action="delegate", plan=plan, delegation_reason="parallel research"),

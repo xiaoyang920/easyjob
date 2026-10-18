@@ -15,6 +15,8 @@ html:root {
   --ej-shadow: 3px 3px 0 #11110f14;
   --ej-shadow-lift: 5px 5px 0 #11110f22;
   --ej-radius: 18px;
+  --ej-header-height: 72px;
+  --ej-layer-header: 1100;
   --studio-coral: #ff6b55;
   --studio-coral-soft: #f3a093;
   --studio-violet: #b4a7ff;
@@ -45,10 +47,10 @@ button, input, textarea, select { font-family: inherit; }
 button, a, [role="link"], [role="button"] { -webkit-tap-highlight-color: transparent; }
 :focus-visible { outline: 2px solid var(--ej-accent); outline-offset: 4px; }
 button:disabled { cursor: not-allowed; }
-.page-frame { min-height: 100vh; }
+.page-frame { min-height: 100vh; position: relative; z-index: 0; }
 /* 页面外层不能做 transform，否则 fixed 导航会在动画期间改为相对页面定位。 */
 .page-enter-active { transition: opacity 240ms ease; }
-.page-leave-active { transition: opacity 100ms ease; }
+.page-leave-active { transition: opacity 100ms ease; pointer-events: none; }
 .page-enter-from { opacity: 0; }
 .page-leave-to { opacity: 0; }
 
@@ -237,12 +239,28 @@ html::-webkit-scrollbar-thumb { background: #11110f40; border-radius: 999px; bor
 
 /* Article detail: the reading sheet is a large ink-outlined card. */
 #app .article-detail-page .main-container { max-width: 1220px; gap: 28px; margin-top: 108px; }
+#app .article-detail-page.reading-wide .main-container { max-width: 1600px; }
+#app .article-load-state { max-width:1000px; margin:108px auto 40px; padding:0 20px; }
+#app .article-resume-prompt { display:flex; align-items:center; flex-wrap:wrap; gap:10px; margin:0 0 18px; padding:12px; background:var(--studio-lime-soft); border:1px solid var(--ej-line); border-radius:12px; font-size:12px; }
+#app .article-resume-prompt span { flex:1; min-width:120px; overflow-wrap:anywhere; }
+#app .article-resume-prompt button { border:1px solid var(--ej-line); border-radius:99px; background:var(--ej-surface); color:var(--ej-ink); padding:7px 11px; cursor:pointer; font:inherit; }
+#app .article-reading-tools .mobile-toc-toggle { display:none; }
 #app .article-detail-page .article-card { background: var(--ej-surface); border: 1.5px solid var(--ej-ink); border-radius: 22px; box-shadow: 0 6px 0 #11110f14; padding: clamp(24px, 4vw, 48px); }
 #app .article-detail-page .article-title { color: var(--ej-ink); font-size: clamp(26px, 3.2vw, 38px); font-weight: 850; line-height: 1.45; letter-spacing: -.05em; }
 #app .article-detail-page .article-header { border-bottom: 1px solid var(--ej-ink); padding-bottom: 26px; }
 #app .article-detail-page .article-meta { color: var(--ej-muted); }
 #app .article-detail-page .author-avatar { border: 1.5px solid var(--ej-ink); }
-#app .article-detail-page .article-content { font-size: 16px; line-height: 1.85; color: #2f2d28; }
+#app .article-detail-page .article-content { font-size: calc(16px * var(--article-reading-scale, 1)); line-height: 1.85; color: #2f2d28; }
+#app .article-reading-tools { position:sticky; top:calc(var(--ej-header-height) + 8px); z-index:5; display:flex; align-items:center; flex-wrap:wrap; gap:10px; margin:0 0 24px; padding:10px 12px; border:1px solid var(--ej-line); border-radius:14px; background:var(--ej-surface); box-shadow:var(--ej-shadow); color:var(--ej-muted); font-size:12px; }
+#app .reading-tools-label { margin-right:auto; }
+#app .article-reading-tools button { padding:7px 11px; font:inherit; color:var(--ej-ink); border:1px solid var(--ej-line); border-radius:99px; background:var(--ej-surface); cursor:pointer; }
+#app .article-reading-tools button:hover:enabled, #app .article-reading-tools button[aria-pressed=true] { border-color:var(--ej-ink); background:var(--studio-lime-soft); }
+#app .article-reading-tools button:disabled { opacity:.4; cursor:not-allowed; }
+#app .reading-size-controls { display:flex; }
+#app .reading-size-controls button { border-radius:0; }
+#app .reading-size-controls button + button { margin-left:-1px; }
+#app .reading-size-controls button:first-child { border-radius:99px 0 0 99px; }
+#app .reading-size-controls button:last-child { border-radius:0 99px 99px 0; }
 /* Body rhythm: authors often write one line per paragraph, so paragraphs sit close together, and wangEditor's
    blank lines (a paragraph holding only <br>) shrink to a short gap instead of a full empty row. */
 #app .article-detail-page .article-content p { margin: 0 0 .6em; }
@@ -256,28 +274,28 @@ html::-webkit-scrollbar-thumb { background: #11110f40; border-radius: 999px; bor
   position: relative; color: var(--ej-ink); line-height: 1.4; letter-spacing: -.03em; scroll-margin-top: 100px; text-align: left;
 }
 #app :is(.article-detail-page .article-content, .article-editor-page .w-e-text-container [data-slate-editor]) h1 {
-  margin: 2.2em 0 .8em; padding-bottom: .4em; font-size: 30px; font-weight: 850; letter-spacing: -.045em; border-bottom: 1.5px solid var(--ej-ink);
+  margin: 2.2em 0 .8em; padding-bottom: .4em; font-size: calc(30px * var(--article-reading-scale, 1)); font-weight: 850; letter-spacing: -.045em; border-bottom: 1.5px solid var(--ej-ink);
 }
 #app :is(.article-detail-page .article-content, .article-editor-page .w-e-text-container [data-slate-editor]) h2 {
-  margin: 2em 0 .7em; padding-left: 18px; font-size: 24px; font-weight: 850; border: 0;
+  margin: 2em 0 .7em; padding-left: 18px; font-size: calc(24px * var(--article-reading-scale, 1)); font-weight: 850; border: 0;
 }
 #app :is(.article-detail-page .article-content, .article-editor-page .w-e-text-container [data-slate-editor]) h2::before {
   content: ''; position: absolute; left: 0; top: .18em; bottom: .18em; width: 7px; background: var(--studio-lime); border: 1px solid var(--ej-ink); border-radius: 4px;
 }
 #app :is(.article-detail-page .article-content, .article-editor-page .w-e-text-container [data-slate-editor]) h3 {
-  margin: 1.7em 0 .55em; padding-left: 18px; font-size: 19px; font-weight: 800;
+  margin: 1.7em 0 .55em; padding-left: 18px; font-size: calc(19px * var(--article-reading-scale, 1)); font-weight: 800;
 }
 #app :is(.article-detail-page .article-content, .article-editor-page .w-e-text-container [data-slate-editor]) h3::before {
   content: ''; position: absolute; left: 1px; top: calc(.7em - 4px); width: 8px; height: 8px; background: var(--studio-coral); border: 1px solid var(--ej-ink); border-radius: 50%;
 }
 #app :is(.article-detail-page .article-content, .article-editor-page .w-e-text-container [data-slate-editor]) h4 {
-  margin: 1.4em 0 .45em; padding-left: 18px; font-size: 16px; font-weight: 800; color: #2f2d28;
+  margin: 1.4em 0 .45em; padding-left: 18px; font-size: calc(16px * var(--article-reading-scale, 1)); font-weight: 800; color: #2f2d28;
 }
 #app :is(.article-detail-page .article-content, .article-editor-page .w-e-text-container [data-slate-editor]) h4::before {
   content: '›'; position: absolute; left: 2px; top: -.08em; color: var(--ej-accent); font-size: 1.25em; font-weight: 900;
 }
 #app :is(.article-detail-page .article-content, .article-editor-page .w-e-text-container [data-slate-editor]) :is(h5, h6) {
-  margin: 1.2em 0 .4em; font-size: 14px; font-weight: 800; color: var(--ej-muted); letter-spacing: .06em;
+  margin: 1.2em 0 .4em; font-size: calc(14px * var(--article-reading-scale, 1)); font-weight: 800; color: var(--ej-muted); letter-spacing: .06em;
 }
 /* A heading that opens the body, or follows another heading, needs no extra top space. */
 #app :is(.article-detail-page .article-content, .article-editor-page .w-e-text-container [data-slate-editor]) > :is(h1, h2, h3, h4, h5, h6):first-child,
@@ -301,7 +319,7 @@ html:root { --code-bg: #17171a; --code-text: #e8e4da; --code-muted: #8f8a80; --c
     linear-gradient(270deg, var(--code-bg) 40%, #17171a00) right center / 32px 100% no-repeat local,
     linear-gradient(90deg, #ffffff26, #ffffff00) left center / 14px 100% no-repeat scroll,
     linear-gradient(270deg, #ffffff26, #ffffff00) right center / 14px 100% no-repeat scroll;
-  font-family: var(--code-font); font-size: 13.5px; line-height: 1.7; white-space: pre; text-shadow: none; tab-size: 4;
+  font-family: var(--code-font); font-size: calc(13.5px * var(--article-reading-scale, 1)); line-height: 1.7; white-space: pre; text-shadow: none; tab-size: 4;
   -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; scrollbar-width: thin; scrollbar-color: #ffffff33 transparent;
 }
 #app :is(.article-detail-page .article-content, .article-editor-page .w-e-text-container [data-slate-editor], .ai-chat-page .message-bubble, .ai-chat-page .draft-review-body) :not(pre) > code {
@@ -330,20 +348,28 @@ html:root { --code-bg: #17171a; --code-text: #e8e4da; --code-muted: #8f8a80; --c
 #app .article-detail-page .article-cover { max-height: 250px; object-fit: cover; border: 1px solid var(--ej-ink); border-radius: 14px; box-shadow: none; }
 #app .article-detail-page .article-cover:hover { transform: none; box-shadow: none; }
 #app .article-detail-page .article-summary { background: var(--ej-canvas); border: 0; border-left: 3px solid var(--studio-coral); color: #47453f; border-radius: 0 12px 12px 0; }
+#app :is(.article-content,.code-content) .article-code-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 14px; border-bottom:1px solid #ffffff22; color:var(--code-muted); font:12px var(--ej-font); }
+#app .copy-answer-btn { margin-top:12px; padding:7px 13px; border:1px solid var(--ej-line); border-radius:99px; background:var(--ej-surface); color:var(--ej-muted); font:12px var(--ej-font); cursor:pointer; }
+#app .copy-answer-btn:hover { color:var(--ej-ink); background:var(--studio-lime-soft); border-color:var(--ej-ink); }
+#app .article-code-toolbar > span { text-transform:uppercase; }
+#app .article-code-toolbar button { padding:6px 11px; border:1px solid #ffffff44; border-radius:99px; background:transparent; color:var(--code-text); font:inherit; cursor:pointer; }
+#app .article-code-toolbar button:hover { color:var(--ej-ink); background:var(--studio-lime); border-color:var(--studio-lime); }
 #app .article-detail-page .action-bar { border-top: 1px solid var(--ej-ink); }
 #app .article-detail-page .action-btn { border-color: transparent; }
 #app .article-detail-page .action-btn:hover:not(:disabled) { border-color: var(--ej-ink); }
 #app .article-detail-page .action-btn.active { color: var(--ej-ink); background: var(--studio-lime-soft); border-color: var(--ej-ink); }
-/* The outline scrolls on its own; its scrollbar stays invisible until the pointer is over it. */
-/* Both rails pin just below the 72px navbar and never grow taller than the viewport. */
-#app .article-detail-page :is(.toc-sidebar, .online-sidebar) { position: sticky; top: 96px; max-height: calc(100dvh - 120px); align-self: flex-start; }
-#app .toc-sidebar { width: 190px; padding: 12px 14px; background: transparent; border: 0; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; overscroll-behavior: contain; }
+/* Rails fit below the shared header; only the outline list scrolls, keeping its title visible. */
+#app .article-detail-page :is(.toc-sidebar, .online-sidebar) { position: sticky; top: calc(var(--ej-header-height) + 24px); max-height: calc(100dvh - var(--ej-header-height) - 48px); align-self: flex-start; }
+#app .toc-sidebar { width: 220px; padding: 12px 10px; background: transparent; border: 0; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
 #app .toc-title { color: var(--ej-ink); font-size: 11px; font-weight: 800; letter-spacing: .12em; }
-/* Long headings stay within two lines in the outline; the full text is in the link's title. */
-#app .toc-item a { color: var(--ej-muted); border-left-color: transparent; border-radius: 0 8px 8px 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+#app .toc-scroll { scrollbar-width: thin; scrollbar-color: #11110f40 transparent; }
+#app .toc-scroll::-webkit-scrollbar { width: 6px; }
+#app .toc-scroll::-webkit-scrollbar-thumb { background: #11110f40; border-radius: 999px; }
+/* Every heading wraps in full, including long technical names and deeply nested sections. */
+#app .toc-item a { color: var(--ej-muted); border-left-color: transparent; border-radius: 0 8px 8px 0; display: block; white-space: normal; overflow-wrap: anywhere; }
 #app .toc-item { margin: 4px 0; }
 #app .toc-item.active a { background: var(--studio-lime); color: var(--ej-ink); border-left-color: var(--ej-ink); font-weight: 700; }
-#app .toc-item a:hover { background: var(--ej-surface); color: var(--ej-ink); transform: translateX(2px); border-left-color: var(--ej-ink); }
+#app .toc-item a:hover { background: var(--ej-surface); color: var(--ej-ink); border-left-color: var(--ej-ink); }
 #app .online-sidebar { width: 210px; }
 #app .online-header { border-bottom: 1px solid var(--ej-hairline); color: var(--ej-ink); font-weight: 800; }
 #app .online-count { color: var(--ej-ink); background: var(--studio-lime); border: 1px solid var(--ej-ink); border-radius: 999px; }
@@ -441,15 +467,16 @@ html:root { --code-bg: #17171a; --code-text: #e8e4da; --code-muted: #8f8a80; --c
 /* Conversations: paper sidebar, open answers and an ink-outlined composer. */
 #app :is(.ai-chat-page, .chat-page) .chat-container { padding-top: 72px; height: 100dvh; background: var(--ej-canvas); }
 #app :is(.ai-chat-page, .chat-page) .conversation-sidebar { width: 260px; background: #ebe6da; border-color: var(--ej-ink); }
-#app .ai-chat-page .sidebar-header { border: 0; padding: 27px 18px 15px; }
-#app .ai-chat-page .sidebar-header h3 { font-size: 11px; font-weight: 800; letter-spacing: .1em; color: var(--ej-ink); }
+#app .ai-chat-page .sidebar-header { border: 0; padding: 24px 18px 16px; align-items: stretch; flex-direction: column; gap: 16px; }
+#app .ai-chat-page .sidebar-header h3 { font-size: 18px; font-weight: 700; letter-spacing: -.02em; color: var(--ej-ink); }
 #app .new-chat-btn { padding: 8px 12px; font-size: 11px; font-weight: 700; background: var(--ej-surface); }
+#app .ai-chat-page .new-chat-btn { justify-content: center; padding: 11px 12px; font-size: 13px; background: var(--studio-lime); border-radius: 11px; }
 #app :is(.ai-chat-page, .chat-page) .conversation-item { border: 1px solid transparent; border-radius: 14px; transition: background 180ms, border-color 180ms; }
 #app :is(.ai-chat-page, .chat-page) .conversation-item.active { background: var(--ej-surface); border-color: var(--ej-ink); box-shadow: var(--ej-shadow); }
 #app :is(.ai-chat-page, .chat-page) .conversation-item:hover:not(.active) { background: #fffdf799; }
 #app .ai-chat-page .conv-icon { background: transparent; width: 23px; color: var(--ej-muted); }
 #app .ai-chat-page .conv-icon svg { color: var(--ej-muted); width: 16px; }
-#app .ai-chat-page .conv-title { font-size: 12px; }
+#app .ai-chat-page .conv-title { font-size: 13px; }
 #app .ai-chat-page .conv-time { font-size: 10px; color: var(--ej-muted); }
 #app .ai-chat-page .chat-main { background: transparent; min-width: 0; }
 #app .ai-chat-page .welcome-area { padding: 36px 24px; }
@@ -543,6 +570,7 @@ html .modern-dialog .el-tabs__item.is-active { color: var(--ej-ink); font-weight
   #app .home-page .nav-icon-btn { padding: 8px 6px; }
   #app .article-detail-page .article-card { padding: 28px; }
 }
+@media (max-width: 1200px) { #app .article-reading-tools .reading-width-toggle { display:none; } #app .article-reading-tools .mobile-toc-toggle { display:block; } }
 @media (max-width: 768px) {
   #app :is(.navbar, .top-bar) { height: 60px; padding: 0 18px; }
   #app .logo { font-size: 19px; gap: 8px; }
@@ -558,11 +586,11 @@ html .modern-dialog .el-tabs__item.is-active { color: var(--ej-ink); font-weight
   #app .article-detail-page .main-container { margin-top: 80px; }
   #app .article-detail-page :is(.toc-sidebar, .online-sidebar) { top: 76px; max-height: calc(100dvh - 92px); }
   #app .article-detail-page .article-card { padding: 24px 20px; border-radius: 18px; }
-  #app :is(.article-detail-page .article-content, .article-editor-page .w-e-text-container [data-slate-editor], .ai-chat-page .message-bubble, .ai-chat-page .draft-review-body) pre:not(.streaming-table) > code { padding: 14px 16px; font-size: 12px; }
-  #app :is(.article-detail-page .article-content, .article-editor-page .w-e-text-container [data-slate-editor]) h1 { font-size: 24px; }
-  #app :is(.article-detail-page .article-content, .article-editor-page .w-e-text-container [data-slate-editor]) h2 { font-size: 20px; padding-left: 15px; }
-  #app :is(.article-detail-page .article-content, .article-editor-page .w-e-text-container [data-slate-editor]) h3 { font-size: 17px; padding-left: 16px; }
-  #app :is(.article-detail-page .article-content, .article-editor-page .w-e-text-container [data-slate-editor]) h4 { font-size: 15px; padding-left: 16px; }
+  #app :is(.article-detail-page .article-content, .article-editor-page .w-e-text-container [data-slate-editor], .ai-chat-page .message-bubble, .ai-chat-page .draft-review-body) pre:not(.streaming-table) > code { padding: 14px 16px; font-size: calc(12px * var(--article-reading-scale, 1)); }
+  #app :is(.article-detail-page .article-content, .article-editor-page .w-e-text-container [data-slate-editor]) h1 { font-size: calc(24px * var(--article-reading-scale, 1)); }
+  #app :is(.article-detail-page .article-content, .article-editor-page .w-e-text-container [data-slate-editor]) h2 { font-size: calc(20px * var(--article-reading-scale, 1)); padding-left: 15px; }
+  #app :is(.article-detail-page .article-content, .article-editor-page .w-e-text-container [data-slate-editor]) h3 { font-size: calc(17px * var(--article-reading-scale, 1)); padding-left: 16px; }
+  #app :is(.article-detail-page .article-content, .article-editor-page .w-e-text-container [data-slate-editor]) h4 { font-size: calc(15px * var(--article-reading-scale, 1)); padding-left: 16px; }
   #app .space-header { margin-top: 82px; height: auto; min-height: 0; padding: 0 16px; }
   #app .space-header .header-content { padding: 24px 20px; flex-wrap: wrap; gap: 15px; }
   #app .space-header .user-avatar { width: 76px; height: 76px; }
@@ -581,7 +609,7 @@ html .modern-dialog .el-tabs__item.is-active { color: var(--ej-ink); font-weight
   #app .chat-page .conversation-list.hidden { transform: translateX(-110%); pointer-events: none; }
   #app .chat-page .msg-content, #app .chat-page .msg-content.image-content { max-width: calc(100% - 50px); }
   #app .chat-page .msg-image { max-height: 300px; }
-  #app .ai-chat-page .conversation-sidebar { width: 100%; }
+  #app .ai-chat-page .conversation-sidebar { width: 100%; top: 60px; height: auto; bottom: 0; }
   #app .ai-chat-page .conversation-sidebar.hidden { display: none; }
   #app .ai-chat-page .sidebar-header { padding: 20px; }
   #app .ai-chat-page .message-list { padding: 25px 18px; gap: 24px; }
@@ -616,3 +644,52 @@ html .ej-confirm .el-message-box__btns { padding-top:24px; gap:10px; }
 html .ej-confirm .el-button { border-radius:999px; margin:0; min-height:38px; padding:10px 18px; }
 html .ej-confirm .el-button--primary { background:var(--ej-ink); border-color:var(--ej-ink); color:var(--ej-surface); }
 #app button:disabled { cursor:not-allowed; }
+#app .virtual-spacer { flex-shrink: 0; width: 1px; pointer-events: none; overflow-anchor: none; transition: none !important; animation: none !important; }
+#app .message-list:has(.virtual-spacer) { overflow-anchor: none; display: block; }
+#app .ai-chat-page .message-list > [data-virtual-key] { margin-bottom: 30px; }
+#app .chat-page .message-list > [data-virtual-key] { display: flow-root; }
+
+/* Recycled historical rows must not replay the arrival animation while scrolling. */
+#app .message-list[data-virtualized="true"] > [data-virtual-key] { animation: none !important; }
+
+/* Shared controls are also used in dialogs and popovers teleported to body. */
+html .ej-select { width:100%; min-width:0; max-width:100%; padding:0 !important; border:0 !important; border-radius:10px; background:transparent !important; box-shadow:none !important; font-size:13px; vertical-align:middle; --el-select-input-color:var(--ej-ink); --el-select-border-color-hover:var(--ej-ink); --el-select-input-focus-border-color:var(--ej-ink); }
+html .ej-select .el-select__wrapper { min-height:40px; padding:9px 12px; border-radius:10px; background:var(--ej-canvas); box-shadow:0 0 0 1px var(--ej-line) inset; font-size:inherit; line-height:1.5; }
+html .ej-select .el-select__wrapper:hover { box-shadow:0 0 0 1px var(--ej-ink) inset; }
+html .ej-select .el-select__wrapper.is-focused { box-shadow:0 0 0 1px var(--ej-ink) inset, 0 0 0 3px var(--studio-lime-soft); }
+html .ej-select .el-select__wrapper.is-disabled { background:var(--ej-soft); opacity:.65; cursor:not-allowed; box-shadow:0 0 0 1px var(--ej-line) inset; }
+html .ej-select .el-select__input { border:0 !important; background:transparent !important; padding:0 !important; margin:0 !important; outline:none !important; box-shadow:none !important; min-height:0 !important; color:var(--ej-ink); font:inherit; }
+html .ej-select .el-select__placeholder { color:var(--ej-ink); pointer-events:none; }
+html .ej-select .el-select__placeholder.is-transparent { color:var(--ej-muted); }
+html .ej-select .el-select__caret { color:var(--ej-muted); }
+html .ej-select-menu.el-popper, html .el-dropdown__popper.el-popper { border:1px solid var(--ej-ink); border-radius:13px; background:var(--ej-surface); box-shadow:var(--ej-shadow-lift); color:var(--ej-ink); max-width:calc(100vw - 24px); }
+html .ej-select-menu .el-popper__arrow, html .el-dropdown__popper .el-popper__arrow { display:none; }
+html .ej-select-menu .el-select-dropdown__list, html .el-dropdown__popper .el-dropdown-menu { padding:6px; background:var(--ej-surface); border-radius:12px; }
+html .ej-select-menu .el-select-dropdown__item, html .el-dropdown__popper .el-dropdown-menu__item { margin:2px 0; padding:9px 30px 9px 12px; height:auto; min-height:36px; line-height:1.5; border-radius:8px; font-family:var(--ej-font); font-size:13px; color:var(--ej-ink); white-space:normal; overflow-wrap:anywhere; }
+html .ej-select-menu .el-select-dropdown__item.is-hovering, html .el-dropdown__popper .el-dropdown-menu__item:not(.is-disabled):focus { background:var(--ej-canvas); color:var(--ej-ink); }
+html .ej-select-menu .el-select-dropdown__item.is-selected { background:var(--studio-lime-soft); color:var(--ej-ink); font-weight:600; }
+html .ej-select-menu .el-select-dropdown__item.is-selected::after { content:''; position:absolute; right:14px; top:50%; width:5px; height:9px; border-right:1.5px solid var(--ej-ink); border-bottom:1.5px solid var(--ej-ink); transform:translateY(-65%) rotate(45deg); }
+html .ej-select-menu .el-select-dropdown__item.is-disabled { color:var(--ej-muted); opacity:.5; background:transparent; }
+#app .metrics-controls label .ej-select, #app .statistics-controls > .ej-select { width:150px; }
+#app .admin-filters > .ej-select { width:150px; }
+#app .admin-inline-editor .ej-select { width:112px; }
+#app .operations .filters > .ej-select, #app .review-toolbar .ej-select { width:160px; }
+#app .search-page .sort-options .ej-select { width:160px; }
+
+/* Dialogs sit outside page stacking contexts; title and actions remain in view. */
+html .el-dialog.ej-dialog { display:flex; flex-direction:column; max-width:calc(100vw - 32px); max-height:calc(100dvh - 40px); margin:20px auto; padding:24px; border:1.5px solid var(--ej-ink); border-radius:22px; background:var(--ej-surface); color:var(--ej-ink); box-shadow:var(--ej-shadow-lift); font-family:var(--ej-font); }
+html .ej-dialog .el-dialog__header { flex-shrink:0; padding:0 36px 18px 0; margin:0; border-bottom:1px solid var(--ej-hairline); }
+html .ej-dialog .el-dialog__title { color:var(--ej-ink); font-size:20px; font-weight:700; line-height:1.4; }
+html .ej-dialog .el-dialog__headerbtn { top:15px; right:15px; width:32px; height:32px; border-radius:50%; }
+html .ej-dialog .el-dialog__headerbtn:hover { background:var(--studio-lime-soft); }
+html .ej-dialog .el-dialog__headerbtn .el-dialog__close { color:var(--ej-ink); }
+html .ej-dialog .el-dialog__body { min-height:0; overflow-y:auto; overscroll-behavior:contain; padding:18px 0; color:var(--ej-ink); scrollbar-width:thin; }
+html .ej-dialog .el-dialog__footer { flex-shrink:0; padding:16px 0 0; border-top:1px solid var(--ej-hairline); }
+html .ej-dialog.modern-dialog .el-dialog__header { border-bottom:0; padding-bottom:0; }
+html .ej-dialog.modern-dialog .el-dialog__body { padding:0; }
+@media(max-width:768px) { :root { --ej-header-height:60px; } }
+@media(max-width:600px) { html .el-dialog.ej-dialog { padding:18px; max-height:calc(100dvh - 24px); margin:12px auto; border-radius:18px; } html .ej-dialog .el-dialog__title { font-size:18px; } }
+
+html .revision-comparison > label { display:flex; align-items:center; flex-wrap:wrap; gap:12px; }
+html .revision-comparison .ej-select { width:min(320px,100%); }
+@media(prefers-reduced-motion:reduce) { html .el-dialog.ej-dialog, html .ej-select-menu { animation:none !important; transition:none !important; } }

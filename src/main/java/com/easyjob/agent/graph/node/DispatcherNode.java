@@ -4,7 +4,7 @@ import com.alibaba.cloud.ai.graph.OverAllState;
 import com.alibaba.cloud.ai.graph.action.NodeAction;
 import com.easyjob.agent.component.EsVectorStore;
 import com.easyjob.agent.tool.ArticleTool;
-import com.easyjob.agent.tool.BochaSearchTool;
+import com.easyjob.agent.tool.DeepSeekSearchTool;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ChatModel;

@@ -315,7 +315,7 @@ class FailureTests(unittest.IsolatedAsyncioTestCase):
         model.bind_tools.return_value = model
         with patch.object(tool_executor, "get_llm", return_value=model), \
              patch.object(tool_executor, "get_langfuse_callback", return_value=None):
-            with self.assertRaises(ValueError):
+            with self.assertRaises(PermissionError):
                 await tool_executor.run_tool_agent("prompt", "input")
 
     async def test_empty_completed_reply_is_not_persisted(self):
@@ -357,8 +357,7 @@ class EntryTests(unittest.IsolatedAsyncioTestCase):
                 payload = {"user_id": 7, "conversation_id": 11}
                 payload.update({"action": "approve", "run_id": RUN_ID, "draft_hash": HASH} if "resume" in path else {"message": "q"})
                 with patch.object(main, "get_graph", AsyncMock(return_value=graph)), \
-                     patch.object(main, "run_service", RunService(conv, memory, repository())), \
-                     patch("app.services.run_service.preprocess_message", AsyncMock(return_value="q")):
+                     patch.object(main, "run_service", RunService(conv, memory, repository())):
                     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=main.app), base_url="http://test",
                                                  headers={"X-Agent-Key": SERVICE_KEY, "X-Agent-User": "7"}) as client:
                         response = await client.post(path, json=payload)

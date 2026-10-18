@@ -163,7 +163,7 @@ class DurableHistoryTests(unittest.IsolatedAsyncioTestCase):
             history = await self.service.get_context_for_llm(1)
             await self.service.postprocess_messages(1)
         self.assertEqual(len(history), 10)
-        self.assertIn('full:v3', self.service._llm_cache_key(1))
+        self.assertIn('full:v4', self.service._llm_cache_key(1))
         model.assert_not_called()
 
     async def test_cursor_advances_only_complete_old_turn_and_raw_rows_remain(self):

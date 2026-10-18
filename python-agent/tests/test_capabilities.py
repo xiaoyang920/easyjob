@@ -159,7 +159,7 @@ class CapabilityBoundaryTests(unittest.IsolatedAsyncioTestCase):
                  patch.object(search_worker.reranker_service, "rerank", AsyncMock(return_value=documents)), \
                  patch.object(search_worker.citation_builder_instance, "build", return_value=([SimpleNamespace(to_dict=lambda: citation)], "[work:1] verified platform content")), \
                  patch.object(search_worker, "activity", AsyncMock()), \
-                 patch.object(search_worker, "do_search", AsyncMock(side_effect=search_worker.WebSearchError("博查 API Key 无效或已过期"))):
+                 patch.object(search_worker, "do_search", AsyncMock(side_effect=search_worker.WebSearchError("DeepSeek 搜索 API Key 无效或已过期"))):
                 result = await search_worker.retrieve_evidence(state)
             self.assertEqual(result["status"], "succeeded")
             self.assertEqual(result["citations"], [citation])
@@ -176,7 +176,7 @@ class CapabilityBoundaryTests(unittest.IsolatedAsyncioTestCase):
                  patch.object(search_worker.filter_resolver_instance, "resolve", AsyncMock(return_value=ResolvedFilters())), \
                  patch.object(search_worker.retrieval_service_instance, "hybrid_search", AsyncMock(return_value=[])), \
                  patch.object(search_worker, "activity", AsyncMock()) as events, \
-                 patch.object(search_worker, "do_search", AsyncMock(side_effect=search_worker.WebSearchError("博查 API Key 无效或已过期"))):
+                 patch.object(search_worker, "do_search", AsyncMock(side_effect=search_worker.WebSearchError("DeepSeek 搜索 API Key 无效或已过期"))):
                 result = await search_worker.retrieve_evidence(state)
             self.assertEqual(result["status"], "tool_error")
             self.assertIn("Key", result["result"])

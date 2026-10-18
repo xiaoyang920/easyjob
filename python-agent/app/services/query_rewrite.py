@@ -46,14 +46,14 @@ class RewriteResult(BaseModel):
     semantic_queries: list[str] = Field(min_length=1, max_length=3, description="最多3条语义扩展查询")
     keywords: list[str] = Field(max_length=4, description="最多4个关键词（用于 BM25）")
     filters: QueryFilters = Field(default_factory=QueryFilters)
-    web_query: str = Field(default="", max_length=200, description="用于搜索引擎的简短查询，保留主题和所需资料类型")
+    web_query: str = Field(default="", max_length=128, description="用于搜索引擎的简短查询，保留主题和所需资料类型及筛选条件")
 
 REWRITE_SYSTEM_PROMPT = """你是查询改写助手。根据用户问题和上下文，输出结构化检索参数。
 
 【输出字段】
 - semantic_queries：1-3 条语义扩展查询（自然语言），最多3条
 - keywords：1-4 个关键词（精准短语），最多4个
-- web_query：不超过200字符的搜索引擎查询，保留主题和资料类型，去掉任务执行说明。用户要文章时查询可直接阅读的图文教程，不用视频课程、文库下载或链接目录凑篇数；需要排除项时保留在查询里。
+- web_query：不超过128字符的搜索引擎查询，保留主题、资料类型、站点和时间等筛选条件，去掉任务执行说明。用户要文章时查询可直接阅读的图文教程，不用视频课程、文库下载或链接目录凑篇数；需要排除项时保留在查询里。
 - filters.tags：用户查询涉及的技术标签（如 Spring、Vue、Java）
 - filters.time_range：仅当用户显式提到"最新/本周/今天/今年"等时间锚定词时填；否则 null
 - filters.category_names：只填用户话里出现的分类名，不要猜 category_id
@@ -84,9 +84,12 @@ class QueryRewriteService:
         import re
         direct = (task.get('search_query') or '').strip()
         ambiguous = re.search(r'这篇|上一篇|它|刚才|前面|上述|之前|\b(it|that|previous|above)\b', direct, re.I)
-        if direct and not ambiguous and task.get('filters') is not None and query == task.get('instruction'):
+        if (direct and not ambiguous and task.get('filters') is not None and query == task.get('instruction')
+                and (not task.get('allow_web') or len(direct) <= 128)):
             return {'semantic_queries': [direct], 'keywords': [direct], 'web_query': direct,
                     'filters': QueryFilters.model_validate(task['filters']), 'status': 'bypassed'}
+        if direct and len(direct) > 128 and task.get('allow_web'):
+            query += '\n明确检索词（压缩至128字符内，保留筛选条件）：' + direct
         return await self.rewrite(query, history_messages)
 
     async def rewrite(self, query: str, history_messages: list[dict]) -> dict:
@@ -119,7 +122,8 @@ class QueryRewriteService:
                 "semantic_queries": [query],
                 "keywords": [query],
                 "filters": QueryFilters(),
-                "web_query": query[:200],
+                # Never silently drop site/time/exclusion conditions to fit an API limit.
+                "web_query": query,
                 "status": "degraded",
                 "reason": "query_rewrite_failed",
             }

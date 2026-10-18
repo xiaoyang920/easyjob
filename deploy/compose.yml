@@ -1,0 +1,171 @@
+name: easyjob-container
+x-app-env: &app-env
+  TZ: Asia/Shanghai
+  MYSQL_HOST: mysql
+  MYSQL_PORT: 3306
+  MYSQL_DB: easyjob
+  MYSQL_USER: easyjob
+  MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Run deploy.py init-env and configure deploy/.env}
+  REDIS_HOST: redis
+  REDIS_STACK_HOST: redis-stack
+  ES_HOST: elasticsearch
+  ES_PORT: 9200
+  CONSUL_URL: http://consul:8500
+  SERVICE_DISCOVERY_ENABLED: "true"
+  AGENT_SERVICE_KEY: ${AGENT_SERVICE_KEY:?Set AGENT_SERVICE_KEY}
+  DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:?Set DEEPSEEK_API_KEY}
+  ZHIPUAI_API_KEY: ${ZHIPUAI_API_KEY:?Set ZHIPUAI_API_KEY}
+  DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+  DEEPSEEK_TOOLS_BASE_URL: ${DEEPSEEK_TOOLS_BASE_URL:-https://api.deepseek.com/v1}
+  FILE_UPLOAD_PATH: /uploads
+  LANGFUSE_TRACING_ENABLED: "false"
+
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: easyjob
+      MYSQL_USER: easyjob
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      TZ: Asia/Shanghai
+    volumes: [mysql-data:/var/lib/mysql]
+    healthcheck:
+      test: [CMD-SHELL, 'MYSQL_PWD="$$MYSQL_ROOT_PASSWORD" mysqladmin ping -h 127.0.0.1 -uroot --silent']
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+  redis:
+    image: redis:7.4
+    volumes: [redis-data:/data]
+    healthcheck: {test: [CMD, redis-cli, ping], interval: 5s, timeout: 3s, retries: 20}
+    restart: unless-stopped
+  redis-stack:
+    image: redis/redis-stack-server:7.4.0-v8
+    environment: {REDIS_ARGS: '--save 60 1 --appendonly no'}
+    volumes: [checkpoint-data:/data]
+    healthcheck: {test: [CMD, redis-cli, ping], interval: 5s, timeout: 3s, retries: 20}
+    restart: unless-stopped
+  rabbitmq:
+    image: rabbitmq:4.1-management
+    environment:
+      RABBITMQ_DEFAULT_USER: easyjob
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?Set RABBITMQ_PASSWORD}
+    volumes: [rabbit-data:/var/lib/rabbitmq]
+    healthcheck: {test: [CMD, rabbitmq-diagnostics, -q, ping], interval: 10s, timeout: 5s, retries: 20}
+    restart: unless-stopped
+  consul:
+    image: hashicorp/consul:1.20.6
+    command: agent -dev -client=0.0.0.0
+    healthcheck: {test: [CMD, consul, members], interval: 5s, timeout: 3s, retries: 20}
+    restart: unless-stopped
+  elasticsearch:
+    build: {context: .., dockerfile: tests/integration/elasticsearch/Dockerfile}
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+      path.repo: /snapshots
+    volumes: [es-data:/usr/share/elasticsearch/data, es-snapshots:/snapshots]
+    depends_on: {upload-init: {condition: service_completed_successfully}}
+    healthcheck:
+      test: [CMD-SHELL, 'curl -fsS "http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=1s" | grep -qE ''"status":"(yellow|green)"''']
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+  migrate:
+    build: {context: .., dockerfile: deploy/Dockerfile.agent}
+    environment: *app-env
+    command: [python, bootstrap.py]
+    volumes: [./mysql/schema.sql:/app/schema.sql:ro]
+    depends_on: {mysql: {condition: service_healthy}}
+    restart: "no"
+  upload-init:
+    image: alpine:3.21
+    command: [sh, -c, 'mkdir -p /uploads /snapshots && chown 10001:10001 /uploads && chown 1000:0 /snapshots']
+    volumes: [uploads:/uploads, es-snapshots:/snapshots]
+    restart: "no"
+  blog:
+    build: {context: .., dockerfile: deploy/Dockerfile.java, target: blog}
+    environment:
+      <<: *app-env
+      MYSQL_URL: jdbc:mysql://mysql:3306/easyjob?serverTimezone=GMT%2B8&useUnicode=true&characterEncoding=utf8&useSSL=false
+      SPRING_CONFIG_ADDITIONAL_LOCATION: file:/app/config/container.yml
+      SPRING_PROFILES_ACTIVE: container
+      SPRING_ELASTICSEARCH_URIS: http://elasticsearch:9200
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USERNAME: easyjob
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?Set JWT_SECRET_KEY}
+      BLOG_RPC_BIND: 0.0.0.0
+      AGENT_RPC_TARGET: agent:50051
+      SERVICE_ADVERTISE_HOST: blog
+      MAIL_HOST: ${MAIL_HOST:-smtp.qq.com}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+    volumes: [uploads:/uploads, './blog.yml:/app/config/container.yml:ro']
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      upload-init: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+      elasticsearch: {condition: service_healthy}
+      consul: {condition: service_healthy}
+    healthcheck: {test: [CMD, curl, -fsS, 'http://localhost:8080/api/category/list'], interval: 10s, timeout: 5s, retries: 30, start_period: 60s}
+    restart: unless-stopped
+    stop_grace_period: 330s
+  agent:
+    build: {context: .., dockerfile: deploy/Dockerfile.agent}
+    environment:
+      <<: *app-env
+      AGENT_RPC_ENABLED: "true"
+      AGENT_RPC_BIND: 0.0.0.0:50051
+      BLOG_RPC_TARGET: blog:20881
+      SERVICE_ADVERTISE_HOST: agent
+    volumes: [uploads:/uploads:ro]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      upload-init: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+      redis-stack: {condition: service_healthy}
+      elasticsearch: {condition: service_healthy}
+      consul: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready',timeout=4)"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    restart: unless-stopped
+    stop_grace_period: 330s
+  gateway:
+    build: {context: .., dockerfile: deploy/Dockerfile.java, target: gateway}
+    environment:
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      REDIS_HOST: redis
+      CONSUL_HOST: consul
+      GATEWAY_BIND: 0.0.0.0
+    depends_on: {blog: {condition: service_healthy}, consul: {condition: service_healthy}, redis: {condition: service_healthy}}
+    healthcheck: {test: [CMD, curl, -fsS, 'http://localhost:8090/actuator/health'], interval: 10s, timeout: 5s, retries: 30, start_period: 30s}
+    restart: unless-stopped
+  web:
+    build: {context: .., dockerfile: deploy/Dockerfile.web}
+    ports: ['127.0.0.1:${WEB_PORT:-8088}:80']
+    depends_on: {gateway: {condition: service_healthy}}
+    healthcheck: {test: [CMD, wget, -q, -O, /dev/null, 'http://127.0.0.1/health'], interval: 10s, timeout: 3s, retries: 10}
+    restart: unless-stopped
+  backup:
+    image: alpine:3.21
+    profiles: [tools]
+    volumes: [uploads:/data/uploads, checkpoint-data:/data/checkpoint, es-snapshots:/data/es-snapshots]
+    entrypoint: [sh, -c]
+volumes:
+  mysql-data:
+  redis-data:
+  checkpoint-data:
+  rabbit-data:
+  es-data:
+  es-snapshots:
+  uploads:

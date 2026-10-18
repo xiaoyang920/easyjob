@@ -73,11 +73,15 @@ public class ZhipuEmbeddingService {
         if (!missing.isEmpty()) {
             EmbeddingResponse response = embeddingModel.embedForResponse(missing);
             if (response.getResults().size() != missing.size()) throw new IllegalStateException("向量返回数量不一致");
-            for (int i=0; i<missing.size(); i++) {
+            boolean[] seen = new boolean[missing.size()];
+            for (var result : response.getResults()) {
+                int index = result.getIndex();
+                if (index < 0 || index >= missing.size() || seen[index]) throw new IllegalStateException("向量返回索引无效或重复");
+                seen[index] = true;
                 List<Double> vector = new ArrayList<>();
-                for (float value : response.getResults().get(i).getOutput()) vector.add((double)value);
+                for (float value : result.getOutput()) vector.add((double)value);
                 if (!valid(vector)) throw new IllegalStateException("向量维度或数值无效");
-                found.put(missing.get(i), List.copyOf(vector));
+                found.put(missing.get(index), List.copyOf(vector));
             }
             if (cache != null) try {
                 for (String text : missing) cache.opsForValue().set(key(text), JSON.toJSONString(found.get(text)), Duration.ofDays(7));
