@@ -46,6 +46,7 @@ test('real chat component switches, receives parallel replies, resumes and cance
     return response
   }
   const chats = [{conversationId:'101',title:'会话 A'},{conversationId:'102',title:'会话 B'}]
+  let stoppedB = false
   globalThis.__chatQa = {
     route:vue.reactive({query:{}}), router:{push:async()=>{},replace:async()=>{}}, fetch:fetchStream,
     message:Object.assign(message=>notices.push(message),Object.fromEntries(['info','success','error','warning'].map(k=>[k,message=>notices.push(message)]))),
@@ -55,10 +56,19 @@ test('real chat component switches, receives parallel replies, resumes and cance
         if(url==='/agent/library') return {code:200,data:{rows:options.params.scope==='general'?chats:[],total:options.params.scope==='general'?chats.length:0}}
         if(url==='/agent/conversations') return {code:200,data:options.params.scope==='general'?chats:[]}
         if(url.endsWith('/messages')) return {code:200,data:histories.get(url.split('/')[3]) || []}
-        if(url.endsWith('/run')) return {code:200,data:recovering&&url.includes('101')?{runId:'r-recovered',status:'running'}:null}
+        if(url.endsWith('/run')) return {code:200,data:stoppedB&&url.includes('102')?{runId:'run-b',status:'cancelled'}:recovering&&url.includes('101')?{runId:'r-recovered',status:'running'}:null}
         throw new Error(url)
       },
-      async post(url) { calls.push(['post',url]); return {code:200,data:{status:'cancelled'}} },
+      async post(url) {
+        calls.push(['post',url])
+        if (url==='/agent/chat/102/cancel') {
+          assert.equal(streams[1].signal.aborted,true,'release the SSE connection before the cancel request so a saturated HTTP connection pool cannot queue the stop')
+          stoppedB = true
+          throw new Error('simulated lost response after server committed cancellation')
+        }
+        if (url==='/agent/chat/101/cancel') throw new Error('simulated stop request not delivered')
+        return {code:200,data:{status:'cancelled'}}
+      },
       async delete(url) { calls.push(['delete',url]); return {code:200} }
     }
   }
@@ -127,6 +137,7 @@ test('real chat component switches, receives parallel replies, resumes and cance
     assert.ok(!document.querySelector('.message-list')?.textContent.includes('后台继续'),'background live text cannot leak into B')
     await send('B 的问题')
     await settle(()=>streams.length===2)
+    streams[1].emit('__RUN_ID__:run-b')
     assert.equal(streams[0].signal.aborted,false,'switch does not cancel A')
     reply(streams[0],'A 的完整回答')
     await tick()
@@ -141,6 +152,9 @@ test('real chat component switches, receives parallel replies, resumes and cance
     assert.ok(calls.some(([method,url])=>method==='post'&&url==='/agent/chat/102/cancel'))
     assert.equal(streams[0].signal.aborted,false)
     assert.equal(streams[1].signal.aborted,true)
+    await settle(()=>!input().disabled)
+    assert.ok(document.querySelector('.message-list').textContent.includes('已停止处理'),'a lost cancel response is reconciled with authoritative run status')
+    assert.ok(!notices.some(message=>message.includes('停止失败')))
     await click(button('开启新对话'))
     await send('没有 ID 时发起的问题')
     await settle(()=>streams.length===3)
@@ -155,14 +169,22 @@ test('real chat component switches, receives parallel replies, resumes and cance
     await select('会话 A')
     await send('生成待确认草稿')
     await settle(()=>streams.length===4)
-    const draftPayload={runId:'draft-run',draftHash:'qa-hash',title:'隔离草稿',draft:'草稿正文'}
+    const draftPayload={runId:'draft-run',draftHash:'qa-hash',title:'隔离草稿',draft:'草稿正文。\n\n来源：[research:web1]',citations:[{id:'research:web1',title:'学校简介',url:'https://example.org/intro'}]}
     streams[3].emit('__INTERRUPTED__:'+JSON.stringify(draftPayload))
+    await tick()
+    assert.equal(document.querySelector('.draft-review-body').textContent.trim(),'草稿正文。','draft preview shows prose, while its source mapping stays in the approval payload')
+    assert.equal(document.querySelector('.draft-review-card .inline-citation'),null)
+    assert.equal(document.querySelector('.citation-list'),null,'drafts do not display the chat source list')
     streams[3].finish()
     histories.set('101',[{role:'user',content:'生成待确认草稿'},{role:'assistant',content:'草稿正文',interrupted:true,isDraft:true,interruptPayload:draftPayload}])
     await settle(()=>button('保存草稿'))
     await click(button('直接编辑'))
     const title=document.querySelector('.editor-fields input')
     title.value='我修改的标题';title.dispatchEvent(new window.Event('input',{bubbles:true}));await tick()
+    assert.equal(document.querySelector('.rich-editor-stub').value.trim(),'<p>草稿正文。</p>','the rich editor starts without generated citations')
+    await click(button('应用修改'))
+    assert.equal(document.querySelector('.draft-review-body').textContent.trim(),'草稿正文。')
+    await click(button('直接编辑'))
     const body=document.querySelector('.rich-editor-stub')
     body.value='<h1>手动正文</h1><p>代码与图片链接</p>';body.dispatchEvent(new window.Event('input',{bubbles:true}));await tick()
     await click(button('应用修改'))
@@ -191,11 +213,16 @@ test('real chat component switches, receives parallel replies, resumes and cance
     await tick()
     assert.ok(document.querySelector('.message-list').textContent.includes('恢复中的回答'))
     assert.ok(!document.body.textContent.includes('加载中...'),'history loading does not hide a live replay')
+    const messageCount = document.querySelector('.message-list').getAttribute('data-message-count')
+    await click(document.querySelector('[aria-label="停止生成"]'))
+    await settle(()=>streams.length===7)
+    assert.equal(streams[5].signal.aborted,true)
+    assert.equal(document.querySelector('.message-list').getAttribute('data-message-count'),messageCount,'reconnecting after an undelivered stop reuses the same run message')
     await select('会话 B')
-    assert.equal(streams[5].signal.aborted,false)
+    assert.equal(streams[6].signal.aborted,false)
     assert.equal(input().disabled,false)
     app.unmount(); app=null
-    assert.equal(streams[5].signal.aborted,true,'unmount releases all readers')
+    assert.equal(streams[6].signal.aborted,true,'unmount releases all readers')
   } finally {
     app?.unmount()
     await unlink(modulePath)

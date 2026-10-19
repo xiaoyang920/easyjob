@@ -171,7 +171,7 @@ class WritingTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(builder, "planner_node", planner), \
              patch.object(builder, "reflector_node", AsyncMock(return_value={"needs_retry": False})), \
              patch.object(builder, "synthesizer_node", AsyncMock(return_value={"final_reply": "saved"})):
-            return builder._build_legacy_graph().compile(checkpointer=InMemorySaver())
+            return builder._build_legacy_graph().compile(checkpointer=getattr(self, 'redis_checkpointer', None) or InMemorySaver())
 
     async def test_approval_preserves_preview_without_regeneration(self):
         graph = await self.make_graph()
@@ -194,7 +194,7 @@ class WritingTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_reject_does_not_save(self):
         graph = await self.make_graph()
-        config = {"configurable": {"thread_id": "reject"}}
+        config = {"configurable": {"thread_id": getattr(self, 'redis_thread', 'reject')}}
         with patch.object(writing_worker, "generate_draft", AsyncMock(return_value=DraftOutput(title="A", summary="S", content="text"))), \
              patch.object(writing_worker, "save_approved_draft", AsyncMock()) as save:
             await graph.ainvoke(self.initial(), config)
@@ -256,7 +256,7 @@ class WritingTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_revision_requires_a_second_approval(self):
         graph = await self.make_graph()
-        config = {"configurable": {"thread_id": "revision"}}
+        config = {"configurable": {"thread_id": getattr(self, 'redis_thread', 'revision')}}
         generate = AsyncMock(side_effect=[DraftOutput(title="A", summary="S", content="old"),
                                           DraftOutput(title="A", summary="S", content="revised")])
         with patch.object(writing_worker, "generate_draft", generate), \

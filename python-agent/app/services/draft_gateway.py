@@ -2,7 +2,7 @@
 import hashlib
 
 import httpx
-from markdown_it import MarkdownIt
+from app.services.draft_citations import render_cited_markdown
 
 from app.config import settings
 
@@ -11,12 +11,14 @@ class DraftConflict(ValueError):
     """A safe user-facing conflict; never retry with a freshly fetched lock automatically."""
 
 
-def render_draft(draft):
+def render_draft(draft, citations=()):
     if getattr(draft, "content_format", "markdown") == "html":
         # Only manual edits select HTML; Java sanitizes at persistence.
         # Generated Markdown retains HTML-disabled rendering below.
         return draft.content
-    return MarkdownIt("commonmark", {"html": False}).enable("table").render(draft.content)
+    # The approved Markdown keeps its evidence IDs for audit/hash verification;
+    # persisted article HTML is prose without generated citation labels.
+    return render_cited_markdown(draft.content, citations, show_citations=False)
 
 
 def draft_hash(draft, html):

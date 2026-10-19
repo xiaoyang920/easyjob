@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from app.clients.mysql_client import db
 from app.services.evidence_verifier import verify_public_evidence
+from app.services.delivery_outcome import incomplete_delivery
 
 TERMINAL = ('failed', 'expired', 'cancelled')
 NOTICES = {'failed': '本次处理失败，已完成的活动保留在下方，可以继续提问。',
@@ -58,10 +59,11 @@ def project_history(history, runs, frames, events):
     users = [(index, message_instant(message['createTime'])) for index, message in enumerate(history)
              if message['role'] == 'user' and message.get('createTime')]
     for run in runs:
-        if run['status'] not in TERMINAL or run.get('draft_article_id'):
+        meta = decode(run.get('result_json'))
+        incomplete = run['status'] == 'succeeded' and incomplete_delivery(meta)
+        if (run['status'] not in TERMINAL and not incomplete) or run.get('draft_article_id'):
             continue
         rid = run['run_id']
-        meta = decode(run.get('result_json'))
         activity_events = []
         for frame in frames.get(rid, []):
             raw = frame['data']
@@ -79,7 +81,17 @@ def project_history(history, runs, frames, events):
                     activity_events.append({'version': 1, 'kind': 'activity', 'id': event['node'],
                         'label': node_label(event['node']), 'status': status,
                         'timestamp': instant(event['created_at']).isoformat() + 'Z'})
-        item = {'role': 'assistant', 'content': NOTICES[run['status']], 'runId': rid,
+        if incomplete:
+            existing = next((message for message in history if message['role'] == 'assistant' and (
+                message.get('runId') == rid or message.get('messageId') and
+                str(message['messageId']) == str(meta.get('assistant_message_id')))), None)
+            if existing is not None:
+                existing.update(runId=rid, runStatus='succeeded', deliveryStatus='incomplete',
+                    agentEvents=activity_events, runStartedAt=instant(run['created_at']).isoformat() + 'Z',
+                    runFinishedAt=instant(run['updated_at']).isoformat() + 'Z', recoverable=False)
+            continue  # Annotate a committed message, never duplicate it.
+        notice = meta.get('failure_notice') if run['status'] == 'failed' else None
+        item = {'role': 'assistant', 'content': notice or NOTICES[run['status']], 'runId': rid,
                 'runStatus': run['status'], 'agentEvents': activity_events,
                 'createTime': run['created_at'], 'runStartedAt': instant(run['created_at']).isoformat() + 'Z',
                 'runFinishedAt': instant(run['updated_at']).isoformat() + 'Z', 'recoverable': False}
@@ -133,10 +145,20 @@ class RunHistory:
         else:
             anchor = "JSON_UNQUOTE(JSON_EXTRACT(r.result_json,'$.user_message_id'))"
         rows = await self.db.fetch_all(f'''SELECT r.run_id,r.status,r.draft_article_id,r.created_at,r.updated_at,
-            JSON_OBJECT('user_message_id',{anchor}) AS result_json FROM agent_run r
+            JSON_OBJECT('user_message_id',{anchor},
+                'failure_notice',JSON_UNQUOTE(JSON_EXTRACT(r.result_json,'$.failure_notice')),
+                'delivery_status',IF(JSON_UNQUOTE(JSON_EXTRACT(r.result_json,'$.delivery_status'))='incomplete'
+                    OR JSON_UNQUOTE(JSON_EXTRACT(r.result_json,'$.progress.decision_contract_audit.last_outcome'))='stopped',
+                    'incomplete',NULL),
+                'assistant_message_id',(SELECT CAST(a.message_id AS CHAR) FROM ai_message a
+                    WHERE a.conversation_id=r.conversation_id AND CAST(a.run_id AS BINARY)=CAST(r.run_id AS BINARY)
+                    AND a.role='assistant' ORDER BY a.message_id LIMIT 1)) AS result_json FROM agent_run r
             JOIN ai_conversation c ON c.conversation_id=r.conversation_id
             WHERE r.conversation_id=:cid AND r.user_id=:uid AND c.user_id=:uid AND c.status=1
-            AND r.status IN ('failed','expired','cancelled') {condition} ORDER BY r.created_at,r.run_id''', params)
+            AND (r.status IN ('failed','expired','cancelled') OR (r.status='succeeded' AND (
+                JSON_UNQUOTE(JSON_EXTRACT(r.result_json,'$.delivery_status'))='incomplete' OR
+                JSON_UNQUOTE(JSON_EXTRACT(r.result_json,'$.progress.decision_contract_audit.last_outcome'))='stopped')))
+            {condition} ORDER BY r.created_at,r.run_id''', params)
         runs = [dict(row._mapping) for row in rows]
         if not runs:
             return messages
@@ -163,9 +185,9 @@ class RunHistory:
         if not row:
             return {}, {}
         run = dict(row._mapping)
-        if run['status'] not in TERMINAL and not run.get('draft_article_id'):
-            return {}, {}
         meta = decode(run.get('result_json'))
+        if run['status'] not in TERMINAL and not run.get('draft_article_id') and not incomplete_delivery(meta):
+            return {}, {}
         progress = meta.get('progress') or {}
         summary = {'run_id': run['run_id'], 'status': run['status'], 'node': progress.get('node') or meta.get('recovery_node'),
                    'tasks': progress.get('tasks', {}), 'saved_draft_id': str(run['draft_article_id']) if run.get('draft_article_id') else None,

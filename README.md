@@ -68,6 +68,8 @@ npm run dev
 
 文章分批向量化的有界线程池、默认参数和本机HTTP模拟对比测试见 [Embedding线程池配置](docs/embedding-pool.md)。
 
+Agent 新运行按命名空间保留最新恢复点，兼容旧运行的完整检查点；并发恢复、审批与按状态清理说明见 [Checkpoint 存储](docs/checkpoint-storage.md)。
+
 本机直接双击项目根目录的 **`启动项目.cmd`**。它会启动或复用 MySQL、缓存 Redis、Checkpoint Redis、Consul、Elasticsearch、RabbitMQ、Java、Python、网关和前端，全部检查通过后打开 `http://127.0.0.1:3000`。已有数据库本次升级先执行 `python scripts/migrate-service-boundaries.py` 应用增量迁移 021。
 
 第一次准备环境时仍需安装上述软件、创建 Python 虚拟环境并安装依赖、执行 `npm ci`、填写 Java/Python 本地配置并准备业务数据库。启动脚本使用本机现有安装目录；其他电脑可在 `scripts/start-local.ps1` 的参数中指定实际路径。缺少的 `temp/application-runtime.yml` 会由现有本地配置生成，已有配置保持原样，密码和密钥不打印到终端。

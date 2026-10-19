@@ -690,6 +690,22 @@ class DeliveryRejected(ValueError):
     """The auditor actually found a content problem, not a service failure."""
 
 
+class DraftVerificationError(ValueError):
+    """A safe delivery failure with bounded diagnostics, never rejected prose."""
+    def __init__(self, audit):
+        self.audit = dict(audit)
+        code = audit.get('reason_code')
+        if code in ('evidence_uncertain', 'insufficient_evidence'):
+            detail = '草稿部分信息仍缺少资料支持，尚无法确认'
+        elif audit.get('status') == 'unverified':
+            detail = '草稿依据核验未通过，修正后仍有事实、推理或引用问题'
+        else:
+            detail = {'timeout': '草稿自动核验超时，尚未完成核验',
+                'invalid_response': '草稿核验返回的结构或摘录不合法，尚未完成核验',
+                'context_limit': '草稿内容超出自动核验预算，尚未完成核验'}.get(code, '草稿自动核验未完成')
+        super().__init__(detail + '，未进入审批或保存。可以补充原始资料或缩小写作范围后重试。')
+
+
 class EvidenceLookupNeeded(Exception):
     """Suspend delivery, preserving the candidate and initial review in state."""
     def __init__(self, issues, audit):
@@ -811,7 +827,7 @@ async def verify_delivery(state, text, citations, *, draft=False, allow_retrieva
     no_evidence = not draft and not state.get('business_complete') and assessment.get('adequacy') == 'none'
     review, phase = None, 'review'
     recovery = state.get('delivery_review') or {}
-    resumed = not draft and recovery.get('phase') in ('retrieving', 'repairing')
+    resumed = recovery.get('phase') in ('retrieving', 'repairing')
     if resumed:
         issues = list(recovery['issues'])
         review = restore_review(recovery)
@@ -867,16 +883,19 @@ async def verify_delivery(state, text, citations, *, draft=False, allow_retrieva
             code, notice = (rejection_notice(review) if phase == 'review_after_repair' else rejection_notice(None)) if content_error else unavailable_reason(exc)
             audit.update(status='unverified' if content_error else 'verification_unavailable',
                          error_type=type(exc).__name__, reason_code=code, failure_phase=phase,
-                         failure_detail=audit_failure_detail(exc))
-            logger.warning('Delivery audit incomplete: run=%s phase=%s reason=%s detail=%s',
-                           state.get('run_id', ''), phase, code, audit['failure_detail'])
+                         failure_detail=audit_failure_detail(exc),
+                         candidate_hash=hashlib.sha256(original_text.encode()).hexdigest())
+            logger.warning('Delivery audit incomplete: run=%s phase=%s reason=%s detail=%s findings=%s',
+                           state.get('run_id', ''), phase, code, audit['failure_detail'],
+                           audit.get('remaining_issues', audit.get('initial_issues', {})))
             await assert_run(state)
-            uncertain = code == 'evidence_uncertain'
             gap_only = code in ('evidence_uncertain', 'insufficient_evidence')
+            if draft:
+                notice = str(DraftVerificationError(audit))
             await activity(state, 'grounding', '部分细节待确认' if gap_only else '依据核验未通过' if content_error else '自动核验未完成',
                            'done' if gap_only and not draft else 'error', notice)
             if draft:
-                raise ValueError(('草稿部分信息尚无法确认' if uncertain else '草稿依据核验未通过' if content_error else notice) + '，未进入审批或保存') from exc
+                raise DraftVerificationError(audit) from exc
             safe = retained_answer(review, facts, include_limits=True)
             if safe:
                 audit['status'] = 'partial' if review.substantive else 'unverified' if content_error else 'verification_unavailable'

@@ -43,7 +43,7 @@ class StreamDelivery:
                         async for frame in coalesce_previews(source, interval=settings.STREAM_COALESCE_MS / 1000):
                             await self.append(rid, token, frame)
             except asyncio.CancelledError:
-                await asyncio.shield(self.repository.fail(rid, token))
+                await asyncio.shield(self.finish_cancelled(rid, token))
                 raise
             except Exception:
                 log.exception('流式执行或事件持久化失败: run=%s', rid)
@@ -57,6 +57,20 @@ class StreamDelivery:
                 await asyncio.shield(self.admission.release(ticket))
                 self.tasks.pop(key, None)
         self.tasks[key] = asyncio.create_task(produce(), name=f'agent-stream-{rid}')
+
+    async def finish_cancelled(self, rid, token):
+        # Keep an explicit stop distinct from worker failure or process shutdown.
+        # These terminal frames are durable for another tab/reconnecting reader.
+        try:
+            async with asyncio.timeout(5):
+                run = await self.repository.get(rid)
+                if run and run['execution_token'] == token and run['status'] == 'cancelled':
+                    await self.append(rid, token, 'data:__AGENT_EVENT__:{"version":1,"kind":"status","status":"cancelled"}\n\n')
+                    await self.append(rid, token, 'data:[DONE]\n\n')
+                else:
+                    await self.repository.fail(rid, token)
+        except Exception:
+            log.exception('取消终止事件保存失败: run=%s', rid)
 
     async def append(self, rid, token, frame):
         return await self.db.execute('''INSERT INTO agent_stream_frame (run_id,execution_token,data)
@@ -103,9 +117,13 @@ class StreamDelivery:
                         yield 'data:' + marker + json.dumps(value, ensure_ascii=False) + '\n\n'
                     if result.get('draft_article_id'):
                         yield 'data:__DRAFT_SAVED__:' + json.dumps({'draftArticleId': str(result['draft_article_id']), 'title': ''}) + '\n\n'
-                    yield 'data:__PROGRESS__:done\n\n'
+                    from app.services.delivery_outcome import incomplete_delivery
+                    if incomplete_delivery(result):
+                        yield 'data:__AGENT_EVENT__:' + json.dumps({'version': 1, 'kind': 'status', 'status': 'error'}) + '\n\n'
+                    else:
+                        yield 'data:__PROGRESS__:done\n\n'
                 else:
-                    yield 'data:[ERROR] 运行已中断，请重新发起请求\n\n'
+                    yield 'data:[ERROR] ' + (result.get('failure_notice') or '运行已中断，请重新发起请求') + '\n\n'
                 yield 'data:[DONE]\n\n'
                 return
             if idle % 40 == 0: yield ': keepalive\n\n'

@@ -30,7 +30,9 @@ class Settings:
     EXECUTION_WAIT_SECONDS: int = max(1, int(os.getenv("AGENT_EXECUTION_WAIT_SECONDS", "10")))
     RUN_TOTAL_TOKEN_BUDGET: int = max(16384, int(os.getenv("AGENT_RUN_TOTAL_TOKEN_BUDGET", "524288")))
     STREAM_RETENTION_DAYS: int = max(1, int(os.getenv("AGENT_STREAM_RETENTION_DAYS", "7")))
-    CHECKPOINT_RETENTION_DAYS: int = max(7, int(os.getenv('AGENT_CHECKPOINT_RETENTION_DAYS', '30')))
+    CHECKPOINT_SUCCESS_RETENTION_DAYS: int = max(1, int(os.getenv('AGENT_CHECKPOINT_SUCCESS_RETENTION_DAYS', '1')))
+    CHECKPOINT_RETENTION_DAYS: int = max(1, int(os.getenv('AGENT_CHECKPOINT_FAILURE_RETENTION_DAYS',
+                                                       os.getenv('AGENT_CHECKPOINT_RETENTION_DAYS', '7'))))
     MAIN_MAX_ROUNDS: int = max(1, min(20, int(os.getenv("AGENT_MAIN_MAX_ROUNDS", "8"))))
     MAIN_MAX_TASKS: int = max(1, min(32, int(os.getenv("AGENT_MAIN_MAX_TASKS", "8"))))
     # Character limits are secondary protection; token limits govern model calls.

@@ -102,6 +102,24 @@ class FrameDatabase:
 
 
 class StreamDeliveryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_pruned_stream_replay_keeps_incomplete_outcome_and_failure_notice(self):
+        import json
+        for result in ({'reply': '检索已返回，但请求未完成。', 'delivery_status': 'incomplete'},
+                       {'failure_notice': '草稿核验超时，未进入审批或保存。'}):
+            with self.subTest(result=result):
+                run = {'status': 'succeeded' if result.get('reply') else 'failed', 'execution_token': 't',
+                    'deadline': datetime.utcnow() + timedelta(minutes=1), 'result_json': json.dumps(result)}
+                repo = SimpleNamespace(get=AsyncMock(return_value=run))
+                delivery = StreamDelivery(FrameDatabase(), SimpleNamespace(), repo)
+                with patch('app.services.stream_delivery.asyncio.sleep', AsyncMock()):
+                    frames = ''.join([f async for f in delivery.follow('r', 't')])
+                self.assertNotIn('__PROGRESS__:done', frames)
+                if result.get('reply'):
+                    self.assertIn('"status": "error"', frames)
+                    self.assertIn('__REPLY__:', frames)
+                else:
+                    self.assertIn(result['failure_notice'], frames)
+
     async def test_direct_answer_sequence_survives_disconnect_and_cursor_replay(self):
         import json
         database, admission = FrameDatabase(), SimpleNamespace(release=AsyncMock())
@@ -182,10 +200,20 @@ class StreamDeliveryTests(unittest.IsolatedAsyncioTestCase):
 class ReadinessTests(unittest.IsolatedAsyncioTestCase):
     async def test_checkpoint_cleanup_rechecks_terminal_age_before_touching_redis(self):
         from app.services.durable_jobs import BackgroundWorker
+        from contextlib import asynccontextmanager
         from uuid import uuid4
         rid = str(uuid4())
-        database = SimpleNamespace(fetch_one=AsyncMock(return_value=None))
+        locked = []
+        @asynccontextmanager
+        async def transaction():
+            locked.append(True)
+            try: yield
+            finally: locked.pop()
+        database = SimpleNamespace(fetch_one=AsyncMock(return_value=None), transaction=transaction)
         saver = SimpleNamespace(adelete_thread=AsyncMock())
+        async def delete(thread):
+            self.assertEqual(locked, [True])
+        saver.adelete_thread.side_effect = delete
         graph = SimpleNamespace(checkpointer=saver)
         worker = BackgroundWorker(SimpleNamespace(db=database))
         job = {'kind': 'checkpoint_cleanup', 'user_id': 7, 'conversation_id': 11, 'payload': {'run_id': rid}}
@@ -196,8 +224,11 @@ class ReadinessTests(unittest.IsolatedAsyncioTestCase):
             await worker.handle(job)
         saver.adelete_thread.assert_awaited_once_with('run_' + rid)
         query = database.fetch_one.call_args.args[0]
-        self.assertIn('user_id=:uid', query)
+        self.assertIn('r.user_id=:uid', query)
         self.assertIn("('succeeded','failed','cancelled','expired')", query)
+        self.assertIn('FOR UPDATE', query)
+        self.assertIn(":success_days", query)
+        self.assertIn(":failure_days", query)
     async def test_dependency_outage_returns_unready_without_leaking_diagnostics(self):
         service=Operations(SimpleNamespace())
         service.probe_sql=AsyncMock(); service.probe_redis=AsyncMock(); service.probe_checkpoint=AsyncMock()

@@ -39,6 +39,9 @@ def positive(value):
 
 
 def fault(exc):
+    from app.services.grounding import DraftVerificationError
+    if isinstance(exc, DraftVerificationError):
+        return pb.Error(status=422, message=str(exc))
     if isinstance(exc, HTTPException):
         return pb.Error(status=exc.status_code, message=str(exc.detail))
     if isinstance(exc, (ValidationError, ValueError, TypeError)):

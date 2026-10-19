@@ -20,20 +20,36 @@ class RpcPeerPoolTests {
         }
         assertEquals(List.of(1,2),disposed);
     }
-    @Test void invalidTransportCannotBeRevivedWhileOtherCallsAreDraining() {
+    @Test void failedCancelDoesNotBlockNewCallsWhileAnOldChatStreamIsDraining() {
         var creates=new AtomicInteger();var disposed=new ArrayList<Integer>();
         try(var pool=new RpcPeerPool<Integer>(2,Duration.ofMinutes(5),target -> creates.incrementAndGet(),disposed::add)) {
             var first=pool.acquire("agent");var ongoing=pool.acquire("agent");
             assertEquals(1,first.value());assertEquals(1,ongoing.value());
             first.invalidate();first.close();pool.reconcile(List.of("agent"));
             assertTrue(disposed.isEmpty());
-            assertThrows(IllegalStateException.class,() -> pool.acquire("agent"));
-            ongoing.close();assertEquals(List.of(1),disposed);
             try(var next=pool.acquire("agent")) { assertEquals(2,next.value()); }
+            assertEquals(2,pool.size());
+            assertTrue(disposed.isEmpty());
+            ongoing.close();assertEquals(List.of(1),disposed);
             first.invalidate();first.close();ongoing.invalidate();ongoing.close();
             assertEquals(List.of(1),disposed); // Late callbacks never close it twice.
         }
         assertEquals(List.of(1,2),disposed);
+    }
+    @Test void drainingGenerationsStillCountTowardsCapacityAndCannotCloseTheirReplacement() {
+        var creates=new AtomicInteger();var disposed=new ArrayList<Integer>();
+        try(var pool=new RpcPeerPool<Integer>(2,Duration.ofMinutes(5),target -> creates.incrementAndGet(),disposed::add)) {
+            var first=pool.acquire("agent");assertEquals(1,first.value());first.invalidate();
+            var second=pool.acquire("agent");assertEquals(2,second.value());second.invalidate();
+            assertEquals(2,pool.size());
+            assertThrows(IllegalStateException.class,() -> pool.acquire("agent"));
+            first.close();
+            try(var replacement=pool.acquire("agent")) { assertEquals(3,replacement.value()); }
+            first.invalidate();first.close();
+            try(var same=pool.acquire("agent")) { assertEquals(3,same.value()); }
+            second.close();assertEquals(List.of(1,2),disposed);
+        }
+        assertEquals(List.of(1,2,3),disposed);
     }
     @Test void lateStreamFailureAfterCancellationRetiresTheIdlePeerOnce() {
         var disposed=new ArrayList<String>();

@@ -16,6 +16,7 @@
 !/docs/embedding-pool.md
 !/docs/article-quote-comments.md
 !/docs/human-answer-review.md
+!/docs/checkpoint-storage.md
 !python-agent/docs/tool-recovery.md
 !python-agent/app/skills/definitions/*.md
 

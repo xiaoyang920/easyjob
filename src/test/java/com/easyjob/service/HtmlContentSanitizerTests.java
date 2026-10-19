@@ -18,4 +18,12 @@ class HtmlContentSanitizerTests {
         assertTrue(article.contains("href=\"https://example.org\""));
         assertFalse(HtmlContentSanitizer.clean(html, false).contains("<img"));
     }
+    @Test void retainsClickableCitationSuperscriptsAndSourceTitlesWhenDraftsAreSaved() {
+        String cleaned=HtmlContentSanitizer.clean("<p>正文<sup class='citation-ref'><a class='inline-citation' href='https://example.org/intro?a=1&amp;b=2' title='学校简介' target='_blank' rel='noopener noreferrer'>[1]</a></sup><sup><a href='/article/42' title='平台文章'>[2]</a></sup></p>",true);
+        assertTrue(cleaned.contains("<sup><a "));
+        assertTrue(cleaned.contains("href=\"https://example.org/intro?a=1&amp;b=2\""));
+        assertTrue(cleaned.contains("title=\"学校简介\""));
+        assertTrue(cleaned.contains("href=\"/article/42\""));
+        assertTrue(cleaned.contains("[1]</a></sup>"));
+    }
 }

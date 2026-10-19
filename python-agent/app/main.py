@@ -271,8 +271,10 @@ def _stream_source(graph, graph_input, conv_id, user_id, config):
                     yield _sse("__DRAFT_SAVED__:" + json.dumps({
                         "draftArticleId": str(result["draft_article_id"]), "title": title,
                     }, ensure_ascii=False))
-                yield _sse('__AGENT_EVENT__:' + json.dumps({"version": 1, "kind": "status", "status": "complete"}))
-                yield _sse("__PROGRESS__:done")
+                incomplete = result.get('delivery_status') == 'incomplete'
+                yield _sse('__AGENT_EVENT__:' + json.dumps({"version": 1, "kind": "status", "status": "error" if incomplete else "complete"}))
+                if not incomplete:
+                    yield _sse("__PROGRESS__:done")
         except Exception as error:
             await run_service.repository.fail(config["configurable"]["run_id"], config["configurable"]["execution_token"])
             log.exception("Agent 运行失败: conv=%s", conv_id)
@@ -288,7 +290,8 @@ def _stream_source(graph, graph_input, conv_id, user_id, config):
                 yield _sse('__AGENT_EVENT__:' + json.dumps({"version": 1, "kind": "status", "status": "error"}))
                 from app.services.run_metrics import RunTokenBudgetExceeded
                 from app.services.draft_gateway import DraftConflict
-                message = str(error) if isinstance(error, (RunTokenBudgetExceeded, DraftConflict)) else (
+                from app.services.grounding import DraftVerificationError
+                message = str(error) if isinstance(error, (RunTokenBudgetExceeded, DraftConflict, DraftVerificationError)) else (
                     "本次处理超时，已结束运行，可以重新发送请求。" if isinstance(error, TimeoutError)
                     else "Agent 处理失败，请稍后重试")
                 yield _sse("[ERROR] " + message)
@@ -416,7 +419,11 @@ async def chat_resume_stream(request: ResumeRequest, principal: Principal = Depe
 async def cancel_chat(conversation_id: int, user_id: int, principal: Principal = Depends(require_principal)):
     match_user(principal, user_id)
     await conversation_service.require_owner(conversation_id, user_id)
-    return await run_repository.cancel(conversation_id, user_id)
+    result = await run_repository.cancel(conversation_id, user_id)
+    if result.get('status') == 'cancelled' and result.get('runId'):
+        from app.services.executor_heartbeat import cancel_local_run
+        cancel_local_run(result['runId'])
+    return result
 
 
 @app.get("/conversations")

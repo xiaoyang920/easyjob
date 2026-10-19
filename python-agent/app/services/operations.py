@@ -156,14 +156,15 @@ class Operations:
             self.expiry_at = monotonic()
         if self.cleanup_at and monotonic() - self.cleanup_at < 60: return
         from app.services.durable_jobs import DurableJobs
-        old_runs = await self.db.fetch_all("""SELECT r.run_id,r.user_id,r.conversation_id FROM agent_run r
-            LEFT JOIN agent_background_job j ON j.job_id=SHA2(CONCAT('checkpoint-cleanup:',r.run_id),256)
-            WHERE r.status IN ('succeeded','failed','cancelled','expired')
-            AND r.updated_at<TIMESTAMPADD(DAY,-:days,UTC_TIMESTAMP(6)) AND j.job_id IS NULL
-            ORDER BY r.updated_at LIMIT 100""", {'days': settings.CHECKPOINT_RETENTION_DAYS})
+        from app.services.checkpoint_retention import EXPIRED_CHECKPOINT_SQL, CHECKPOINT_CLEANUP_KEY_SQL, retention_parameters
+        old_runs = await self.db.fetch_all(f"""SELECT r.run_id,r.user_id,r.conversation_id,
+            {CHECKPOINT_CLEANUP_KEY_SQL} AS cleanup_key FROM agent_run r
+            LEFT JOIN agent_background_job j ON j.job_id=SHA2({CHECKPOINT_CLEANUP_KEY_SQL},256)
+            WHERE {EXPIRED_CHECKPOINT_SQL} AND j.job_id IS NULL
+            ORDER BY r.updated_at LIMIT 100""", retention_parameters())
         for row in old_runs:
             r = row._mapping
-            await DurableJobs(self.db).enqueue('checkpoint-cleanup:' + r['run_id'], 'checkpoint_cleanup',
+            await DurableJobs(self.db).enqueue(r['cleanup_key'], 'checkpoint_cleanup',
                 r['user_id'], r['conversation_id'], {'run_id': r['run_id']})
         # Each delete rechecks eligibility; an admin retry between SELECT and DELETE is preserved.
         started=monotonic()

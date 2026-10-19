@@ -4,7 +4,7 @@ builder.py — 构建 LangGraph 图 + Redis Checkpointer
 import asyncio
 from urllib.parse import quote
 from langgraph.graph import StateGraph, START, END
-from langgraph.checkpoint.redis.aio import AsyncRedisSaver
+from app.services.checkpoint_store import LatestRunRedisSaver
 from langgraph.graph.state import CompiledStateGraph
 
 from app.config import settings
@@ -78,7 +78,7 @@ def _build_graph() -> StateGraph:
 # -------- 全局单例 --------
 
 _compiled_graph: CompiledStateGraph | None = None
-_checkpointer: AsyncRedisSaver | None = None
+_checkpointer: LatestRunRedisSaver | None = None
 _graph_lock = asyncio.Lock()
 
 async def get_graph()->CompiledStateGraph:
@@ -87,7 +87,7 @@ async def get_graph()->CompiledStateGraph:
         if _compiled_graph is None:
             password_part = f":{quote(settings.REDIS_STACK_PASSWORD, safe='')}@" if settings.REDIS_STACK_PASSWORD else ""
             redis_url = f"redis://{password_part}{settings.REDIS_STACK_HOST}:{settings.REDIS_STACK_PORT}/{settings.REDIS_STACK_DB}"
-            saver = AsyncRedisSaver(redis_url=redis_url)
+            saver = LatestRunRedisSaver(redis_url=redis_url)
             try:
                 await saver.__aenter__()
                 _compiled_graph = _build_graph().compile(checkpointer=saver)

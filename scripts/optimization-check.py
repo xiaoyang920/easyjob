@@ -22,6 +22,8 @@ from app.graph.builder import get_graph, close_graph
 from app.utils.snowflake import SnowflakeGenerator
 from fastapi import HTTPException
 from langgraph.checkpoint.base import empty_checkpoint
+from app.config import settings
+from app.services.checkpoint_retention import CHECKPOINT_CLEANUP_KEY_SQL, EXPIRED_CHECKPOINT_SQL, retention_parameters
 
 
 async def main():
@@ -108,6 +110,42 @@ async def main():
         worker = BackgroundWorker(DurableJobs(db))
         await worker.handle({'kind': 'checkpoint_cleanup', 'user_id': uid, 'conversation_id': cid, 'payload': {'run_id': s['run_id']}})
         check('old_terminal_checkpoint_is_removed', await saver.aget_tuple(cfg) is None)
+        for status, days, expected_delete in [
+            ('succeeded', 0, False), ('succeeded', settings.CHECKPOINT_SUCCESS_RETENTION_DAYS + 1, True),
+            ('failed', 0, False), ('failed', settings.CHECKPOINT_RETENTION_DAYS + 1, True),
+            ('failed', settings.CHECKPOINT_SUCCESS_RETENTION_DAYS + 1,
+             settings.CHECKPOINT_SUCCESS_RETENTION_DAYS + 1 >= settings.CHECKPOINT_RETENTION_DAYS),
+            ('cancelled', settings.CHECKPOINT_RETENTION_DAYS + 1, True),
+            ('expired', settings.CHECKPOINT_RETENTION_DAYS + 1, True),
+            ('running', settings.CHECKPOINT_RETENTION_DAYS + 1, False),
+            ('awaiting_approval', settings.CHECKPOINT_RETENTION_DAYS + 1, False),
+        ]:
+            fixture = await new_state('retention boundary fixture')
+            await db.execute("""UPDATE agent_run SET status=:status,
+                updated_at=TIMESTAMPADD(DAY,-:days,UTC_TIMESTAMP(6)) WHERE run_id=:rid""",
+                {'status': status, 'days': days, 'rid': fixture['run_id']})
+            fixture_cfg = await checkpoint(fixture['run_id'])
+            await worker.handle({'kind': 'checkpoint_cleanup', 'user_id': uid, 'conversation_id': cid,
+                                 'payload': {'run_id': fixture['run_id']}})
+            check(f'checkpoint_retention_{status}_{days}d',
+                  (await saver.aget_tuple(fixture_cfg) is None) == expected_delete)
+        fixture = await new_state('cleanup generation fixture')
+        age = settings.CHECKPOINT_RETENTION_DAYS + 1
+        async def end_generation():
+            await db.execute("""UPDATE agent_run SET status='failed',
+                updated_at=TIMESTAMPADD(DAY,-:days,UTC_TIMESTAMP(6)) WHERE run_id=:rid""",
+                {'days': age, 'rid': fixture['run_id']})
+            return await db.fetch_val(f'SELECT {CHECKPOINT_CLEANUP_KEY_SQL} FROM agent_run r WHERE r.run_id=:rid', {'rid': fixture['run_id']})
+        first_key = await end_generation()
+        async with db.transaction():
+            job_id = await DurableJobs(db).enqueue(first_key, 'checkpoint_cleanup', uid, cid, {'run_id': fixture['run_id']})
+            await db.execute("UPDATE agent_background_job SET status='done' WHERE job_id=:id", {'id': job_id})
+        await db.execute("UPDATE agent_run SET status='running',updated_at=UTC_TIMESTAMP(6) WHERE run_id=:rid", {'rid': fixture['run_id']})
+        second_key = await end_generation()
+        eligible = await db.fetch_val(f"""SELECT COUNT(*) FROM agent_run r LEFT JOIN agent_background_job j
+            ON j.job_id=SHA2({CHECKPOINT_CLEANUP_KEY_SQL},256) WHERE r.run_id=:rid
+            AND {EXPIRED_CHECKPOINT_SQL} AND j.job_id IS NULL""", {'rid': fixture['run_id'], **retention_parameters()})
+        check('resumed_run_cleanup_is_not_suppressed_by_previous_job', first_key != second_key and eligible == 1)
         s = await new_state('pending approval fixture')
         await db.execute("""UPDATE agent_run SET status='awaiting_approval',deadline=TIMESTAMPADD(DAY,1,UTC_TIMESTAMP(6)),
             updated_at=TIMESTAMPADD(DAY,-31,UTC_TIMESTAMP(6)) WHERE run_id=:rid""", {'rid': s['run_id']})

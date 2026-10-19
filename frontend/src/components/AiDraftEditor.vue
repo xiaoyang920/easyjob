@@ -28,8 +28,9 @@ import { ElDialog, ElMessage } from 'element-plus'
 import { marked } from 'marked'
 import ArticleRichEditor from './ArticleRichEditor.vue'
 import { safeHtml } from '@/utils/safeHtml'
+import { draftBodyHtml, type SourceLink } from '@/utils/citationLinks'
 import { draftEditError, type DraftEdit } from '@/utils/draftEdit'
-const props = defineProps<{ modelValue?: DraftEdit; initial: DraftEdit; disabled: boolean }>()
+const props = defineProps<{ modelValue?: DraftEdit; initial: DraftEdit; disabled: boolean; citations?: SourceLink[] }>()
 const emit = defineEmits<{ 'update:modelValue': [value: DraftEdit] }>()
 const editing = ref(false)
 const draft = computed(() => props.modelValue || props.initial)
@@ -38,7 +39,7 @@ const editorHtml = ref('')
 let initialEditorHtml = ''
 function startEditing() {
   working.value = { ...draft.value }
-  editorHtml.value = safeHtml(draft.value.content_format === 'html' ? draft.value.content : marked.parse(draft.value.content, { breaks: true, gfm: true }) as string)
+  editorHtml.value = draftBodyHtml(safeHtml(draft.value.content_format === 'html' ? draft.value.content : marked.parse(draft.value.content, { breaks: true, gfm: true }) as string), props.citations)
   initialEditorHtml = editorHtml.value
   editing.value = true
 }

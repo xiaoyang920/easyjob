@@ -42,6 +42,22 @@ def result(reply="hello", interrupted=None, draft=None):
 
 
 class StreamingTests(unittest.IsolatedAsyncioTestCase):
+    async def test_stopped_decision_delivers_notice_without_claiming_request_completed(self):
+        async def events(*args, **kwargs):
+            if False:
+                yield
+        stopped = {**result('检索已返回，但后续处理未能继续。'), 'delivery_status': 'incomplete'}
+        repo = repository()
+        graph = SimpleNamespace(astream_events=events, aget_state=AsyncMock(return_value=SimpleNamespace()))
+        service = SimpleNamespace(repository=repo, finish=AsyncMock(return_value=stopped))
+        config = {'configurable': {'run_id': RUN_ID, 'execution_token': 'token'}}
+        with patch.object(main, 'run_service', service):
+            frames = [frame async for frame in main._stream_source(graph, {}, 11, 7, config)]
+        self.assertEqual(parse_frames(frames, '__AGENT_EVENT__:')[-1]['status'], 'error')
+        self.assertFalse(any('__PROGRESS__:done' in frame or '[ERROR]' in frame for frame in frames))
+        self.assertEqual(parse_frames(frames, '__REPLY__:')[0]['content'], stopped['reply'])
+        self.assertEqual(frames[-1], 'data:[DONE]\n\n')
+
     async def test_main_artifact_emits_completed_main_activity_without_exposing_body(self):
         decision = MainDecision(action="retrieve", retrieval=RetrievalRequest(task_id="source", instruction="find"),
             artifacts=[MainArtifact(task_id="notes", instruction="整理需求", result="private intermediate body")])

@@ -29,6 +29,7 @@ async def activity(state, step, label, status="active", detail=""):
 async def node_activity(state, node, status):
     labels = {"main_agent": "理解请求", "planner": "调整任务计划", "main_retrieve": "检索相关资料",
         "main_answer": "整理检索结果", "main_task": "执行任务", "generate_draft": "生成草稿",
+        "verify_draft": "核验草稿依据", "plan_draft_lookup": "补充草稿资料", "lookup_draft_evidence": "检索草稿缺失资料",
         "approve_draft": "等待确认草稿", "save_draft": "保存草稿", "synthesizer": "整理最终回答",
         "reject_draft": "放弃草稿保存", "main_delegate": "执行委派任务",
         "prepare_draft": "准备草稿资料", "collect_draft": "完成草稿处理",

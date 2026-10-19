@@ -192,6 +192,14 @@ class RunRepository:
             WHERE run_id=:rid AND execution_token=:token AND status='running' ''',
             {'rid': run_id, 'token': token, 'progress': json.dumps(progress, ensure_ascii=False)})
 
+    async def record_delivery_failure(self, run_id, token, audit, notice):
+        await self.db.execute('''UPDATE agent_run SET result_json=JSON_SET(
+            COALESCE(result_json,JSON_OBJECT()),'$.grounding_audit',CAST(:audit AS JSON),
+            '$.failure_notice',:notice)
+            WHERE run_id=:rid AND execution_token=:token AND status='running'
+            AND draft_article_id IS NULL AND JSON_EXTRACT(result_json,'$.draft_commit') IS NULL''',
+            {'rid': run_id, 'token': token, 'audit': json.dumps(audit, ensure_ascii=False), 'notice': notice})
+
     async def claim_recovery(self, cid, uid, rid):
         async with self.db.transaction():
             await self._lock_conversation(cid, uid)
@@ -281,7 +289,8 @@ class RunRepository:
                 await self.db.execute("UPDATE agent_run SET status='cancelled',updated_at=UTC_TIMESTAMP(6) WHERE run_id=:rid",
                                       {"rid": run["run_id"]})
                 await self.release_admission(run['run_id'])
-            return {"status": "cancelled" if run["status"] in ("running", "awaiting_approval") else run["status"]}
+            return {"status": "cancelled" if run["status"] in ("running", "awaiting_approval") else run["status"],
+                    "runId": run["run_id"]}
 
     async def event(self, run_id, node, status, duration_ms=None):
         await self.db.execute("""INSERT INTO agent_run_event (run_id,node,status,duration_ms)

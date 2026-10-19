@@ -134,10 +134,10 @@ class GraphExecutionTests(unittest.IsolatedAsyncioTestCase):
              patch.object(runtime, "run_repository", repo), patch.object(writing_worker, "generate_draft", AsyncMock(side_effect=draft)) as generate, \
              patch.object(actions, "task_artifacts", SimpleNamespace(load=AsyncMock(return_value=None), save=AsyncMock())), \
              patch.object(writing_worker, "save_approved_draft", AsyncMock(return_value=99)) as save:
-            graph = builder._build_graph().compile(checkpointer=InMemorySaver())
+            graph = builder._build_graph().compile(checkpointer=getattr(self, 'redis_checkpointer', None) or InMemorySaver())
             state = create_initial_state(7, "collect compare write", [])
             state.update(run_id=RUN_ID, execution_token="first")
-            config = {"configurable": {"thread_id": "staged", "execution_token": "first"}}
+            config = {"configurable": {"thread_id": getattr(self, 'redis_thread', 'staged'), "execution_token": "first"}}
             await graph.ainvoke(state, config)
             snap = await graph.aget_state(config)
             preview = snap.tasks[0].interrupts[0].value

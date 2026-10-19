@@ -248,8 +248,8 @@ class ArtifactTests(unittest.IsolatedAsyncioTestCase):
         graph = StateGraph(AgentState)
         graph.add_node('main_delegate', actions.main_delegate_node)
         graph.add_edge(START, 'main_delegate'); graph.add_edge('main_delegate', END)
-        graph = graph.compile(checkpointer=InMemorySaver())
-        config = {'configurable': {'thread_id': 'recovery', 'execution_token': 'old'}}
+        graph = graph.compile(checkpointer=getattr(self, 'redis_checkpointer', None) or InMemorySaver())
+        config = {'configurable': {'thread_id': getattr(self, 'redis_thread', 'recovery'), 'execution_token': 'old'}}
         with patch.object(actions, 'task_artifacts', SimpleNamespace(load=load, save=save)), \
              patch.object(runtime, 'assert_run', AsyncMock()), patch.object(runtime, 'subagent_node', worker), \
              patch.object(actions, 'activity', AsyncMock()):

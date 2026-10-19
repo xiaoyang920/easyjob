@@ -13,6 +13,7 @@ from app.services.article_context import article_context_service
 from app.services.run_metrics import RunMetrics, metrics_from
 from app.services.executor_heartbeat import maintain_executor
 from app.services.run_history import run_history
+from app.services.delivery_outcome import incomplete_delivery
 
 log = logging.getLogger(__name__)
 
@@ -41,7 +42,10 @@ def public_run_result(raw):
     if raw is None:
         return None
     result = json.loads(raw) if isinstance(raw, str) else raw
-    return {key: value for key, value in result.items() if key not in ('progress', 'user_message_id', 'draft_commit')}
+    public = {key: value for key, value in result.items() if key not in ('progress', 'user_message_id', 'draft_commit')}
+    if incomplete_delivery(result):
+        public['delivery_status'] = 'incomplete'
+    return public
 
 
 class RunService:
@@ -251,6 +255,8 @@ class RunService:
             return result
         if snapshot.next or not result["reply"].strip():
             raise RuntimeError("运行未完成或未产生有效回复")
+        if values.get('stop_reason') and not result['draft_article_id']:
+            result['delivery_status'] = 'incomplete'
         if audit := values.get('grounding_audit'):
             result['grounding_audit'] = audit
             from app.graph.staged_runtime import used_evidence

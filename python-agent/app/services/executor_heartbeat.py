@@ -7,6 +7,18 @@ from fastapi import HTTPException
 
 log = logging.getLogger(__name__)
 
+# Execution belongs to the application, not to an SSE subscriber. Explicit
+# cancellation is applied only after the database has fenced the owned run.
+_executors = {}
+
+
+def cancel_local_run(run_id):
+    owners = {owner for (rid, _), tasks in list(_executors.items()) if rid == run_id for owner in tasks}
+    current = asyncio.current_task()
+    for owner in owners:
+        if owner is not current and not owner.done() and not owner.cancelling():
+            owner.cancel('user_stop')
+
 
 @asynccontextmanager
 async def maintain_executor(repository, config):
@@ -15,6 +27,9 @@ async def maintain_executor(repository, config):
         yield
         return
     owner = asyncio.current_task()
+    key = (cfg['run_id'], cfg['execution_token'])
+    owners = _executors.setdefault(key, {})
+    owners[owner] = owners.get(owner, 0) + 1
     async def pulse():
         while True:
             await asyncio.sleep(settings.EXECUTOR_HEARTBEAT_SECONDS)
@@ -41,4 +56,11 @@ async def maintain_executor(repository, config):
         yield
     finally:
         heartbeat.cancel()
-        await asyncio.gather(heartbeat, return_exceptions=True)
+        try:
+            await asyncio.gather(heartbeat, return_exceptions=True)
+        finally:
+            owners[owner] -= 1
+            if not owners[owner]:
+                owners.pop(owner)
+            if not owners:
+                _executors.pop(key, None)

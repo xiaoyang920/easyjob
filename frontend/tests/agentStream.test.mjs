@@ -2,6 +2,14 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { SseDecoder, readSse, createAgentState, applyAgentEvent, applyAnswerChunk, setRunStatus, restoreAgentState } from '../src/utils/agentStream.ts'
 
+test('settled incomplete requests restore as unfinished and keep successful retrieval activities', () => {
+  const state=restoreAgentState({runStatus:'succeeded',deliveryStatus:'incomplete',agentEvents:[
+    {version:1,kind:'activity',id:'search',label:'检索资料',status:'done'},
+    {version:1,kind:'status',status:'complete'}]})
+  assert.equal(state.status,'error')
+  assert.equal(state.activities[0].status,'done')
+})
+
 test('failed history restores completed work and failure without restarting the duration clock', () => {
   const message = { runStatus: 'failed', runStartedAt: '2026-10-11T01:00:00Z', runFinishedAt: '2026-10-11T01:00:20Z', agentEvents: [
     { version: 1, kind: 'activity', id: 'a', label: '检索', status: 'active', timestamp: '2026-10-11T01:00:02Z' },

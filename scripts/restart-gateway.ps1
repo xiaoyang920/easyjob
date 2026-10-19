@@ -1,4 +1,4 @@
-param([switch]$Build, [string]$ValidatedJar)
+param([switch]$Build, [string]$ValidatedJar, [switch]$KeepAlive)
 $ErrorActionPreference='Stop'
 $root=Split-Path -Parent $PSScriptRoot
 $java='D:\jdk\bin\java.exe'
@@ -32,7 +32,11 @@ for ($attempt=0;$attempt -lt 20;$attempt++) {
     Start-Sleep -Seconds 2
     try {
         $reply=Invoke-RestMethod 'http://127.0.0.1:8090/api/article/list' -TimeoutSec 2
-        if ($reply.code -eq 200) {Write-Host "Gateway restarted and healthy (PID $($started.Id)).";exit 0}
+        if ($reply.code -eq 200) {
+            Write-Host "Gateway restarted and healthy (PID $($started.Id))."
+            if ($KeepAlive) { $started.WaitForExit() }
+            exit 0
+        }
     } catch {}
 }
 throw 'Gateway not ready; inspect logs/gateway.*.log.'

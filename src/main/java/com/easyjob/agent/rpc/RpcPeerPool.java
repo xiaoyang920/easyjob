@@ -14,6 +14,7 @@ public final class RpcPeerPool<T> implements AutoCloseable {
     private final Function<String,T> factory;
     private final Consumer<T> disposer;
     private final Map<String,Entry> entries=new LinkedHashMap<>();
+    private final Set<Entry> draining=new HashSet<>();
     private boolean closed;
     private final class Entry {
         final FutureTask<T> resource;
@@ -21,8 +22,9 @@ public final class RpcPeerPool<T> implements AutoCloseable {
         long used;
         boolean retired;
         boolean invalid;
+        final String target;
         final AtomicBoolean disposed = new AtomicBoolean();
-        Entry(String target) { resource=new FutureTask<>(() -> factory.apply(target)); }
+        Entry(String target) { this.target=target;resource=new FutureTask<>(() -> factory.apply(target)); }
     }
     public RpcPeerPool(int capacity, Duration idle, Function<String,T> factory, Consumer<T> disposer) {
         this(capacity,idle,factory,disposer,System::nanoTime);
@@ -47,8 +49,13 @@ public final class RpcPeerPool<T> implements AutoCloseable {
             boolean dispose;
             synchronized(RpcPeerPool.this) {
                 entry.invalid=true;entry.retired=true;
+                // A stopped/failed stream must not quarantine unrelated calls
+                // until every old subscriber finishes. New calls get a fresh
+                // generation; only existing leases keep the failed resource.
+                entries.remove(entry.target,entry);
                 dispose=entry.active==0;
-                if(dispose) entries.values().remove(entry);
+                if(!dispose) draining.add(entry);
+                else draining.remove(entry);
             }
             if(dispose) dispose(entry);
         }
@@ -58,7 +65,7 @@ public final class RpcPeerPool<T> implements AutoCloseable {
             synchronized(RpcPeerPool.this) {
                 entry.active--;entry.used=clock.getAsLong();
                 dispose=entry.active==0 && (entry.retired || closed);
-                if(dispose) entries.values().remove(entry);
+                if(dispose) { entries.remove(entry.target,entry);draining.remove(entry); }
             }
             if(dispose) dispose(entry);
         }
@@ -68,11 +75,8 @@ public final class RpcPeerPool<T> implements AutoCloseable {
         synchronized(this) {
             if(closed) throw new IllegalStateException("RPC pool closed");
             entry=entries.get(target);
-            // A healthy catalog entry must not revive a transport known to be
-            // broken. Its existing calls drain, then the next acquire rebuilds.
-            if(entry!=null && entry.invalid) throw new IllegalStateException("RPC endpoint draining after failure");
             if(entry==null) {
-                if(entries.size()>=capacity) {
+                if(entries.size()+draining.size()>=capacity) {
                     var victim=entries.entrySet().stream().filter(e -> e.getValue().active==0)
                         .min(Comparator.comparingLong(e -> e.getValue().used));
                     if(victim.isEmpty()) throw new IllegalStateException("RPC endpoint pool busy");
@@ -100,7 +104,7 @@ public final class RpcPeerPool<T> implements AutoCloseable {
         }
         removed.forEach(this::dispose);
     }
-    public synchronized int size() { return entries.size(); }
+    public synchronized int size() { return entries.size()+draining.size(); }
     private void dispose(Entry entry) {
         if(!entry.resource.isDone() || entry.resource.isCancelled()) return;
         if(!entry.disposed.compareAndSet(false,true)) return;

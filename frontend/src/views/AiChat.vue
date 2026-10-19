@@ -153,10 +153,10 @@
                   <div><span class="draft-review-eyebrow">{{ msg.interruptPayload?.targetArticleId ? '修改已有草稿' : '草稿预览' }}</span><h3>{{ msg.editedDraft?.title || msg.interruptPayload?.title || '待确认草稿' }}</h3></div>
                   <span class="draft-review-status">{{ msg.interrupted ? '等待确认' : '预览' }}</span>
                 </header>
-                <AiDraftEditor v-if="msg.interrupted" v-model="msg.editedDraft" :initial="draftEditFrom(msg.interruptPayload || {},msg.content)" :disabled="resuming">
-                  <template #default="{ content, format }"><div class="draft-review-body" v-html="renderDraftPreview(content,format,msg.citations)"></div></template>
+                <AiDraftEditor v-if="msg.interrupted" v-model="msg.editedDraft" :initial="draftEditFrom(msg.interruptPayload || {},msg.content)" :disabled="resuming" :citations="msg.interruptPayload?.citations || msg.citations">
+                  <template #default="{ content, format }"><div class="draft-review-body" v-html="renderDraftPreview(content,format,msg.interruptPayload?.citations || msg.citations)"></div></template>
                 </AiDraftEditor>
-                <div v-else class="draft-review-body" v-html="renderDraftPreview(msg.editedDraft?.content || msg.content,msg.editedDraft?.content_format || msg.interruptPayload?.contentFormat,msg.citations)"></div>
+                <div v-else class="draft-review-body" v-html="renderDraftPreview(msg.editedDraft?.content || msg.content,msg.editedDraft?.content_format || msg.interruptPayload?.contentFormat,msg.interruptPayload?.citations || msg.citations)"></div>
                 <p v-if="msg.approvalNotice" class="interrupt-hint" role="status">{{ msg.approvalNotice }}</p>
                 <button v-if="msg.draftBackup || !msg.interrupted && msg.editedDraft" class="interrupt-btn" @click="copyEditedDraft(msg)">复制保留的手动修改</button>
                 <footer v-if="msg.interrupted" class="draft-review-footer">
@@ -200,7 +200,7 @@
                   </svg>
                 </span>
               </div>
-              <div v-if="msg.citations?.length" class="citation-list">
+              <div v-if="!msg.isDraft && msg.citations?.length" class="citation-list">
                 <button v-for="(citation, citationIndex) in msg.citations" :key="citation.id"
                         class="citation-link" :title="citation.excerpt"
                         @click="openCitation(citation)">
@@ -370,7 +370,7 @@ import CodeViewer from '@/components/CodeViewer.vue'
 import { renderChatMarkdown } from '@/utils/chatMarkdown'
 import { avatarUrl, onAvatarError } from '@/utils/avatar'
 import { safeHtml } from '@/utils/safeHtml'
-import { linkCitations, type SourceLink } from '../utils/citationLinks'
+import { draftBodyHtml, formatCitationHtml, type SourceLink } from '../utils/citationLinks'
 import LoginForm from '@/components/LoginForm.vue'
 import RegisterForm from '@/components/RegisterForm.vue'
 import AgentActivity from '@/components/AgentActivity.vue'
@@ -1183,6 +1183,7 @@ async function reconnectActiveRun(session: Session = activeSession.value) {
     if (recovered.articleId) preview.draftArticleId = recovered.articleId
     if (recovered.payload) {
       preview.interruptPayload = recovered.payload
+      preview.citations = recovered.payload.citations || preview.citations || []
       preview.content = recovered.payload.draft || preview.content
     }
   }
@@ -1190,16 +1191,24 @@ async function reconnectActiveRun(session: Session = activeSession.value) {
     const payload = run.result?.interrupted
     if (payload && !session.messages.some(msg => msg.interrupted && msg.interruptPayload?.runId === rid)) {
       session.messages.push({ role: 'assistant', content: payload.draft || '', runId: rid,
-        interrupted: true, interruptPayload: payload, isDraft: true })
+        interrupted: true, interruptPayload: payload, isDraft: true, citations: payload.citations || [] })
     }
     return
   }
   if (run.status !== 'running') {
-    if (run.status === 'succeeded' && run.result?.reply && (preview || session.messages.at(-1)?.role === 'user')) {
-      const reply = preview || { role: 'assistant' as const, content: '', runId: rid }
+    if (run.status === 'succeeded' && run.result?.reply && (preview || failedMessage || session.messages.at(-1)?.role === 'user')) {
+      const reply = preview || failedMessage || { role: 'assistant' as const, content: '', runId: rid }
       Object.assign(reply, { content: run.result.reply, interrupted: false, isDraft: false,
         articles: run.result.articles || [], citations: run.result.citations || [], draftArticleId: run.draftArticleId || undefined })
-      if (!preview) session.messages.push(reply)
+      setRunStatus(ensureAgent(reply), run.result.delivery_status === 'incomplete' ? 'error' : 'complete')
+      if (!preview && !failedMessage) session.messages.push(reply)
+    }
+    if (run.status === 'cancelled' && failedMessage) {
+      failedMessage.interrupted = false
+      failedMessage.recoverable = false
+      if (!failedMessage.content || failedMessage.provisional) failedMessage.content = '已停止处理。'
+      failedMessage.provisional = false
+      setRunStatus(ensureAgent(failedMessage), 'cancelled')
     }
     if (['failed', 'expired', 'cancelled'].includes(run.status) && session.messages.at(-1)?.role === 'user') {
       // The run may terminate between the history read and this status read.
@@ -1224,8 +1233,8 @@ async function reconnectActiveRun(session: Session = activeSession.value) {
     return
   }
   // Reloaded pages replay from zero because partial message content lived in memory.
-  session.messages.push({ role: 'assistant', itemId: `run:${rid}`, content: '', runId: rid, agent: createAgentState() })
-  const msg = session.messages.at(-1)!
+  if (!failedMessage) session.messages.push({ role: 'assistant', itemId: `run:${rid}`, content: '', runId: rid, agent: createAgentState() })
+  const msg = failedMessage || session.messages.at(-1)!
   session.liveMessages = session.messages.slice(-2)
   const operation = beginChatOperation(session)
   session.abortController = new AbortController()
@@ -1275,7 +1284,10 @@ async function recoverReadOnlyRun(msg: ChatMessage) {
 
 function handleProgress(msg: ChatMessage, progress: string, session: Session) {
   const state = ensureAgent(msg)
-  if (progress === 'done') { setRunStatus(state, 'complete'); return }
+  if (progress === 'done') {
+    if (!['error', 'cancelled', 'awaiting'].includes(state.status)) setRunStatus(state, 'complete')
+    return
+  }
   if (state.richEvents) return
   const label = progress === 'planner' ? '理解请求' : progress === 'synthesizer' ? '整理回答' : '处理资料'
   for (const item of state.activities) if (item.status === 'active') item.status = 'done'
@@ -1294,14 +1306,28 @@ async function handleCancel() {
   if (!session.conversationId || session.cancelling) return
   session.cancelling = true
   const controller = session.abortController
+  const operation = ++session.operation
+  // Free the browser's HTTP connection before issuing the control request.
+  // Disconnecting SSE does not cancel the durable server execution.
+  controller?.abort()
+  session.abortController = null
+  session.streaming = false
+  const syncStatus = () => {
+    session.cancelling = false
+    session.loading = true
+    void reconnectActiveRun(session).catch(() => {
+      ElMessage.warning('暂时无法确认停止结果，请重新加载会话查看运行状态。')
+    }).finally(() => finishSession(session, operation))
+  }
   try {
     // 1. 通知后端取消
     const response = await request.post(`/agent/chat/${session.conversationId}/cancel`)
     if (response.data?.status === 'saving') {
-      session.cancelling = false
       ElMessage.info(response.data.message || '草稿正在保存，完成后可在草稿箱查看')
+      syncStatus()
       return
     }
+    if (['succeeded', 'failed', 'expired'].includes(response.data?.status)) { syncStatus(); return }
     if (response.data?.status === 'draft_saved') {
       const msg = [...(session.liveMessages.length ? session.liveMessages : session.messages)].reverse().find(item => item.role === 'assistant')
       if (msg) {
@@ -1311,22 +1337,18 @@ async function handleCancel() {
     }
   } catch (e) {
     console.error('暂停失败:', e)
-    session.cancelling = false
-    ElMessage.error('停止失败，请重试。任务仍在继续。')
+    ElMessage.info('停止请求尚未确认，正在同步运行状态。')
+    syncStatus()
     return
   }
   const latest = [...(session.liveMessages.length ? session.liveMessages : session.messages)].reverse().find(item => item.role === 'assistant')
   if (latest?.agent) {
+    latest.interrupted = false
     setRunStatus(latest.agent, latest.draftArticleId ? 'complete' : 'cancelled')
     if (!latest.content) latest.content = latest.draftArticleId ? '草稿已保存到草稿箱，可继续编辑。' : '已停止处理。'
   }
-  // 2. 中断前端 SSE 连接
-  controller?.abort()
-  session.abortController = null
-  // 3. 重置流式状态
-  session.streaming = false
-  session.loading = false
   session.cancelling = false
+  finishSession(session, operation)
 }
 
 // Human-in-the-loop 恢复（确认/拒绝）
@@ -1334,7 +1356,11 @@ async function copyEditedDraft(msg: ChatMessage) {
   const draft = (!msg.interrupted && msg.editedDraft) || msg.draftBackup || msg.editedDraft
   if (!draft) return
   try {
-    await navigator.clipboard.writeText(`# ${draft.title}\n\n${draft.summary}\n\n${draft.content}`)
+    const html = renderDraftPreview(draft.content, draft.content_format, msg.interruptPayload?.citations || msg.citations)
+    const body = new DOMParser().parseFromString(html, 'text/html').body
+    body.querySelectorAll('br').forEach(node => node.replaceWith('\n'))
+    body.querySelectorAll('p,h1,h2,h3,h4,h5,h6,li,pre,tr,blockquote').forEach(node => node.append('\n\n'))
+    await navigator.clipboard.writeText(`# ${draft.title}\n\n${draft.summary}\n\n${body.textContent?.trim() || ''}`)
     ElMessage.success('已复制修改内容，可粘贴到文章编辑器')
   } catch { ElMessage.warning('复制失败，请选中预览正文手动复制') }
 }
@@ -1392,6 +1418,7 @@ async function handleResume(action: string, msg: ChatMessage) {
           msg.approvalNotice += ' 预览版本已变化，旧的手动修改已单独保留，可复制后合并到新版。'
         }
         msg.interruptPayload = recovered.payload
+        msg.citations = recovered.payload.citations || msg.citations || []
         if (recovered.payload.draft) msg.content = recovered.payload.draft
       }
       if (recovered.status === 'working') {
@@ -1491,6 +1518,7 @@ function handleResultEvent(data: string, msg: ChatMessage, session: Session): bo
     msg.provisional = false
     ensureAgent(msg).answerReceiving = false
     msg.interruptPayload = payload
+    msg.citations = payload.citations || msg.citations || []
     msg.draftRevision = ''
     setRunStatus(ensureAgent(msg), 'awaiting')
   } else if (data.startsWith('__DRAFT_SAVED__:')) {
@@ -1623,27 +1651,27 @@ function protectIncompleteTable(content: string): string {
 }
 
 function renderDraftPreview(content: string, format?: string, citations: SourceLink[] = []): string {
-  return format === 'html' ? safeHtml(linkCitations(content, citations)) : renderMarkdown(content, citations)
+  return draftBodyHtml(safeHtml(format === 'html' ? content : renderChatMarkdown(preprocessMarkdown(content))), citations)
 }
 
 function renderMarkdown(content: string, citations: SourceLink[] = []): string {
   if (!content) return ''
   
   // 流式进行中不使用缓存（content 持续变化）
-  const cacheKey = JSON.stringify([content, citations.map(c => [c.id, c.articleId, c.url])])
+  const cacheKey = JSON.stringify([content, citations.map(c => [c.id, c.articleId, c.url, c.title])])
   if (!streaming.value) {
     const cached = renderedCache.get(cacheKey)
     if (cached) return cached
   }
   
-  let processed = preprocessMarkdown(linkCitations(content, citations))
+  let processed = preprocessMarkdown(content)
   
   // 流式进行中，保护不完整的表格
   if (streaming.value) {
     processed = protectIncompleteTable(processed)
   }
   
-  const rendered = safeHtml(renderChatMarkdown(processed))
+  const rendered = formatCitationHtml(safeHtml(renderChatMarkdown(processed)), citations)
   
   // 非流式状态下缓存结果（历史消息）
   if (!streaming.value) {

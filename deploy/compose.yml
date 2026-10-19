@@ -124,6 +124,8 @@ services:
       AGENT_RPC_BIND: 0.0.0.0:50051
       BLOG_RPC_TARGET: blog:20881
       SERVICE_ADVERTISE_HOST: agent
+      AGENT_CHECKPOINT_SUCCESS_RETENTION_DAYS: ${AGENT_CHECKPOINT_SUCCESS_RETENTION_DAYS:-1}
+      AGENT_CHECKPOINT_FAILURE_RETENTION_DAYS: ${AGENT_CHECKPOINT_FAILURE_RETENTION_DAYS:-7}
     volumes: [uploads:/uploads:ro]
     depends_on:
       migrate: {condition: service_completed_successfully}

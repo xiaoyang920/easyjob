@@ -872,7 +872,7 @@ onBeforeUnmount(() => {
   flex: 1;
   background: white;
   border-radius: 0 0 12px 12px;
-  overflow: hidden;
+  overflow: visible;
   display: flex;
   flex-direction: column;
   min-height: 500px;

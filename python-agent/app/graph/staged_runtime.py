@@ -80,7 +80,7 @@ def task_context(state, task):
         raise ValueError("必需证据缺失")
     from app.services.grounding import source_contents
     evidence_contents = {str(source['id']): source['content'] for source in source_contents(state, list(evidence.values()))}
-    return {
+    context = {
         "user_id": state["user_id"], "run_id": state.get("run_id", ""),
         "execution_token": state.get("execution_token", ""),
         "conversation_id": state.get("conversation_id"),
@@ -100,6 +100,16 @@ def task_context(state, task):
         "capabilities": sorted(task_capabilities(task)),
         "cancelled": False, "reflection_feedback": "", "worker_results": [],
     }
+    if task.kind == 'writing':
+        # Only scheduling metadata crosses into writing recovery. Do not copy
+        # full retrieval results, conversation history or private documents.
+        context.update(main_round=state.get('main_round', 0),
+            correction_count=state.get('correction_count', 0),
+            action_history=state.get('action_history', []), observations=state.get('observations', []),
+            lookup_known_tasks={tid: {key: value for key, value in result.items()
+                if key in ('status', 'source_context', 'previous_run_id')}
+                for tid, result in results.items()})
+    return context
 
 
 def dependency_text(dependencies):
@@ -222,15 +232,19 @@ def guard_node(name, function):
                 await run_repository.event(run_id, label, "interrupted", int((time.perf_counter()-started)*1000))
             await node_activity(state, name, "paused")
             raise
-        except BaseException:
+        except BaseException as error:
             from app.services.run_metrics import metrics_from
             metrics = metrics_from(get_config())
             if run_id and metrics and hasattr(run_repository, 'persist_metrics'):
                 await run_repository.persist_metrics(run_id, executor_token(state), metrics)
             if run_id:
+                from app.services.grounding import DraftVerificationError
+                if isinstance(error, DraftVerificationError):
+                    await run_repository.record_delivery_failure(run_id, executor_token(state), error.audit, str(error))
                 if hasattr(run_repository, 'record_progress'):
                     from app.services.run_history import progress_snapshot
-                    await run_repository.record_progress(run_id, executor_token(state), progress_snapshot(state, name, 'failed'))
+                    failed_state = {**state, 'grounding_audit': error.audit} if isinstance(error, DraftVerificationError) else state
+                    await run_repository.record_progress(run_id, executor_token(state), progress_snapshot(failed_state, name, 'failed'))
                 await run_repository.event(run_id, label, "failed", int((time.perf_counter()-started)*1000))
             await node_activity(state, name, "error")
             raise

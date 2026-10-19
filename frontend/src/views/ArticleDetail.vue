@@ -341,6 +341,7 @@ import { avatarUrl, onAvatarError } from '../utils/avatar'
 // 只用 highlight.js 打 token 标记；配色在 styles/theme.css 中与编辑器共用
 import { decorateCodeBlocks, clickedCode } from '@/utils/codeTools'
 import { safeHtml } from '@/utils/safeHtml'
+import { formatCitationHtml } from '@/utils/citationLinks'
 import CodeViewer from '@/components/CodeViewer.vue'
 import { useArticleReading } from '@/composables/useArticleReading'
 import ContentState from '@/components/ContentState.vue'
@@ -370,7 +371,7 @@ const article = ref<any>({
   coverImage: '',
   isOriginal: false
 })
-const articleHtml = computed(() => safeHtml(article.value.content))
+const articleHtml = computed(() => formatCitationHtml(safeHtml(article.value.content), [], true))
 const { scale: readingScale, wide: readingWide, style: readingStyle, resize: resizeReading } = useArticleReading()
 const codeViewerOpen = ref(false)
 const previewCode = ref({ text: '', language: '' })

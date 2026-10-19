@@ -101,14 +101,18 @@ class BackgroundWorker:
             rid = str(job['payload'].get('run_id', ''))
             from uuid import UUID
             UUID(rid)
-            row = await self.jobs.db.fetch_one("""SELECT run_id FROM agent_run WHERE run_id=:rid AND user_id=:uid
-                AND conversation_id=:cid AND status IN ('succeeded','failed','cancelled','expired')
-                AND updated_at<TIMESTAMPADD(DAY,-:days,UTC_TIMESTAMP(6))""",
-                {'rid': rid, 'uid': uid, 'cid': cid, 'days': settings.CHECKPOINT_RETENTION_DAYS})
-            if row:
-                from app.graph.builder import get_graph
-                graph = await get_graph()
-                await asyncio.wait_for(graph.checkpointer.adelete_thread('run_' + rid), 30)
+            from app.services.checkpoint_retention import EXPIRED_CHECKPOINT_SQL, retention_parameters
+            # Serialize deletion with claim_recovery/claim_resume on this row.
+            # A mere pre-delete check leaves a race where a resumed run is erased.
+            async with self.jobs.db.transaction():
+                row = await self.jobs.db.fetch_one(f"""SELECT r.run_id FROM agent_run r
+                    WHERE r.run_id=:rid AND r.user_id=:uid AND r.conversation_id=:cid
+                    AND {EXPIRED_CHECKPOINT_SQL} FOR UPDATE""",
+                    {'rid': rid, 'uid': uid, 'cid': cid, **retention_parameters()})
+                if row:
+                    from app.graph.builder import get_graph
+                    graph = await get_graph()
+                    await asyncio.wait_for(graph.checkpointer.adelete_thread('run_' + rid), 30)
         elif job["kind"] == "memory_index":
             ids = job["payload"]["ids"]
             if ids:

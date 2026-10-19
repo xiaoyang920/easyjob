@@ -2,10 +2,12 @@ import { test, expect, type Page } from '@playwright/test'
 
 // All APIs are intercepted. These checks use the actual chat page without
 // creating accounts, changing real drafts or making model calls.
-async function setup(page: Page, failSave = false, recoverLatest = false, formatted = false) {
+async function setup(page: Page, failSave = false, recoverLatest = false, formatted = false, cited = false) {
+  const citations = [{ id: 'research:web1', title: '官方资料', url: 'https://sources.example.org/intro' }]
   const pending = { action: 'confirm_save_draft', runId: 'draft-qa', draftHash: 'a'.repeat(64),
-    title: '缓存一致性实践', summary: '对比常见双写方案。', draft: '# 缓存一致性\n\n先更新数据库，再删除缓存。' }
+    title: '缓存一致性实践', summary: '对比常见双写方案。', draft: '# 缓存一致性\n\n先更新数据库，再删除缓存。', citations: cited ? citations : [] }
   let submitted: any
+  if (cited) pending.draft += '[research:web1]\n\n来源：[research:web1]'
   if (formatted) pending.draft += '\n\n```java\nint n = 1;\n```\n\n| 服务 | 作用 |\n| --- | --- |\n| Redis | 缓存 |\n\n![说明](/uploads/example.png)\n\n需要保留的段落。'
   await page.addInitScript(() => {
     const payload=btoa(JSON.stringify({sub:'7',exp:Math.floor(Date.now()/1000)+3600}))
@@ -27,7 +29,9 @@ async function setup(page: Page, failSave = false, recoverLatest = false, format
     else if (url.pathname.endsWith('/agent/conversations')) data = url.searchParams.get('scope') === 'general'
       ? [{ conversationId: '101', title: '缓存一致性草稿', scope: 'general' }] : []
     else if (url.pathname.endsWith('/agent/conversations/101')) data = { conversationId: '101', title: '缓存一致性草稿', scope: 'general' }
-    else if (url.pathname.endsWith('/messages')) data = [{ role: 'assistant', content: pending.draft, interrupted: true, isDraft: true, interruptPayload: pending }]
+    else if (url.pathname.endsWith('/messages')) data = [
+      ...(cited ? [{ role: 'assistant', runId: 'answer-qa', content: '对话中的事实可以打开来源[research:web1]。', citations }] : []),
+      { role: 'assistant', content: pending.draft, interrupted: true, isDraft: true, interruptPayload: pending }]
     else if (url.pathname.endsWith('/101/run') || url.pathname.endsWith('/runs/draft-qa')) data = submitted && failSave
       ? recoverLatest ? { runId: 'draft-qa', status: 'awaiting_approval', result: { interrupted: {
           ...pending, draftHash: 'b'.repeat(64), title: '其他窗口的新版本', draft: '# 最新版本\n不能自动覆盖。' } } }
@@ -156,3 +160,29 @@ test('article creation uses the same editor and toolbar', async ({ page }) => {
   expect(await page.locator('.toolbar button').evaluateAll(items => items.map(item => item.getAttribute('data-menu-key')))).toEqual(toolbarKeys)
   expect((await page.locator('.article-rich-editor .editor').boundingBox())!.height).toBeGreaterThan(400)
 })
+
+for (const width of [1440, 390]) {
+  test(`chat keeps source links while draft preview and editor hide them at ${width}px`, async ({ page }, info) => {
+    await page.setViewportSize({ width, height: 900 })
+    const submitted = await setup(page, false, false, true, true)
+    const reference = page.locator('.message-bubble .inline-citation')
+    await expect(reference).toHaveText('[1]')
+    await expect(reference).toHaveAttribute('href', 'https://sources.example.org/intro')
+    await expect(page.locator('.draft-review-body')).not.toContainText('[research:web1]')
+    await expect(page.locator('.draft-review-body')).not.toContainText('来源：')
+    await expect(page.locator('.draft-review-card .inline-citation')).toHaveCount(0)
+    const dialog = await openEditor(page)
+    await expect(dialog.locator('[data-slate-editor]')).not.toContainText('[research:web1]')
+    await expect(dialog.locator('pre')).toContainText('int n = 1;')
+    await dialog.getByRole('textbox', { name: '草稿标题' }).fill('只修改标题')
+    await dialog.getByRole('button', { name: '应用修改' }).click()
+    await page.locator('.draft-review-card').scrollIntoViewIfNeeded()
+    await page.screenshot({ path: info.outputPath(`draft-without-citations-${width}.png`), animations: 'disabled' })
+    await page.getByRole('button', { name: '保存草稿', exact: true }).click()
+    await expect.poll(() => submitted()?.editedDraft?.title).toBe('只修改标题')
+    // Hiding a reference must not rewrite the evidence-bearing approval input.
+    expect(submitted().editedDraft.content).toContain('[research:web1]')
+    expect(submitted().editedDraft.content_format).not.toBe('html')
+    expect(submitted().draftHash).toBe('a'.repeat(64))
+  })
+}

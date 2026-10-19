@@ -37,6 +37,27 @@ def run(**extra):
 
 
 class HistoryProjectionTests(unittest.TestCase):
+    def test_incomplete_delivery_annotates_committed_message_without_duplicate(self):
+        for meta in ({'delivery_status': 'incomplete'}, {'progress': {'decision_contract_audit': {'last_outcome': 'stopped'}}}):
+            messages = [{'messageId': '1', 'role': 'user'}, {'messageId': '2', 'role': 'assistant', 'content': '已检索，但未完成'}]
+            item = run(status='succeeded', result_json=json.dumps({**meta, 'user_message_id': '1', 'assistant_message_id': '2'}))
+            projected = project_history(messages, [item], {}, {})
+            self.assertEqual(len(projected), 2)
+            self.assertEqual(projected[1]['deliveryStatus'], 'incomplete')
+            self.assertEqual(projected[1]['content'], '已检索，但未完成')
+
+    def test_legacy_incomplete_result_does_not_expose_progress_in_public_response(self):
+        public = public_run_result({'reply': '未完成', 'progress': {'decision_contract_audit': {'last_outcome': 'stopped'}}})
+        self.assertEqual(public, {'reply': '未完成', 'delivery_status': 'incomplete'})
+
+    def test_draft_failure_notice_survives_reload_without_rejected_text(self):
+        notice = '草稿部分信息仍缺少资料支持，未进入审批或保存。'
+        projected = project_history([{'messageId': '1', 'role': 'user'}], [run(result_json=json.dumps({
+            'user_message_id': '1', 'failure_notice': notice, 'grounding_audit': {
+                'status': 'unverified', 'remaining_findings': [{'block_index': 3, 'verdict': 'unsupported'}]}}))], {}, {})
+        self.assertEqual(projected[1]['content'], notice)
+        self.assertNotIn('grounding_audit', projected[1])
+
     def test_internal_projection_is_not_returned_in_run_payload(self):
         public = public_run_result(json.dumps({'reply': 'ok', 'progress': {'results': 'private'}, 'user_message_id': '1'}))
         self.assertEqual(public, {'reply': 'ok'})
@@ -79,7 +100,32 @@ class HistoryProjectionTests(unittest.TestCase):
         self.assertEqual(snapshot['tasks']['failed'], 'tool_error')
 
 
+class HistoryQueryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_history_query_keeps_safe_failure_notice_and_completion_metadata(self):
+        db = SimpleNamespace(fetch_all=AsyncMock(return_value=[]))
+        await RunHistory(db).history(11, 7, [])
+        sql = db.fetch_all.await_args.args[0]
+        for field in ('failure_notice', 'delivery_status', 'assistant_message_id', 'last_outcome'):
+            self.assertIn(field, sql)
+
+    async def test_settled_boundary_reply_marks_delivery_incomplete(self):
+        service = RunService(SimpleNamespace(add_message=AsyncMock()), SimpleNamespace())
+        values = create_initial_state(7, '写文章', [])
+        values.update(final_reply='检索已返回，但后续处理未能继续。', stop_reason='后端中断')
+        result = await service.finish(11, 7, SimpleNamespace(values=values, next=(), tasks=()))
+        self.assertEqual(result['delivery_status'], 'incomplete')
+        self.assertEqual(result['reply'], values['final_reply'])
+
+
 class PreviousRunTests(unittest.IsolatedAsyncioTestCase):
+    async def test_incomplete_normally_settled_run_keeps_verified_retrieval_for_continuation(self):
+        previous = run(status='succeeded')
+        meta = json.loads(previous['result_json'])
+        meta['delivery_status'] = 'incomplete'
+        previous['result_json'] = json.dumps(meta)
+        service, _ = self.service(previous=previous)
+        _, reusable = await service.previous(11, 7, 'current')
+        self.assertEqual(list(reusable), ['previous_11111111_search_1'])
     def service(self, previous=None, artifacts=None, verifier=None):
         database = SimpleNamespace(fetch_one=AsyncMock(return_value=row(**(previous or run()))),
             fetch_all=AsyncMock(side_effect=[[], artifacts or []]), fetch_val=AsyncMock(return_value='对比两篇文章'))

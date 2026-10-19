@@ -100,7 +100,7 @@ export function restoreAgentState(message: Record<string, any>): AgentStreamStat
   if (!message.runStatus) return undefined
   const state = createAgentState()
   for (const event of message.agentEvents || []) applyAgentEvent(state, event)
-  const status: RunStatus = ({ failed: 'error', expired: 'error', cancelled: 'cancelled',
+  const status: RunStatus = message.deliveryStatus === 'incomplete' ? 'error' : ({ failed: 'error', expired: 'error', cancelled: 'cancelled',
     succeeded: 'complete', awaiting_approval: 'awaiting' } as Record<string, RunStatus>)[message.runStatus] || 'working'
   setRunStatus(state, status)
   const started = Date.parse(message.runStartedAt || '')

@@ -82,6 +82,17 @@ class HeartbeatTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('l.ticket=r.execution_token', sql)
         self.assertNotIn("'running'", sql)
 
+    async def test_delivery_failure_diagnostics_cannot_overwrite_other_generation_or_committed_draft(self):
+        import json
+        db = SimpleNamespace(execute=AsyncMock())
+        audit = {'status': 'unverified', 'remaining_findings': [{'block_index': 3, 'verdict': 'unsupported'}]}
+        await RunRepository(db).record_delivery_failure(RUN_ID, 'current', audit, '未进入审批或保存')
+        sql, params = db.execute.await_args.args
+        for fence in ('execution_token=:token', "status='running'", 'draft_article_id IS NULL', "'$.draft_commit') IS NULL"):
+            self.assertIn(fence, sql)
+        self.assertEqual(params['token'], 'current')
+        self.assertEqual(json.loads(params['audit']), audit)
+
 
 class ConversationRunTests(unittest.IsolatedAsyncioTestCase):
     def fixture_run(self, status='running'):
@@ -130,3 +141,20 @@ class ConversationRunTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(frames[-1], 'data:[DONE]\n\n')
         repo.fail.assert_awaited_with(RUN_ID, 'token')
         service.finish.assert_not_awaited()
+
+    async def test_draft_rejection_is_not_reported_as_service_outage(self):
+        from app.services.grounding import DraftVerificationError
+        from app.rpc.server import fault
+        error = DraftVerificationError({'status': 'unverified', 'reason_code': 'content_rejected'})
+        async def events(*args, **kwargs):
+            raise error
+            yield
+        repo = SimpleNamespace(fail=AsyncMock(), get=AsyncMock(return_value=None))
+        service = SimpleNamespace(repository=repo, finish=AsyncMock())
+        config = {'configurable': {'run_id': RUN_ID, 'execution_token': 'token'}}
+        with patch.object(main, 'run_service', service):
+            frames = [frame async for frame in main._stream_source(SimpleNamespace(astream_events=events), {}, 11, 7, config)]
+        self.assertTrue(any('[ERROR] 草稿依据核验未通过' in frame for frame in frames))
+        self.assertFalse(any('Agent 处理失败' in frame or '已移除' in frame for frame in frames))
+        self.assertIn('未进入审批或保存', fault(error).message)
+        self.assertEqual(frames[-1], 'data:[DONE]\n\n')

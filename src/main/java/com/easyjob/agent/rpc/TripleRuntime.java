@@ -68,6 +68,7 @@ public final class TripleRuntime implements AutoCloseable {
             String endpoint=catalog.agentTarget(identity.getUserId());
             discovered.reconcile(catalog.healthyTargets());
             var lease=discovered.acquire(endpoint);
+            var locallyCancelled=new java.util.concurrent.atomic.AtomicBoolean();
             boolean streaming=args.length>1 && args[args.length-1] instanceof org.apache.dubbo.common.stream.StreamObserver<?>;
             if(streaming) {
                 var observer=(org.apache.dubbo.common.stream.StreamObserver<java.lang.Object>)args[args.length-1];
@@ -75,27 +76,34 @@ public final class TripleRuntime implements AutoCloseable {
                 args[args.length-1]=new org.apache.dubbo.common.stream.StreamObserver<java.lang.Object>() {
                     public void onNext(java.lang.Object value) { try { observer.onNext(value); } catch(Throwable error) { lease.close();throw error; } }
                     public void onError(Throwable error) {
-                        // Application failures are typed Frame.error values;
-                        // observer errors mean this transport cannot be reused.
-                        lease.invalidate();
+                        // Per-call cancellation/deadlines do not invalidate a
+                        // connection shared with other running streams.
+                        if(shouldInvalidate(error,locallyCancelled.get())) lease.invalidate();
                         try { observer.onError(error); } finally { lease.close(); }
                     }
                     public void onCompleted() { try { observer.onCompleted(); } finally { lease.close(); } }
                 };
                 var cancellation=org.apache.dubbo.rpc.RpcContext.getCancellationContext();
-                if(cancellation!=null) cancellation.addListener(context -> lease.close());
+                if(cancellation!=null) cancellation.addListener(context -> {
+                    locallyCancelled.set(true);lease.close();
+                });
             }
             try { return method.invoke(lease.value().remote(),args); }
             catch(java.lang.reflect.InvocationTargetException e) {
-                if(e.getCause() instanceof org.apache.dubbo.rpc.RpcException rpc && !rpc.isBiz()) lease.invalidate();
+                if(shouldInvalidate(e.getCause(),locallyCancelled.get())) lease.invalidate();
                 lease.close();throw e.getCause();
             }
             catch(Throwable error) {
-                if(error instanceof org.apache.dubbo.rpc.RpcException rpc && !rpc.isBiz()) lease.invalidate();
+                if(shouldInvalidate(error,locallyCancelled.get())) lease.invalidate();
                 lease.close();throw error;
             }
             finally { if(!streaming) lease.close(); }
         });
+    }
+    static boolean shouldInvalidate(Throwable error,boolean locallyCancelled) {
+        if(locallyCancelled || error instanceof java.util.concurrent.CancellationException) return false;
+        if(error instanceof org.apache.dubbo.rpc.RpcException rpc) return !rpc.isBiz() && !rpc.isTimeout();
+        return true;
     }
     @Override public void close() { reaper.shutdownNow();discovered.close();bootstrap.destroy(); }
     static String loopbackHost(String host) {
