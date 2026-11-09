@@ -14,6 +14,7 @@ test('real activity panel shows incomplete delivery after reload while retaining
   const vue = await import('vue')
   const source = (await readFile(new URL('../src/components/AgentActivity.vue', import.meta.url), 'utf8'))
     .replace(/import type \{ AgentStreamState \} from '[^']+'/, 'type AgentStreamState = Record<string, any>')
+    .replace("from '@/utils/agentStream'", "from '../src/utils/agentStream.ts'")
   const { descriptor } = parse(source)
   const script = compileScript(descriptor, { id: 'incomplete-qa', inlineTemplate: true }).content
   const modulePath = fileURLToPath(new URL(`.agent-incomplete-${process.pid}.mjs`, import.meta.url))

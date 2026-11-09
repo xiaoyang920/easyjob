@@ -18,6 +18,10 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.easyjob.entity.Article;
 import com.easyjob.entity.ArticleComment;
+import com.easyjob.entity.ArticleCommentAnchor;
+import com.easyjob.service.ArticleCommentAnchorService.Marker;
+import java.util.HashMap;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -30,7 +34,7 @@ public class ArticleCommentAnchorService {
     private static final String SPACE = "[\\t\\n\\x0B\\f\\r \\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF]+";
 
     public static String articleText(String html) {
-        var output = new StringBuilder();
+        StringBuilder output = new StringBuilder();
         append(Jsoup.parseBodyFragment(html == null ? "" : html).body(), output);
         return output.toString().replaceAll(SPACE," ").trim();
     }
@@ -41,9 +45,9 @@ public class ArticleCommentAnchorService {
                     || element.hasClass("article-code-toolbar")) return;
             boolean block = BLOCKS.contains(element.normalName());
             if(block) output.append(' ');
-            for(var child:node.childNodes()) append(child,output);
+            for(Node child:node.childNodes()) append(child,output);
             if(block) output.append(' ');
-        } else for(var child:node.childNodes()) append(child,output);
+        } else for(Node child:node.childNodes()) append(child,output);
     }
 
     /** Validate against the live published body; never trust client quote or hash. */
@@ -61,7 +65,7 @@ public class ArticleCommentAnchorService {
         if (end > text.length() || !text.substring(start,end).equals(input.getExact())
                 || !text.substring(0,start).endsWith(input.getPrefix()) || !text.substring(end).startsWith(input.getSuffix()))
             throw new BusinessException(409,"文章内容已更新，请刷新后重新选择原文");
-        var quote = new CommentQuote();
+        CommentQuote quote = new CommentQuote();
         quote.setExact(text.substring(start,end)); quote.setStart(start); quote.setEnd(end);
         int prefixStart = Math.max(0,start-48), suffixEnd = Math.min(text.length(),end+48);
         if(prefixStart > 0 && Character.isLowSurrogate(text.charAt(prefixStart))) prefixStart++;
@@ -84,18 +88,18 @@ public class ArticleCommentAnchorService {
     }
     public record Marker(String commentId,CommentQuote quote) {}
     public Map<String,Object> markers(Long articleId,Long afterId,int size) {
-        var rows=store.findMarkers(articleId,afterId,size+1);
+        List<ArticleCommentAnchor> rows=store.findMarkers(articleId,afterId,size+1);
         boolean more=rows.size()>size;
-        var selected=rows.stream().limit(size).toList();
-        var records=selected.stream().map(row->new Marker(row.getCommentId().toString(),row)).toList();
+        List<ArticleCommentAnchor> selected=rows.stream().limit(size).toList();
+        List<Marker> records=selected.stream().map(row->new Marker(row.getCommentId().toString(),row)).toList();
         return Map.of("records",records,"nextCursor",more?selected.getLast().getCommentId().toString():"");
     }
     public void attach(List<ArticleCommentVO> comments) {
         if(comments.isEmpty()) return;
-        var byId = new HashMap<Long,ArticleCommentVO>();
+        HashMap<Long, ArticleCommentVO> byId = new HashMap<Long,ArticleCommentVO>();
         comments.forEach(c -> byId.put(Long.valueOf(c.getCommentId()),c));
         store.findByComments(new ArrayList<>(byId.keySet())).forEach(anchor -> {
-            var comment = byId.get(anchor.getCommentId());
+            ArticleCommentVO comment = byId.get(anchor.getCommentId());
             if(comment != null) comment.setQuote(anchor);
         });
     }

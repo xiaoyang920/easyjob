@@ -10,6 +10,7 @@ import org.springframework.data.redis.core.script.RedisScript;
 import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
+import org.springframework.data.redis.core.ValueOperations;
 
 class AccountSecurityTests {
     AccountSecurityMapper users=mock(AccountSecurityMapper.class);
@@ -19,7 +20,7 @@ class AccountSecurityTests {
     ArticleWebSocketHandler articles=mock(ArticleWebSocketHandler.class);
     AccountSecurityService service=new AccountSecurityService(users,redis,mail,chats,articles);
     @BeforeEach @SuppressWarnings("unchecked") void setup(){when(redis.execute(any(RedisScript.class),anyList(),any())).thenReturn(1L);}
-    User user(){var u=new User();u.setUserId(7L);u.setStatus(1);u.setPassword(PasswordUtil.encode("current-password"));return u;}
+    User user(){User u=new User();u.setUserId(7L);u.setStatus(1);u.setPassword(PasswordUtil.encode("current-password"));return u;}
     @Test void newPasswordPolicyRejectsShortAndOver72BytesBeforeTouchingDatabase(){
         assertThrows(BusinessException.class,()->service.change(7L,"current","short"));
         assertThrows(BusinessException.class,()->service.change(7L,"current","密".repeat(25)));
@@ -30,10 +31,10 @@ class AccountSecurityTests {
     @Test void expiredOrInvalidResetCodeCannotChangePassword(){when(redis.execute(any(RedisScript.class),anyList(),any())).thenReturn(0L);assertThrows(BusinessException.class,()->service.reset("test@example.invalid","123456","new-password","local"));verifyNoInteractions(users);}
     @Test void unknownEmailReturnsWithoutRevealingAnAccountOrSendingMail(){service.sendCode("test@example.invalid","local");verifyNoInteractions(mail);verify(users).findByEmail("test@example.invalid");}
     @Test void anotherUsersDeviceCannotBeRevoked(){
-        var values=mock(ValueOperations.class);when(redis.opsForValue()).thenReturn(values);when(values.get(anyString())).thenReturn("8:9999999999999:hash:0");
-        var sessions=new AuthSessionService(redis,mock(UserMapper.class));assertThrows(BusinessException.class,()->sessions.revokeDevice(7L,"a".repeat(64)));verify(redis,never()).delete(anyList());
+        ValueOperations values=mock(ValueOperations.class);when(redis.opsForValue()).thenReturn(values);when(values.get(anyString())).thenReturn("8:9999999999999:hash:0");
+        AuthSessionService sessions=new AuthSessionService(redis,mock(UserMapper.class));assertThrows(BusinessException.class,()->sessions.revokeDevice(7L,"a".repeat(64)));verify(redis,never()).delete(anyList());
     }
     @Test void mapperInvalidationIncrementsAuthVersion(){
-        assertDoesNotThrow(()->{var xml=java.nio.file.Files.readString(java.nio.file.Path.of("src/main/resources/mapper/AccountSecurityMapper.xml"));assertTrue(xml.contains("auth_version=COALESCE(auth_version,0)+1"));assertTrue(xml.contains("FOR UPDATE"));});
+        assertDoesNotThrow(()->{String xml=java.nio.file.Files.readString(java.nio.file.Path.of("src/main/resources/mapper/AccountSecurityMapper.xml"));assertTrue(xml.contains("auth_version=COALESCE(auth_version,0)+1"));assertTrue(xml.contains("FOR UPDATE"));});
     }
 }

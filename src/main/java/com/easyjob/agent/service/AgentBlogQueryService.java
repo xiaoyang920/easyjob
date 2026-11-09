@@ -8,6 +8,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.http.HttpStatus;
 import java.util.*;
+import java.util.List;
+import java.util.Map;
 
 @Service
 public class AgentBlogQueryService {
@@ -19,6 +21,7 @@ public class AgentBlogQueryService {
             || q.getIdsList().stream().anyMatch(id->id<=0)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
         int limit=q.getLimit()==0?20:q.getLimit();
         return switch(q.getKind()) {
+            case "writing_metadata" -> q.getIdsCount()==0?List.of():store.writingMetadata(q.getIdentity().getUserId(),q.getIdsList());
             case "user_sources" -> q.getIdsCount()==0?List.of():store.userSources(q.getIdsList());
             case "published" -> q.getIdsCount()==0?List.of():store.published(q.getIdsList());
             case "tags" -> q.getNamesCount()==0?List.of():store.tags(q.getNamesList());
@@ -38,7 +41,7 @@ public class AgentBlogQueryService {
             case "article_repair" -> repair(q);
             case "metrics" -> Map.of("article_jobs",store.jobCounts(),"article_oldest_pending_seconds",store.oldestJob());
             case "cleanup" -> {
-                int jobs=store.cleanJobs();var ids=store.oldSessions();
+                int jobs=store.cleanJobs();List<String> ids=store.oldSessions();
                 int sessions=ids.isEmpty()?0:store.cleanSessions(ids);int reads=store.cleanReads();
                 yield Map.of("jobs",jobs,"sessions",sessions,"reads",reads);
             }
@@ -47,8 +50,8 @@ public class AgentBlogQueryService {
     }
     private boolean repair(BlogQuery q) {
         if(q.getTargetId()<=0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
-        var current=store.lockArticle(q.getTargetId());
-        @SuppressWarnings("unchecked") var prior=(Map<String,Object>)RpcValues.decode(com.easyjob.rpc.v1.Value.newBuilder().setObject(q.getExpected()).build());
+        Map<String, Object> current=store.lockArticle(q.getTargetId());
+        @SuppressWarnings("unchecked") Map<String, Object> prior=(Map<String,Object>)RpcValues.decode(com.easyjob.rpc.v1.Value.newBuilder().setObject(q.getExpected()).build());
         if(!prior.isEmpty()) {
             if(current==null) return false;
             for(String k:List.of("content","title","tags","category_id","user_id","status","deleted","required_level","update_time"))

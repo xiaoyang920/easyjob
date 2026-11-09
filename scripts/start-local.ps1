@@ -17,6 +17,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'java-tracing.ps1')
+[string[]]$authTracingArguments = @(Get-JavaTracingArguments -ProjectRoot $root -ServiceName 'easyjob-auth')
+[string[]]$blogTracingArguments = @(Get-JavaTracingArguments -ProjectRoot $root -ServiceName 'easyjob-blog')
+[string[]]$gatewayTracingArguments = @(Get-JavaTracingArguments -ProjectRoot $root -ServiceName 'easyjob-gateway')
 $logs = Join-Path $root 'logs'
 $python = Join-Path $root 'python-agent\.venv\Scripts\python.exe'
 $docker = 'C:\Program Files\Docker\Docker\resources\bin\docker.exe'
@@ -76,8 +80,8 @@ function Test-Docker {
 
 function Test-Java {
     try {
-        $result = Invoke-RestMethod 'http://127.0.0.1:8080/api/article/list?page=1&size=1' -TimeoutSec 3
-        return $result.code -eq 200 -and $null -ne $result.data
+        $result = Invoke-RestMethod 'http://127.0.0.1:8080/actuator/health' -TimeoutSec 3
+        return $result.status -eq 'UP'
     } catch { return $false }
 }
 
@@ -114,7 +118,17 @@ function Test-GatewayJarFresh {
     $modified=(Get-Item -LiteralPath $gatewayJar).LastWriteTimeUtc
     $files=@(Get-ChildItem -LiteralPath (Join-Path $root 'gateway\src') -File -Recurse)
     $files+=Get-Item -LiteralPath (Join-Path $root 'gateway\pom.xml')
+    $files+=Get-ChildItem -LiteralPath (Join-Path $root 'auth-common\src\main') -File -Recurse
     return @($files | Where-Object { $_.LastWriteTimeUtc -gt $modified }).Count -eq 0
+}
+function Test-AuthJarFresh {
+    $path=Join-Path $root 'auth-service\target\easyjob-auth-0.0.1-SNAPSHOT.jar'
+    if(!(Test-Path -LiteralPath $path -PathType Leaf)){return $false}
+    $modified=(Get-Item -LiteralPath $path).LastWriteTimeUtc
+    $files=@(Get-ChildItem -LiteralPath (Join-Path $root 'auth-service\src\main') -File -Recurse)
+    $files+=Get-ChildItem -LiteralPath (Join-Path $root 'auth-common\src\main') -File -Recurse
+    $files+=Get-Item -LiteralPath (Join-Path $root 'auth-service\pom.xml')
+    return @($files|Where-Object {$_.LastWriteTimeUtc -gt $modified}).Count -eq 0
 }
 
 function Start-RedisContainer([string]$Name, [int]$Port, [string]$Volume, [switch]$Checkpoint) {
@@ -145,6 +159,7 @@ function Test-JarFresh {
     $sources = @(Get-ChildItem -LiteralPath (Join-Path $root 'src\main') -Recurse -File)
     $sources += Get-Item -LiteralPath (Join-Path $root 'pom.xml')
     $sources += Get-ChildItem -LiteralPath (Join-Path $root 'contracts') -Recurse -File
+    $sources += Get-ChildItem -LiteralPath (Join-Path $root 'auth-common\src\main') -Recurse -File
     return @($sources | Where-Object { $_.LastWriteTimeUtc -gt $modified }).Count -eq 0
 }
 
@@ -156,7 +171,7 @@ function Check-Prerequisites {
     if (!$SkipBuild) { $required += $Maven }
     if (!(Test-Port 6379) -or !(Test-Port 6380) -or !(Test-Port 8500)) { $required += @($docker,$desktop) }
     foreach ($path in $required) {
-        if (!(Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing prerequisite: $path. See README.md (Windows launcher)." }
+        if (!(Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing prerequisite: $path. See docs/architecture/project-overview.md (Windows launcher)." }
     }
     if ($Build -and $SkipBuild) { throw 'Use -Build or -SkipBuild, not both.' }
     if ($SkipBuild -and !(Test-Path -LiteralPath $jar)) { throw 'No existing Java JAR. Run without -SkipBuild first.' }
@@ -185,8 +200,11 @@ try {
     $env:Path = "$JavaHome\bin;$(Split-Path -Parent $Node);$env:Path"
     $env:PYTHONUTF8 = '1'
     $env:PYTHONIOENCODING = 'utf-8'
+    . (Join-Path $PSScriptRoot 'python-tracing.ps1')
+    Set-PythonTracingEnvironment
     $env:SERVICE_DISCOVERY_ENABLED = 'true'
-    Invoke-Logged 'python-dependencies' $python @('-c','import uvicorn, yaml, redis, httpx, databases, grpc, langgraph.checkpoint.redis') $root
+    Write-Step 'Java OpenTelemetry tracing enabled for auth, blog and gateway.'
+    Invoke-Logged 'python-dependencies' $python @('-c','import uvicorn, yaml, redis, httpx, databases, grpc, langgraph.checkpoint.redis; from app.services import tracing') (Join-Path $root 'python-agent')
 
     Write-Step '1/7 Checking MySQL.'
     if (!(Test-Port 3306)) {
@@ -249,6 +267,15 @@ try {
     Wait-Ready 'rabbitmq' { Test-Port 5672 } $rabbitProcess
 
     Write-Step '5/7 Starting Java backend.'
+    Write-Step 'Starting independent authentication service.'
+    $authJar=Join-Path $root 'auth-service\target\easyjob-auth-0.0.1-SNAPSHOT.jar'
+    if (!(Test-Port 8081)) {
+        if ($Build -or (!$SkipBuild -and !(Test-AuthJarFresh))) {Invoke-Logged 'auth-package' $Maven @('-q','-DskipTests','package') (Join-Path $root 'auth-service')}
+        if(!(Test-Path -LiteralPath $authJar)){throw 'Auth JAR missing; build auth-service/pom.xml first.'}
+        $authArguments = ($authTracingArguments -join ' ') + ' -jar auth-service\target\easyjob-auth-0.0.1-SNAPSHOT.jar --spring.profiles.include=tracing --spring.config.additional-location=file:./temp/auth-runtime.yml'
+        $authProcess=Start-Hidden 'auth' "$JavaHome\bin\java.exe" $authArguments $root
+        Wait-Ready 'auth' {try{(Invoke-RestMethod 'http://127.0.0.1:8081/actuator/health' -TimeoutSec 3).status -eq 'UP'}catch{$false}} $authProcess
+    }
     $javaProcess = $null
     if (Test-Port 8080) {
         if (!(Test-Java)) { throw 'Port 8080 is occupied but the EasyJob article API is unhealthy. Check logs/java.*.log; no process was stopped.' }
@@ -256,10 +283,12 @@ try {
     } else {
         if ($Build -or (!$SkipBuild -and !(Test-JarFresh))) {
             Write-Step 'Building updated Java sources. Progress: logs/maven-package.log.'
-            Invoke-Logged 'maven-package' $Maven @('-q','-DskipTests','-Deasyjob.build.directory=target/local-launcher','package') $root
+            # Protocol/source deletions leave obsolete generated sources and classes
+            # behind during incremental package. Clean only this launcher's output.
+            Invoke-Logged 'maven-package' $Maven @('-q','-DskipTests','-Deasyjob.build.directory=target/local-launcher','clean','package') $root
             Copy-Item -LiteralPath (Join-Path $root 'target\local-launcher\easyjob-0.0.1-SNAPSHOT.jar') -Destination $jar -Force
         }
-        $arguments = '-jar target\easyjob-0.0.1-SNAPSHOT.jar --server.address=127.0.0.1 --spring.config.additional-location=file:./temp/application-runtime.yml'
+        $arguments = ($blogTracingArguments -join ' ') + ' -jar target\easyjob-0.0.1-SNAPSHOT.jar --server.address=127.0.0.1 --spring.profiles.include=tracing --spring.config.additional-location=file:./temp/application-runtime.yml'
         if ($Reindex) { $arguments += ' --rag.reindex.enabled=true' }
         $javaProcess = Start-Hidden 'java' "$JavaHome\bin\java.exe" $arguments $root
         Wait-Ready 'java' { Test-Java } $javaProcess
@@ -268,7 +297,11 @@ try {
     Write-Step '6/7 Starting Python Agent.'
     $agentProcess = $null
     if (!(Test-Port 8000)) {
-        $agentProcess = Start-Hidden 'python' $python '-m uvicorn app.main:app --host 127.0.0.1 --port 8000' (Join-Path $root 'python-agent')
+        $previousAgentRuntime=$env:EASYJOB_AGENT_RUNTIME
+        try {
+            $env:EASYJOB_AGENT_RUNTIME='true'
+            $agentProcess = Start-Hidden 'python' $python '-m uvicorn app.main:app --host 127.0.0.1 --port 8000' (Join-Path $root 'python-agent')
+        } finally { $env:EASYJOB_AGENT_RUNTIME=$previousAgentRuntime }
     }
     Wait-Ready 'python' { Test-Agent } $agentProcess
 
@@ -279,7 +312,8 @@ try {
             Invoke-Logged 'gateway-package' $Maven @('-B','-DskipTests','package') (Join-Path $root 'gateway')
         }
         if (!(Test-Path -LiteralPath $gatewayJar)) { throw 'Gateway JAR missing; build gateway/pom.xml first.' }
-        $gatewayProcess=Start-Hidden 'gateway' "$JavaHome\bin\java.exe" '-jar gateway\target\easyjob-gateway-0.0.1-SNAPSHOT.jar --spring.config.additional-location=file:./temp/gateway-runtime.yml' $root
+        $gatewayArguments = ($gatewayTracingArguments -join ' ') + ' -jar gateway\target\easyjob-gateway-0.0.1-SNAPSHOT.jar --spring.profiles.include=tracing --spring.config.additional-location=file:./temp/gateway-runtime.yml'
+        $gatewayProcess=Start-Hidden 'gateway' "$JavaHome\bin\java.exe" $gatewayArguments $root
     }
     Wait-Ready 'gateway' { Test-Gateway } $gatewayProcess
 

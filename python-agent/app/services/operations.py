@@ -103,7 +103,7 @@ class Operations:
             JOIN agent_run r ON r.run_id=e.run_id WHERE r.created_at>=TIMESTAMPADD(HOUR,-24,NOW(6))
             AND e.status<>'started' ORDER BY e.event_id DESC LIMIT 10001""")
         stages, degraded, rerank_calls, approval_conflicts = {}, 0, 0, 0
-        known = {'main_agent', 'main_retrieve', 'main_delegate', 'prepare_draft', 'collect_draft', 'final_gate',
+        known = {'main_agent', 'execute_tool', 'main_retrieve', 'main_delegate', 'prepare_draft', 'collect_draft', 'final_gate',
                  'generate_draft', 'approve_draft', 'save_draft', 'reject_draft', 'approval'}
         for row in events[:10000]:
             r = row._mapping

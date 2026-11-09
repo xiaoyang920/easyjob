@@ -82,7 +82,7 @@ test('real chat component switches, receives parallel replies, resumes and cance
   script = script.replace(/^import .* from ['"]element-plus['"]\s*$/gm, 'const ElMessage=globalThis.__chatQa.message')
   script = script.replace(/^import .* from ['"]@\/utils\/request['"]\s*$/gm, 'const request=globalThis.__chatQa.request')
   script = script.replace(/^import .* from ['"]@\/utils\/authSession['"]\s*$/gm, 'const authenticatedFetch=globalThis.__chatQa.fetch')
-  script = script.replace(/^import .* from ['"]@\/utils\/aiRuns['"]\s*$/gm, 'const aiConversationStatus=()=>"", setViewedAiConversation=()=>{}, trackAiRun=()=>{}, refreshAiRuns=async()=>{}')
+  script = script.replace(/^import .* from ['"]@\/utils\/aiRuns['"]\s*$/gm, 'const aiConversationStatus=()=>"", aiRunItems={value:[]}, isAiRunRead=()=>false, markAiRunRead=()=>{}, setViewedAiConversation=()=>{}, trackAiRun=()=>{}, refreshAiRuns=async()=>{}')
   script = script.replace(/from ['"](@\/[^'"]+|\.\.\/[^'"]+)['"]/g, (_,name) => {
     const file = name.startsWith('@/') ? path.resolve(path.dirname(source),'../',name.slice(2)) : path.resolve(path.dirname(source),name)
     return `from '${pathToFileURL(file+'.ts').href}'`

@@ -2,43 +2,18 @@ package com.easyjob.component;
 
 
 import com.easyjob.constants.RedisConstants;
-import com.easyjob.entity.AiMessage;
 import com.easyjob.utils.RedisUtils;
 import com.easyjob.vo.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 
 @Component
 public class RedisComponent {
     @Autowired
     private RedisUtils redisUtils;
-    /**
-     * 保存AI会话上下文
-     */
-    public void saveConversationContext(Long conversationId, List<AiMessage> messages) {
-        redisUtils.setex(RedisConstants.REDIS_KEY_AI_CONV + conversationId, messages, RedisConstants.CODE_EXPIRE_2HOUR);
-    }
-
-    /**
-     * 获取AI会话上下文
-     */
-    @SuppressWarnings("unchecked")
-    public List<AiMessage> getConversationContext(Long conversationId) {
-        return (List<AiMessage>) redisUtils.get(RedisConstants.REDIS_KEY_AI_CONV + conversationId);
-    }
-
-    /**
-     * 删除AI会话上下文
-     */
-    public void deleteConversationContext(Long conversationId) {
-        redisUtils.delete(RedisConstants.REDIS_KEY_AI_CONV + conversationId);
-    }
     /**
      * 保存验证码
      * @param email
@@ -161,36 +136,6 @@ public class RedisComponent {
      */
     public List<TagVO> getHotTags(){
         return (List<TagVO>) redisUtils.get(RedisConstants.REDIS_KEY_HOT_TAGS);
-    }
-    /**
-     * 添加AI文章卡片（追加，ai一次对话可能调用多次tool）
-     */
-    public void addArticleCards(Long conversationId, List<ArticleCardVO> cards){
-        if(cards== null|| cards.isEmpty()){
-            return;
-        }
-        String key = RedisConstants.REDIS_KEY_AI_ARTICLE_CARDS+conversationId;
-        List<ArticleCardVO> existing = (List<ArticleCardVO>) redisUtils.get(key);
-        if(existing == null){
-            existing = new ArrayList<>();
-        }
-        Set<String> existingIds = existing.stream().map(ArticleCardVO::getArticleId).collect(Collectors.toSet());
-        for (ArticleCardVO card : cards) {
-            if (!existingIds.contains(card.getArticleId())) {
-                existing.add(card);
-                existingIds.add(card.getArticleId());
-            }
-        }
-        redisUtils.setex(key, existing, RedisConstants.CODE_EXPIRE_5MINUTE);
-    }
-    public List<ArticleCardVO> getAndClearArticleCards(Long conversationId){
-        String key = RedisConstants.REDIS_KEY_AI_ARTICLE_CARDS+conversationId;
-        List<ArticleCardVO> cards = (List<ArticleCardVO>) redisUtils.get(key);
-        redisUtils.delete(key);
-        if(cards == null){
-            return new ArrayList<>();
-        }
-        return cards;
     }
     public void saveView(Long userId, Long articleId){
         String viewKey = RedisConstants.REDIS_KEY_ARTICLE_VIEW + userId + ":" + articleId;

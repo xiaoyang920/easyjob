@@ -8,12 +8,13 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.HexFormat;
 import java.util.UUID;
+import jakarta.servlet.http.Cookie;
 
 @Component
 public class ArticleReaderIdentity {
     public String resolve(HttpServletRequest request, HttpServletResponse response, Long userId) {
         String visitor = null;
-        if (request.getCookies() != null) for (var cookie : request.getCookies()) {
+        if (request.getCookies() != null) for (Cookie cookie : request.getCookies()) {
             if ("ej_reader".equals(cookie.getName()) && cookie.getValue().matches("[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}")) visitor = cookie.getValue();
         }
         if (visitor == null) {

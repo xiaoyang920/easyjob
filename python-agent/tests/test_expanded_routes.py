@@ -19,13 +19,13 @@ class ExpandedRouteTests(unittest.TestCase):
     def cases(self):
         return [{'id': 'a', 'kind': 'route', 'query': '只查本站', 'reviewed': True, 'category': 'web',
                  'requires_behavior_review': True,
-                 'acceptable_routes': [{'action': 'retrieve', 'target': 'knowledge', 'allow_web': False}]},
+                 'acceptable_routes': [{'action': 'call_tool', 'target': 'knowledge', 'allow_web': False}]},
                 {'id': 'b', 'kind': 'route', 'query': '解释即可', 'reviewed': True, 'category': 'simple',
                  'acceptable_routes': [{'action': 'answer'}]}]
 
     def record(self, **extra):
         return {'case_id': 'a', 'variant': 'main', 'repetition': 0, 'status': 'ok', 'latency_ms': 1,
-                'action': 'retrieve', 'target': 'knowledge', 'allow_web': False, **extra}
+                'action': 'call_tool', 'target': 'knowledge', 'allow_web': False, **extra}
 
     def test_wrong_web_flag_and_missing_repetitions_reduce_category_score(self):
         report = summarize(self.cases(), [self.record(allow_web=True)], repeats=2)['reports'][0]
@@ -51,9 +51,9 @@ class ExpandedRouteTests(unittest.TestCase):
 
     def test_invalid_web_labels_are_rejected_before_measurement(self):
         for route in ({'action': 'answer', 'allow_web': False},
-                      {'action': 'retrieve', 'target': 'knowledge', 'allow_web': 'false'},
-                      {'action': 'retrieve', 'target': 'memory', 'allow_web': True},
-                      {'action': 'retrieve', 'allow_website': False}):
+                      {'action': 'call_tool', 'target': 'knowledge', 'allow_web': 'false'},
+                      {'action': 'call_tool', 'target': 'memory', 'allow_web': True},
+                      {'action': 'call_tool', 'allow_website': False}):
             cases = self.cases()
             cases[0]['acceptable_routes'] = [route]
             with self.assertRaises(ValueError):

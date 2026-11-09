@@ -31,7 +31,7 @@ public class SearchController {
             @RequestParam(defaultValue = "1") Integer pageNo,
             @RequestParam(defaultValue = "10") Integer pageSize,
             @RequestHeader(value = "Authorization", required = false) String authorization) {
-        Long viewerId = null;
+        Long viewerId = com.easyjob.utils.UserContext.getUserId();
         // Search is public. A valid optional token only enriches follow status.
         if (authorization != null) {
             try {

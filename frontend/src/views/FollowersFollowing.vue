@@ -27,11 +27,13 @@
         </div>
       </div>
 
+      <router-link v-if="isOwnList" class="friends-entry" to="/chat?tab=friends">查看我的朋友 →</router-link>
+      <button v-if="isOwnList" class="friends-entry" :aria-pressed="currentTab==='friends'" @click="switchTab('friends')">朋友 · 互相关注</button>
       <!-- 用户列表 -->
       <div v-if="loading" class="loading-state">加载中...</div>
 
       <div v-else-if="userList.length === 0" class="empty-state">
-        {{ currentTab === 'followers' ? '暂无粉丝' : '暂无关注' }}
+        {{currentTab==='friends'?'互相关注后会出现在这里':currentTab==='followers'?'暂无粉丝':'暂无关注'}}
       </div>
 
       <div v-else class="user-list">
@@ -51,13 +53,7 @@
             <div class="user-name">{{ user.nickName }}</div>
             <div class="user-intro">{{ user.personIntroduction || '这个人很懒，什么都没有留下~' }}</div>
           </div>
-          <button 
-            v-if="!isOwner(user.userId)"
-            :class="['follow-btn', { following: user.isFollowing }]"
-            @click="toggleFollow(user)"
-          >
-            {{ user.isFollowing ? '已关注' : '关注' }}
-          </button>
+          <FollowButton :user-id="String(user.userId)" @changed="Object.assign(user,$event)" />
         </div>
       </div>
 
@@ -92,6 +88,7 @@
 </template>
 
 <script setup lang="ts">
+import FollowButton from '@/components/FollowButton.vue'
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { goBackOr } from '../utils/navigation'
@@ -111,6 +108,7 @@ const currentPage = ref(1)
 const totalPages = ref(0)
 const followersCount = ref(0)
 const followingCount = ref(0)
+const friendsCount=ref(0)
 
 const userId = ref<string>('')
 
@@ -128,7 +126,7 @@ async function fetchUserList(reset = false) {
 
   loading.value = true
   try {
-    const url = currentTab.value === 'followers'
+    const url = currentTab.value === 'friends' && isOwnList.value ? `/social/contacts?kind=friends&page=${currentPage.value}&size=10` : currentTab.value === 'followers'
       ? `/user/${userId.value}/followers?page=${currentPage.value}&size=10`
       : `/user/${userId.value}/following?page=${currentPage.value}&size=10`
 
@@ -142,7 +140,7 @@ async function fetchUserList(reset = false) {
       // 更新计数
       if (currentTab.value === 'followers') {
         followersCount.value = res.data.total || 0
-      } else {
+      } else if(currentTab.value==='following') {
         followingCount.value = res.data.total || 0
       }
     }
@@ -277,6 +275,7 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.friends-entry{display:block;margin:16px 0;padding:14px 18px;border:1px solid var(--ej-ink);border-radius:12px;color:var(--ej-ink);background:var(--studio-lime,#c5ff45);text-decoration:none}
 .follow-page {
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   min-height: 100vh;

@@ -144,6 +144,9 @@ async def retrieve_evidence(state: AgentState) -> dict:
     from app.security.capabilities import effective_capabilities, require_capability
     require_capability(state, "platform_read")
     allowed = effective_capabilities(state)
+    if state.get('current_task', {}).get('urls'):
+        from app.services.page_reader import read_pages
+        return await read_pages(state)
     task_input = state["task_descriptions"].get("search", state["user_message"])
     # 如果有反思反馈，注入到任务描述中
     feedback = state.get("reflection_feedback", "")
@@ -188,13 +191,16 @@ async def retrieve_evidence(state: AgentState) -> dict:
                   or raw_filters.required_tags or raw_filters.time_range not in (None, "all"))
     if scoped:
         need_web_search = False
-    report = {"assessment_owner": "main", "platform": {"status": "empty", "candidates": 0},
+    web_only = state['current_task'].get('tool_name') == 'web_search'
+    report = {"assessment_owner": "main", "platform": {"status": "not_requested" if web_only else "empty", "candidates": 0},
               "web": {"status": "not_requested" if not state["current_task"].get("allow_web") else "blocked",
                       "candidates": 0, "provider": "deepseek"}}
     report["query_rewrite"] = {"status": rewrite_result.get("status", "completed")}
     if scoped and state["current_task"].get("allow_web"):
         report["web"].update(status="blocked", reason="required_platform_filters")
     async def platform_retrieval():
+        if web_only:
+            return []
         # 3. 粗检索：替换旧 execute_coarse_retrieval，改为 RRF 融合召回
         await activity(state, "retrieval", "搜索平台文章")
         candidates = await _measure_stage(state, 'coarse_retrieval', retrieval_service_instance.hybrid_search(

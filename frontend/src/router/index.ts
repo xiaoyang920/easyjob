@@ -18,6 +18,7 @@ const router = createRouter({
     return savedPosition || { top: 0, left: 0 }
   },
   routes: [
+    { path: '/growth-shop', name: 'GrowthShop', component: () => import('@/views/GrowthShop.vue') },
     { path: '/account-security', name: 'AccountSecurity', component: () => import('@/views/AccountSecurity.vue') },
     { path: '/password-reset', name: 'PasswordReset', component: () => import('@/views/PasswordReset.vue') },
     { path: '/admin', name: 'AdminConsole', component: () => import('@/views/AdminConsole.vue') },
@@ -102,7 +103,7 @@ router.beforeEach((to, _from, next) => {
   const token = localStorage.getItem('token')
   const needAuth = ['AccountSecurity', 'AdminConsole', 'CreateArticle', 'EditArticle', 'DraftBox', 'EditProfile', 'FollowersFollowing', 'Chat', 'AiChat', 'MemoryManagement', 'Notifications']
   
-  if (needAuth.includes(to.name as string) && !token) {
+  if ((to.name === 'GrowthShop' || needAuth.includes(to.name as string)) && !token) {
     // 跳转到首页并触发登录弹窗
     next({ path: '/', query: { login: 'true', redirect: to.fullPath } })
   } else {

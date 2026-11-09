@@ -20,6 +20,8 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import com.easyjob.vo.PageVO;
+import java.io.InputStream;
 
 class UserSearchTests {
     @Test void escapesLiteralWildcardsAndPaginates() {
@@ -27,12 +29,12 @@ class UserSearchTests {
         when(mapper.countSearchUsers("%C!%!_!!%")).thenReturn(12L);
         UserSearchVO user = new UserSearchVO(); user.setUserId("9007199254740993");
         when(mapper.searchUsers("C%_!", "%C!%!_!!%", 7L, 10, 10)).thenReturn(List.of(user));
-        var page = new UserSearchService(mapper).search(" C%_! ", 2, 10, 7L);
+        PageVO<UserSearchVO> page = new UserSearchService(mapper).search(" C%_! ", 2, 10, 7L);
         assertEquals(12L, page.getTotal()); assertEquals(2L, page.getPages());
         assertEquals("9007199254740993", page.getRecords().getFirst().getUserId());
     }
     @Test void rejectsUnboundedPaginationAndInvalidQueries() {
-        UserMapper mapper = mock(UserMapper.class); var service = new UserSearchService(mapper);
+        UserMapper mapper = mock(UserMapper.class); UserSearchService service = new UserSearchService(mapper);
         assertThrows(BusinessException.class, () -> service.search(" ", 1, 10, null));
         assertThrows(BusinessException.class, () -> service.search("x".repeat(201), 1, 10, null));
         assertThrows(BusinessException.class, () -> service.search("x", 0, 10, null));
@@ -42,7 +44,7 @@ class UserSearchTests {
     }
     @Test void emptySearchDoesNotIssuePageQuery() {
         UserMapper mapper = mock(UserMapper.class);
-        var page = new UserSearchService(mapper).search("Nobody", 1, 10, null);
+        PageVO<UserSearchVO> page = new UserSearchService(mapper).search("Nobody", 1, 10, null);
         assertTrue(page.getRecords().isEmpty()); assertEquals(0L, page.getTotal());
         verify(mapper).countSearchUsers("%Nobody%"); verifyNoMoreInteractions(mapper);
     }
@@ -75,10 +77,10 @@ class UserSearchTests {
     }
     @Test void realMapperOnlySelectsPublicUsersAndPublishedArticleCounts() throws Exception {
         Configuration config = new Configuration();
-        try (var input = Resources.getResourceAsStream("mapper/UserMapper.xml")) {
+        try (InputStream input = Resources.getResourceAsStream("mapper/UserMapper.xml")) {
             new XMLMapperBuilder(input, config, "mapper/UserMapper.xml", config.getSqlFragments()).parse();
         }
-        var params = new HashMap<String, Object>(); params.put("pattern", "%Alice%");
+        HashMap<String, Object> params = new HashMap<String, Object>(); params.put("pattern", "%Alice%");
         params.put("keyword", "Alice"); params.put("viewerId", null); params.put("offset", 0); params.put("limit", 10);
         String sql = config.getMappedStatement("com.easyjob.mapper.UserMapper.searchUsers").getBoundSql(params).getSql();
         assertTrue(sql.contains("u.status = 1")); assertTrue(sql.contains("a.status = 1"));

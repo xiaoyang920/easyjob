@@ -1,6 +1,8 @@
 param([switch]$Build, [string]$ValidatedJar, [switch]$KeepAlive)
 $ErrorActionPreference='Stop'
 $root=Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'java-tracing.ps1')
+[string[]]$javaTracingArguments = @(Get-JavaTracingArguments -ProjectRoot $root -ServiceName 'easyjob-gateway')
 $java='D:\jdk\bin\java.exe'
 $destination=Join-Path $root 'gateway\target\easyjob-gateway-0.0.1-SNAPSHOT.jar'
 if ($Build -and $ValidatedJar) {throw 'Choose Build or ValidatedJar.'}
@@ -27,7 +29,7 @@ $listeners=@(Get-NetTCPConnection -LocalPort 8090 -State Listen -ErrorAction Sil
 if (@($listeners | Where-Object {$_.OwningProcess -notin @($targets.ProcessId)}).Count) {throw 'Port 8090 belongs to an unverified process.'}
 foreach ($process in $targets) {Stop-Process -Id $process.ProcessId -Force}
 if ($ValidatedJar) {Copy-Item -LiteralPath $replacement -Destination $destination -Force}
-$started=Start-Process -FilePath $java -ArgumentList @('-jar','gateway\target\easyjob-gateway-0.0.1-SNAPSHOT.jar','--spring.config.additional-location=file:./temp/gateway-runtime.yml') -WorkingDirectory $root -WindowStyle Hidden -RedirectStandardOutput (Join-Path $root 'logs/gateway.out.log') -RedirectStandardError (Join-Path $root 'logs/gateway.err.log') -PassThru
+$started=Start-Process -FilePath $java -ArgumentList ($javaTracingArguments + @('-jar','gateway\target\easyjob-gateway-0.0.1-SNAPSHOT.jar','--spring.profiles.include=tracing','--spring.config.additional-location=file:./temp/gateway-runtime.yml')) -WorkingDirectory $root -WindowStyle Hidden -RedirectStandardOutput (Join-Path $root 'logs/gateway.out.log') -RedirectStandardError (Join-Path $root 'logs/gateway.err.log') -PassThru
 for ($attempt=0;$attempt -lt 20;$attempt++) {
     Start-Sleep -Seconds 2
     try {

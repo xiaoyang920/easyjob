@@ -16,6 +16,8 @@ import java.util.Map;
  */
 @Component
 public class JwtUtil {
+    @org.springframework.beans.factory.annotation.Value("${easyjob.auth.enabled:false}")
+    private boolean unified;
 
     @org.springframework.beans.factory.annotation.Autowired
     private com.easyjob.service.AuthSessionService sessions;
@@ -143,6 +145,7 @@ public class JwtUtil {
      * @return 当前登录用户ID，匿名时为 null
      */
     public Long resolveOptionalUserId(String authorization) {
+        if (unified) return UserContext.getUserId();
         String token = getTokenFromAuthorization(authorization);
         if (token == null || token.isEmpty() || !Boolean.TRUE.equals(validateToken(token))) {
             return null;

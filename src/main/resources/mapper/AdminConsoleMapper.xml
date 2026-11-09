@@ -104,7 +104,7 @@
     <select id="findUsers" resultType="map">
         SELECT CAST(u.user_id AS CHAR) AS userId,u.nick_name AS nickName,u.role,CAST(u.status AS UNSIGNED) AS status,u.join_time AS joinTime,COALESCE(p.total_millis,0) DIV 1000 AS readingSeconds,GREATEST(COALESCE(p.earned_level,0),COALESCE((SELECT MAX(level)
         FROM reading_level_rule
-        WHERE min_seconds&lt;=COALESCE(p.total_millis,0) DIV 1000),0)) AS readingLevel
+        WHERE min_seconds&lt;=(COALESCE(p.total_millis,0)+COALESCE(p.purchased_millis,0)) DIV 1000),0)) AS readingLevel
         FROM user_info u
         LEFT
         JOIN user_reading_progress p ON p.user_id=u.user_id

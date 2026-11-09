@@ -97,7 +97,7 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
     public IPage<Notification> getAll(Long userId, Integer page, Integer size,Integer type,boolean unreadOnly) {
         if(page==null || page<1 || page>10000 || size==null || size<1 || size>100
                 || (type!=null && (type<1 || type>7))) throw new BusinessException(400,"通知查询参数无效");
-        var query=new LambdaQueryWrapper<Notification>().eq(Notification::getUserId,userId)
+        LambdaQueryWrapper<Notification> query=new LambdaQueryWrapper<Notification>().eq(Notification::getUserId,userId)
                 .eq(unreadOnly,Notification::getIsRead,0);
         if(Integer.valueOf(6).equals(type)) query.in(Notification::getType,6,7);
         else if(type!=null) query.eq(Notification::getType,type);

@@ -55,11 +55,11 @@ button:disabled { cursor: not-allowed; }
 .page-leave-to { opacity: 0; }
 
 /* Page shells share the paper canvas; every page except Home (which renders its own) gets the grain layer. */
-#app :is(.home-page, .article-detail-page, .user-space-page, .draft-box-page, .search-page, .article-editor-page, .edit-profile-page, .follow-page, .chat-page, .ai-chat-page, .notify-page) {
+:is(#app, .writing-ai-panel) :is(.home-page, .article-detail-page, .user-space-page, .draft-box-page, .search-page, .article-editor-page, .edit-profile-page, .follow-page, .chat-page, .ai-chat-page, .notify-page) {
   background: var(--ej-canvas); font-family: var(--ej-font); color: var(--ej-ink);
 }
-#app :is(.article-detail-page, .user-space-page, .draft-box-page, .search-page, .article-editor-page, .edit-profile-page, .follow-page, .chat-page, .ai-chat-page, .notify-page) { isolation: isolate; }
-#app :is(.article-detail-page, .user-space-page, .draft-box-page, .search-page, .article-editor-page, .edit-profile-page, .follow-page, .chat-page, .ai-chat-page, .notify-page)::before {
+:is(#app, .writing-ai-panel) :is(.article-detail-page, .user-space-page, .draft-box-page, .search-page, .article-editor-page, .edit-profile-page, .follow-page, .chat-page, .ai-chat-page, .notify-page) { isolation: isolate; }
+:is(#app, .writing-ai-panel) :is(.article-detail-page, .user-space-page, .draft-box-page, .search-page, .article-editor-page, .edit-profile-page, .follow-page, .chat-page, .ai-chat-page, .notify-page)::before {
   content: ''; position: fixed; inset: 0; width: auto; height: auto; z-index: -1; pointer-events: none;
   opacity: .065; background: repeating-radial-gradient(circle at 20% 30%, #11110f 0 .65px, transparent .85px 4px); background-size: 7px 7px;
   border: 0; border-radius: 0; transform: none; filter: none; animation: none;
@@ -250,7 +250,7 @@ html::-webkit-scrollbar-thumb { background: #11110f40; border-radius: 999px; bor
 #app .article-detail-page .article-header { border-bottom: 1px solid var(--ej-ink); padding-bottom: 26px; }
 #app .article-detail-page .article-meta { color: var(--ej-muted); }
 #app .article-detail-page .author-avatar { border: 1.5px solid var(--ej-ink); }
-#app .article-detail-page .article-content { font-size: calc(16px * var(--article-reading-scale, 1)); line-height: 1.85; color: #2f2d28; }
+#app .article-detail-page .article-content { font-size: calc(16px * var(--article-reading-scale, 1)); line-height: 1.8; color: #2f2d28; }
 #app .article-reading-tools { position:sticky; top:calc(var(--ej-header-height) + 8px); z-index:5; display:flex; align-items:center; flex-wrap:wrap; gap:10px; margin:0 0 24px; padding:10px 12px; border:1px solid var(--ej-line); border-radius:14px; background:var(--ej-surface); box-shadow:var(--ej-shadow); color:var(--ej-muted); font-size:12px; }
 #app .reading-tools-label { margin-right:auto; }
 #app .article-reading-tools button { padding:7px 11px; font:inherit; color:var(--ej-ink); border:1px solid var(--ej-line); border-radius:99px; background:var(--ej-surface); cursor:pointer; }
@@ -261,53 +261,44 @@ html::-webkit-scrollbar-thumb { background: #11110f40; border-radius: 999px; bor
 #app .reading-size-controls button + button { margin-left:-1px; }
 #app .reading-size-controls button:first-child { border-radius:99px 0 0 99px; }
 #app .reading-size-controls button:last-child { border-radius:0 99px 99px 0; }
-/* Body rhythm: authors often write one line per paragraph, so paragraphs sit close together, and wangEditor's
-   blank lines (a paragraph holding only <br>) shrink to a short gap instead of a full empty row. */
-#app .article-detail-page .article-content p { margin: 0 0 .6em; }
-#app .article-detail-page .article-content p:has(> br:only-child) { margin: 0; line-height: 1; }
+/* Preserve the author's paragraph rhythm, including intentional blank lines. */
+:is(#app .article-detail-page .article-content, .article-rich-editor .w-e-text-container [data-slate-editor]) { font-size:calc(16px * var(--article-reading-scale, 1)); line-height:1.8; color:#2f2d28; }
+:is(#app .article-detail-page .article-content, .article-rich-editor .w-e-text-container [data-slate-editor]) p { margin:0 0 .6em; line-height:inherit; text-align:left; }
 #app .article-detail-page .article-content :is(ul, ol) { margin: .6em 0 .9em; padding-left: 1.6em; }
 #app .article-detail-page .article-content li { margin-bottom: .35em; line-height: 1.8; }
 
-/* Heading hierarchy, shared by the reading view and the editor. Each level differs in size, spacing and marker:
-   h1 ink rule, h2 lime bar, h3 coral dot, h4 violet chevron, h5/h6 muted small caps. */
+/* One document typography for writing and reading; indentation belongs to the author. */
 :is(#app .article-detail-page .article-content, .article-rich-editor .w-e-text-container [data-slate-editor]) :is(h1, h2, h3, h4, h5, h6) {
   position: relative; color: var(--ej-ink); line-height: 1.4; letter-spacing: -.03em; scroll-margin-top: 100px; text-align: left;
+  margin:1.1em 0 .4em; padding:0; border:0; min-height:0;
+  overflow-wrap: anywhere;
 }
 :is(#app .article-detail-page .article-content, .article-rich-editor .w-e-text-container [data-slate-editor]) h1 {
-  margin: 2.2em 0 .8em; padding-bottom: .4em; font-size: calc(30px * var(--article-reading-scale, 1)); font-weight: 850; letter-spacing: -.045em; border-bottom: 1.5px solid var(--ej-ink);
+  font-size:calc(28.8px * var(--article-reading-scale, 1)); font-weight:850; letter-spacing:-.045em;
 }
 :is(#app .article-detail-page .article-content, .article-rich-editor .w-e-text-container [data-slate-editor]) h2 {
-  margin: 2em 0 .7em; padding-left: 18px; font-size: calc(24px * var(--article-reading-scale, 1)); font-weight: 850; border: 0;
-}
-:is(#app .article-detail-page .article-content, .article-rich-editor .w-e-text-container [data-slate-editor]) h2::before {
-  content: ''; position: absolute; left: 0; top: .18em; bottom: .18em; width: 7px; background: var(--studio-lime); border: 1px solid var(--ej-ink); border-radius: 4px;
+  font-size:calc(24px * var(--article-reading-scale, 1)); font-weight:850;
 }
 :is(#app .article-detail-page .article-content, .article-rich-editor .w-e-text-container [data-slate-editor]) h3 {
-  margin: 1.7em 0 .55em; padding-left: 18px; font-size: calc(19px * var(--article-reading-scale, 1)); font-weight: 800;
-}
-:is(#app .article-detail-page .article-content, .article-rich-editor .w-e-text-container [data-slate-editor]) h3::before {
-  content: ''; position: absolute; left: 1px; top: calc(.7em - 4px); width: 8px; height: 8px; background: var(--studio-coral); border: 1px solid var(--ej-ink); border-radius: 50%;
+  font-size:calc(20px * var(--article-reading-scale, 1)); font-weight:800;
 }
 :is(#app .article-detail-page .article-content, .article-rich-editor .w-e-text-container [data-slate-editor]) h4 {
-  margin: 1.4em 0 .45em; padding-left: 18px; font-size: calc(16px * var(--article-reading-scale, 1)); font-weight: 800; color: #2f2d28;
-}
-:is(#app .article-detail-page .article-content, .article-rich-editor .w-e-text-container [data-slate-editor]) h4::before {
-  content: '›'; position: absolute; left: 2px; top: -.08em; color: var(--ej-accent); font-size: 1.25em; font-weight: 900;
+  font-size:calc(16px * var(--article-reading-scale, 1)); font-weight:800; color:#2f2d28;
 }
 :is(#app .article-detail-page .article-content, .article-rich-editor .w-e-text-container [data-slate-editor]) :is(h5, h6) {
-  margin: 1.2em 0 .4em; font-size: calc(14px * var(--article-reading-scale, 1)); font-weight: 800; color: var(--ej-muted); letter-spacing: .06em;
+  font-size:calc(14px * var(--article-reading-scale, 1)); font-weight:800; color:var(--ej-muted); letter-spacing:.06em;
 }
 /* A heading that opens the body, or follows another heading, needs no extra top space. */
 :is(#app .article-detail-page .article-content, .article-rich-editor .w-e-text-container [data-slate-editor]) > :is(h1, h2, h3, h4, h5, h6):first-child,
 :is(#app .article-detail-page .article-content, .article-rich-editor .w-e-text-container [data-slate-editor]) :is(h1, h2, h3, h4, h5, h6) + :is(h1, h2, h3, h4, h5, h6) { margin-top: .4em; }
-#app .article-detail-page .article-content a { color: var(--ej-accent); text-decoration-color: #745cff66; text-underline-offset: 3px; }
+:is(#app .article-detail-page .article-content, .article-rich-editor .w-e-text-container [data-slate-editor]) a { color:var(--ej-accent); text-decoration-color:#745cff66; text-underline-offset:3px; }
 /* Evidence markers are separate from prose, with the same appearance in drafts and answers. */
-#app :is(.article-content, .message-bubble, .draft-review-body) sup.citation-ref { display: inline; margin: 0 .12em; font-size: .72em; line-height: 0; vertical-align: super; white-space: nowrap; }
-#app :is(.article-content, .message-bubble, .draft-review-body) :is(.inline-citation, .citation-unavailable) { display: inline-block; box-sizing: border-box; padding: 2px 5px; border: 1px solid #745cff33; border-radius: 6px; background: var(--ej-accent-soft); color: #5841bd; font: inherit; font-weight: 600; line-height: 1.25; text-decoration: none; text-indent: 0; vertical-align: baseline; }
-#app :is(.article-content, .message-bubble, .draft-review-body) .inline-citation { cursor: pointer; }
-#app :is(.article-content, .message-bubble, .draft-review-body) .inline-citation:hover { background: #d5ccff; border-color: #745cff88; }
-#app :is(.article-content, .message-bubble, .draft-review-body) .inline-citation:focus-visible { outline: 2px solid var(--ej-accent); outline-offset: 3px; }
-#app :is(.article-content, .message-bubble, .draft-review-body) .citation-unavailable { color: var(--ej-muted); background: var(--ej-soft); border-color: var(--ej-line); cursor: help; }
+:is(#app, .writing-ai-panel) :is(.article-content, .message-bubble, .draft-review-body) sup.citation-ref { display: inline; margin: 0 .12em; font-size: .72em; line-height: 0; vertical-align: super; white-space: nowrap; }
+:is(#app, .writing-ai-panel) :is(.article-content, .message-bubble, .draft-review-body) :is(.inline-citation, .citation-unavailable) { display: inline-block; box-sizing: border-box; padding: 2px 5px; border: 1px solid #745cff33; border-radius: 6px; background: var(--ej-accent-soft); color: #5841bd; font: inherit; font-weight: 600; line-height: 1.25; text-decoration: none; text-indent: 0; vertical-align: baseline; }
+:is(#app, .writing-ai-panel) :is(.article-content, .message-bubble, .draft-review-body) .inline-citation { cursor: pointer; }
+:is(#app, .writing-ai-panel) :is(.article-content, .message-bubble, .draft-review-body) .inline-citation:hover { background: #d5ccff; border-color: #745cff88; }
+:is(#app, .writing-ai-panel) :is(.article-content, .message-bubble, .draft-review-body) .inline-citation:focus-visible { outline: 2px solid var(--ej-accent); outline-offset: 3px; }
+:is(#app, .writing-ai-panel) :is(.article-content, .message-bubble, .draft-review-body) .citation-unavailable { color: var(--ej-muted); background: var(--ej-soft); border-color: var(--ej-line); cursor: help; }
 #app .article-content .citation-raw-label { font-size: 0; }
 #app .article-content .citation-raw-label::after { content: attr(data-citation-label); font-size: calc(12px * var(--article-reading-scale, 1)); }
 #app .article-content .citation-source-label { font-size: 0; }
@@ -318,12 +309,12 @@ html::-webkit-scrollbar-thumb { background: #11110f40; border-radius: 999px; bor
    from wangEditor). The block is a single surface: pre carries the ink background, code stays transparent inside it.
    The streaming placeholder for an unfinished table is not code, so it keeps its own quiet style. */
 html:root { --code-bg: #17171a; --code-text: #e8e4da; --code-muted: #8f8a80; --code-keyword: #b4a7ff; --code-string: #c8ff3d; --code-number: #f3a093; --code-title: #ffd27a; --code-attr: #e9ffb3; --code-punct: #bdb8ad; --code-font: "JetBrains Mono", "Fira Code", Consolas, Monaco, monospace; }
-:is(#app .article-detail-page .article-content, .article-rich-editor .w-e-text-container [data-slate-editor], #app .ai-chat-page .message-bubble, #app .ai-chat-page .draft-review-body) pre:not(.streaming-table) {
+:is(:is(#app, .writing-ai-panel) .article-detail-page .article-content, .article-rich-editor .w-e-text-container [data-slate-editor], :is(#app, .writing-ai-panel) .ai-chat-page .message-bubble, :is(#app, .writing-ai-panel) .ai-chat-page .draft-review-body) pre:not(.streaming-table) {
   margin: 20px 0; padding: 0; background: var(--code-bg); border: 1px solid var(--ej-ink); border-radius: 14px; box-shadow: var(--ej-shadow); overflow: hidden;
 }
 /* Edge glows appear only while more code is hidden on that side (scroll-shadow technique: the "local" covers travel
    with the content and hide the fixed glows once an end is reached), so narrow screens show the block scrolls. */
-:is(#app .article-detail-page .article-content, .article-rich-editor .w-e-text-container [data-slate-editor], #app .ai-chat-page .message-bubble, #app .ai-chat-page .draft-review-body) pre:not(.streaming-table) > code {
+:is(:is(#app, .writing-ai-panel) .article-detail-page .article-content, .article-rich-editor .w-e-text-container [data-slate-editor], :is(#app, .writing-ai-panel) .ai-chat-page .message-bubble, :is(#app, .writing-ai-panel) .ai-chat-page .draft-review-body) pre:not(.streaming-table) > code {
   display: block; margin: 0; padding: 16px 20px; overflow-x: auto; border: 0; border-radius: 0; color: var(--code-text);
   background:
     linear-gradient(90deg, var(--code-bg) 40%, #17171a00) left center / 32px 100% no-repeat local,
@@ -333,35 +324,33 @@ html:root { --code-bg: #17171a; --code-text: #e8e4da; --code-muted: #8f8a80; --c
   font-family: var(--code-font); font-size: calc(13.5px * var(--article-reading-scale, 1)); line-height: 1.7; white-space: pre; text-shadow: none; tab-size: 4;
   -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; scrollbar-width: thin; scrollbar-color: #ffffff33 transparent;
 }
-:is(#app .article-detail-page .article-content, .article-rich-editor .w-e-text-container [data-slate-editor], #app .ai-chat-page .message-bubble, #app .ai-chat-page .draft-review-body) :not(pre) > code {
+:is(:is(#app, .writing-ai-panel) .article-detail-page .article-content, .article-rich-editor .w-e-text-container [data-slate-editor], :is(#app, .writing-ai-panel) .ai-chat-page .message-bubble, :is(#app, .writing-ai-panel) .ai-chat-page .draft-review-body) :not(pre) > code {
   padding: 2px 6px; background: var(--ej-accent-soft); color: var(--ej-ink); border: 0; border-radius: 6px; font-family: var(--code-font); font-size: .88em;
 }
-#app .ai-chat-page pre.streaming-table {
+:is(#app, .writing-ai-panel) .ai-chat-page pre.streaming-table {
   margin: 10px 0; padding: 12px 14px; overflow-x: auto; background: var(--ej-surface); border: 1px dashed var(--ej-line); border-radius: 12px;
   color: var(--ej-muted); font-family: var(--code-font); font-size: 12px; line-height: 1.7; white-space: pre;
 }
 /* Token colors: highlight.js classes in articles and AI answers, Prism classes in the editor. */
-#app :is(.article-detail-page .article-content, .ai-chat-page .message-bubble, .ai-chat-page .draft-review-body) pre :is(.hljs-comment, .hljs-quote, .hljs-meta),
+:is(#app, .writing-ai-panel) :is(.article-detail-page .article-content, .ai-chat-page .message-bubble, .ai-chat-page .draft-review-body) pre :is(.hljs-comment, .hljs-quote, .hljs-meta),
 :is(#app .article-editor-page, .article-rich-editor) [data-slate-editor] pre :is(.token.comment, .token.prolog, .token.doctype, .token.cdata) { color: var(--code-muted); font-style: italic; }
-#app :is(.article-detail-page .article-content, .ai-chat-page .message-bubble, .ai-chat-page .draft-review-body) pre :is(.hljs-keyword, .hljs-selector-tag, .hljs-section, .hljs-link, .hljs-doctag),
+:is(#app, .writing-ai-panel) :is(.article-detail-page .article-content, .ai-chat-page .message-bubble, .ai-chat-page .draft-review-body) pre :is(.hljs-keyword, .hljs-selector-tag, .hljs-section, .hljs-link, .hljs-doctag),
 :is(#app .article-editor-page, .article-rich-editor) [data-slate-editor] pre :is(.token.keyword, .token.atrule, .token.important) { color: var(--code-keyword); }
-#app :is(.article-detail-page .article-content, .ai-chat-page .message-bubble, .ai-chat-page .draft-review-body) pre :is(.hljs-string, .hljs-regexp, .hljs-addition, .hljs-template-tag),
+:is(#app, .writing-ai-panel) :is(.article-detail-page .article-content, .ai-chat-page .message-bubble, .ai-chat-page .draft-review-body) pre :is(.hljs-string, .hljs-regexp, .hljs-addition, .hljs-template-tag),
 :is(#app .article-editor-page, .article-rich-editor) [data-slate-editor] pre :is(.token.string, .token.char, .token.regex, .token.inserted, .token.url) { color: var(--code-string); }
-#app :is(.article-detail-page .article-content, .ai-chat-page .message-bubble, .ai-chat-page .draft-review-body) pre :is(.hljs-number, .hljs-literal, .hljs-symbol, .hljs-bullet, .hljs-deletion),
+:is(#app, .writing-ai-panel) :is(.article-detail-page .article-content, .ai-chat-page .message-bubble, .ai-chat-page .draft-review-body) pre :is(.hljs-number, .hljs-literal, .hljs-symbol, .hljs-bullet, .hljs-deletion),
 :is(#app .article-editor-page, .article-rich-editor) [data-slate-editor] pre :is(.token.number, .token.boolean, .token.constant, .token.symbol, .token.deleted) { color: var(--code-number); }
-#app :is(.article-detail-page .article-content, .ai-chat-page .message-bubble, .ai-chat-page .draft-review-body) pre :is(.hljs-title, .hljs-function, .hljs-class, .hljs-type, .hljs-built_in, .hljs-name),
+:is(#app, .writing-ai-panel) :is(.article-detail-page .article-content, .ai-chat-page .message-bubble, .ai-chat-page .draft-review-body) pre :is(.hljs-title, .hljs-function, .hljs-class, .hljs-type, .hljs-built_in, .hljs-name),
 :is(#app .article-editor-page, .article-rich-editor) [data-slate-editor] pre :is(.token.function, .token.class-name, .token.builtin, .token.tag) { color: var(--code-title); }
-#app :is(.article-detail-page .article-content, .ai-chat-page .message-bubble, .ai-chat-page .draft-review-body) pre :is(.hljs-attr, .hljs-attribute, .hljs-variable, .hljs-template-variable, .hljs-property, .hljs-params),
+:is(#app, .writing-ai-panel) :is(.article-detail-page .article-content, .ai-chat-page .message-bubble, .ai-chat-page .draft-review-body) pre :is(.hljs-attr, .hljs-attribute, .hljs-variable, .hljs-template-variable, .hljs-property, .hljs-params),
 :is(#app .article-editor-page, .article-rich-editor) [data-slate-editor] pre :is(.token.attr-name, .token.attr-value, .token.property, .token.variable, .token.selector) { color: var(--code-attr); }
 :is(#app .article-editor-page, .article-rich-editor) [data-slate-editor] pre :is(.token.punctuation, .token.operator, .token.entity) { color: var(--code-punct); background: transparent; }
-#app :is(.article-detail-page .article-content, .ai-chat-page .message-bubble, .ai-chat-page .draft-review-body) pre :is(.hljs-emphasis) { font-style: italic; }
-#app :is(.article-detail-page .article-content, .ai-chat-page .message-bubble, .ai-chat-page .draft-review-body) pre :is(.hljs-strong) { font-weight: 700; }
+:is(#app, .writing-ai-panel) :is(.article-detail-page .article-content, .ai-chat-page .message-bubble, .ai-chat-page .draft-review-body) pre :is(.hljs-emphasis) { font-style: italic; }
+:is(#app, .writing-ai-panel) :is(.article-detail-page .article-content, .ai-chat-page .message-bubble, .ai-chat-page .draft-review-body) pre :is(.hljs-strong) { font-weight: 700; }
 #app .article-detail-page .article-cover { max-height: 250px; object-fit: cover; border: 1px solid var(--ej-ink); border-radius: 14px; box-shadow: none; }
 #app .article-detail-page .article-cover:hover { transform: none; box-shadow: none; }
 #app .article-detail-page .article-summary { background: var(--ej-canvas); border: 0; border-left: 3px solid var(--studio-coral); color: #47453f; border-radius: 0 12px 12px 0; }
 #app :is(.article-content,.code-content) .article-code-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 14px; border-bottom:1px solid #ffffff22; color:var(--code-muted); font:12px var(--ej-font); }
-#app .copy-answer-btn { margin-top:12px; padding:7px 13px; border:1px solid var(--ej-line); border-radius:99px; background:var(--ej-surface); color:var(--ej-muted); font:12px var(--ej-font); cursor:pointer; }
-#app .copy-answer-btn:hover { color:var(--ej-ink); background:var(--studio-lime-soft); border-color:var(--ej-ink); }
 #app .article-code-toolbar > span { text-transform:uppercase; }
 #app .article-code-toolbar button { padding:6px 11px; border:1px solid #ffffff44; border-radius:99px; background:transparent; color:var(--code-text); font:inherit; cursor:pointer; }
 #app .article-code-toolbar button:hover { color:var(--ej-ink); background:var(--studio-lime); border-color:var(--studio-lime); }
@@ -476,67 +465,67 @@ html:root { --code-bg: #17171a; --code-text: #e8e4da; --code-muted: #8f8a80; --c
 #app .notify-page .tab-badge { background: var(--studio-coral); color: var(--ej-ink); }
 
 /* Conversations: paper sidebar, open answers and an ink-outlined composer. */
-#app :is(.ai-chat-page, .chat-page) .chat-container { padding-top: 72px; height: 100dvh; background: var(--ej-canvas); }
-#app :is(.ai-chat-page, .chat-page) .conversation-sidebar { width: 260px; background: #ebe6da; border-color: var(--ej-ink); }
-#app .ai-chat-page .sidebar-header { border: 0; padding: 24px 18px 16px; align-items: stretch; flex-direction: column; gap: 16px; }
-#app .ai-chat-page .sidebar-header h3 { font-size: 18px; font-weight: 700; letter-spacing: -.02em; color: var(--ej-ink); }
+:is(#app, .writing-ai-panel) :is(.ai-chat-page, .chat-page) .chat-container { padding-top: 72px; height: 100dvh; background: var(--ej-canvas); }
+:is(#app, .writing-ai-panel) :is(.ai-chat-page, .chat-page) .conversation-sidebar { width: 260px; background: #ebe6da; border-color: var(--ej-ink); }
+:is(#app, .writing-ai-panel) .ai-chat-page .sidebar-header { border: 0; padding: 24px 18px 16px; align-items: stretch; flex-direction: column; gap: 16px; }
+:is(#app, .writing-ai-panel) .ai-chat-page .sidebar-header h3 { font-size: 18px; font-weight: 700; letter-spacing: -.02em; color: var(--ej-ink); }
 #app .new-chat-btn { padding: 8px 12px; font-size: 11px; font-weight: 700; background: var(--ej-surface); }
-#app .ai-chat-page .new-chat-btn { justify-content: center; padding: 11px 12px; font-size: 13px; background: var(--studio-lime); border-radius: 11px; }
-#app :is(.ai-chat-page, .chat-page) .conversation-item { border: 1px solid transparent; border-radius: 14px; transition: background 180ms, border-color 180ms; }
-#app :is(.ai-chat-page, .chat-page) .conversation-item.active { background: var(--ej-surface); border-color: var(--ej-ink); box-shadow: var(--ej-shadow); }
-#app :is(.ai-chat-page, .chat-page) .conversation-item:hover:not(.active) { background: #fffdf799; }
-#app .ai-chat-page .conv-icon { background: transparent; width: 23px; color: var(--ej-muted); }
-#app .ai-chat-page .conv-icon svg { color: var(--ej-muted); width: 16px; }
-#app .ai-chat-page .conv-title { font-size: 13px; }
-#app .ai-chat-page .conv-time { font-size: 10px; color: var(--ej-muted); }
-#app .ai-chat-page .chat-main { background: transparent; min-width: 0; }
-#app .ai-chat-page .welcome-area { padding: 36px 24px; }
-#app .ai-chat-page .welcome-inner { width: min(100%, 600px); max-width: 600px; }
-#app .ai-chat-page .welcome-eyebrow { color: var(--ej-muted); font-size: 11px; font-weight: 700; letter-spacing: .08em; display: flex; align-items: center; gap: 8px; margin-bottom: 20px; }
-#app .quiet-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--studio-coral); }
-#app .ai-chat-page .welcome-title { font-size: clamp(28px, 3.4vw, 40px); font-weight: 850; color: var(--ej-ink); letter-spacing: -.055em; margin-bottom: 16px; }
-#app .ai-chat-page .welcome-desc { color: #47453f; font-size: 13px; margin-bottom: 38px; }
-#app .ai-chat-page .quick-questions { border-color: var(--ej-ink); }
-#app .ai-chat-page .quick-question-item { background: transparent; border: 0; border-bottom: 1px solid var(--ej-line); border-radius: 0; text-align: left; color: var(--ej-ink); padding: 15px 0; }
-#app .ai-chat-page .quick-question-item:hover { padding-left: 6px; color: var(--ej-ink); background: linear-gradient(90deg, var(--studio-lime-soft), transparent 70%); }
-#app .ai-chat-page .quick-question-item .qq-text { font-size: 12px; }
-#app .ai-chat-page .message-list { padding: 38px max(24px, calc((100% - 780px) / 2)); gap: 30px; }
-#app .ai-chat-page .message-item { gap: 12px; animation: content-arrive 300ms var(--ej-ease); }
-#app .ai-chat-page .message-avatar { width: 28px; height: 28px; background: var(--studio-lime); border: 1px solid var(--ej-ink); border-radius: 50%; }
-#app .ai-chat-page .message-avatar svg { width: 15px; height: 15px; color: var(--ej-ink); }
-#app .ai-chat-page .message-content { max-width: calc(100% - 40px); min-width: 0; }
-#app .ai-chat-page .message-item.assistant .message-content { flex: 1; }
-#app .ai-chat-page .message-item.assistant .message-bubble { background: transparent; border: 0; border-radius: 0; padding: 0; font-size: 14px; line-height: 1.95; color: var(--ej-ink); }
-#app .ai-chat-page .message-item.user .message-bubble { background: var(--ej-accent-soft); color: var(--ej-ink); border: 1px solid var(--ej-ink); border-radius: 18px 4px 18px 18px; padding: 11px 16px; }
-#app .ai-chat-page .message-image { display: block; width: fit-content; height: auto; max-width: min(422px, 100%); max-height: none; overflow: hidden; border: 1px solid var(--ej-hairline); border-radius: 14px; background: var(--ej-surface); }
-#app .ai-chat-page .message-image .el-image__inner { display: block; width: auto; height: auto; max-width: min(420px, 100%); max-height: 400px; object-fit: contain; }
-#app .ai-chat-page .image-preview-item img { display: block; width: auto; height: auto; max-width: 100px; max-height: 80px; object-fit: contain; }
-#app .ai-chat-page .input-area { background: transparent; padding: 18px max(24px, calc((100% - 780px) / 2)) 14px; border: 0; box-shadow: none; }
+:is(#app, .writing-ai-panel) .ai-chat-page .new-chat-btn { justify-content: center; padding: 11px 12px; font-size: 13px; background: var(--studio-lime); border-radius: 11px; }
+:is(#app, .writing-ai-panel) :is(.ai-chat-page, .chat-page) .conversation-item { border: 1px solid transparent; border-radius: 14px; transition: background 180ms, border-color 180ms; }
+:is(#app, .writing-ai-panel) :is(.ai-chat-page, .chat-page) .conversation-item.active { background: var(--ej-surface); border-color: var(--ej-ink); box-shadow: var(--ej-shadow); }
+:is(#app, .writing-ai-panel) :is(.ai-chat-page, .chat-page) .conversation-item:hover:not(.active) { background: #fffdf799; }
+:is(#app, .writing-ai-panel) .ai-chat-page .conv-icon { background: transparent; width: 23px; color: var(--ej-muted); }
+:is(#app, .writing-ai-panel) .ai-chat-page .conv-icon svg { color: var(--ej-muted); width: 16px; }
+:is(#app, .writing-ai-panel) .ai-chat-page .conv-title { font-size: 13px; }
+:is(#app, .writing-ai-panel) .ai-chat-page .conv-time { font-size: 10px; color: var(--ej-muted); }
+:is(#app, .writing-ai-panel) .ai-chat-page .chat-main { background: transparent; min-width: 0; }
+:is(#app, .writing-ai-panel) .ai-chat-page .welcome-area { padding: 36px 24px; }
+:is(#app, .writing-ai-panel) .ai-chat-page .welcome-inner { width: min(100%, 600px); max-width: 600px; }
+:is(#app, .writing-ai-panel) .ai-chat-page .welcome-eyebrow { color: var(--ej-muted); font-size: 11px; font-weight: 700; letter-spacing: .08em; display: flex; align-items: center; gap: 8px; margin-bottom: 20px; }
+:is(#app, .writing-ai-panel) .quiet-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--studio-coral); }
+:is(#app, .writing-ai-panel) .ai-chat-page .welcome-title { font-size: clamp(28px, 3.4vw, 40px); font-weight: 850; color: var(--ej-ink); letter-spacing: -.055em; margin-bottom: 16px; }
+:is(#app, .writing-ai-panel) .ai-chat-page .welcome-desc { color: #47453f; font-size: 13px; margin-bottom: 38px; }
+:is(#app, .writing-ai-panel) .ai-chat-page .quick-questions { border-color: var(--ej-ink); }
+:is(#app, .writing-ai-panel) .ai-chat-page .quick-question-item { background: transparent; border: 0; border-bottom: 1px solid var(--ej-line); border-radius: 0; text-align: left; color: var(--ej-ink); padding: 15px 0; }
+:is(#app, .writing-ai-panel) .ai-chat-page .quick-question-item:hover { padding-left: 6px; color: var(--ej-ink); background: linear-gradient(90deg, var(--studio-lime-soft), transparent 70%); }
+:is(#app, .writing-ai-panel) .ai-chat-page .quick-question-item .qq-text { font-size: 12px; }
+:is(#app, .writing-ai-panel) .ai-chat-page .message-list { padding: 38px max(24px, calc((100% - 780px) / 2)); gap: 30px; }
+:is(#app, .writing-ai-panel) .ai-chat-page .message-item { gap: 12px; animation: content-arrive 300ms var(--ej-ease); }
+:is(#app, .writing-ai-panel) .ai-chat-page .message-avatar { width: 28px; height: 28px; background: var(--studio-lime); border: 1px solid var(--ej-ink); border-radius: 50%; }
+:is(#app, .writing-ai-panel) .ai-chat-page .message-avatar svg { width: 15px; height: 15px; color: var(--ej-ink); }
+:is(#app, .writing-ai-panel) .ai-chat-page .message-content { max-width: calc(100% - 40px); min-width: 0; }
+:is(#app, .writing-ai-panel) .ai-chat-page .message-item.assistant .message-content { flex: 1; }
+:is(#app, .writing-ai-panel) .ai-chat-page .message-item.assistant .message-bubble { background: transparent; border: 0; border-radius: 0; padding: 0; font-size: 14px; line-height: 1.95; color: var(--ej-ink); }
+:is(#app, .writing-ai-panel) .ai-chat-page .message-item.user .message-bubble { background: var(--ej-accent-soft); color: var(--ej-ink); border: 1px solid var(--ej-ink); border-radius: 18px 4px 18px 18px; padding: 11px 16px; }
+:is(#app, .writing-ai-panel) .ai-chat-page .message-image { display: block; width: fit-content; height: auto; max-width: min(422px, 100%); max-height: none; overflow: hidden; border: 1px solid var(--ej-hairline); border-radius: 14px; background: var(--ej-surface); }
+:is(#app, .writing-ai-panel) .ai-chat-page .message-image .el-image__inner { display: block; width: auto; height: auto; max-width: min(420px, 100%); max-height: 400px; object-fit: contain; }
+:is(#app, .writing-ai-panel) .ai-chat-page .image-preview-item img { display: block; width: auto; height: auto; max-width: 100px; max-height: 80px; object-fit: contain; }
+:is(#app, .writing-ai-panel) .ai-chat-page .input-area { background: transparent; padding: 18px max(24px, calc((100% - 780px) / 2)) 14px; border: 0; box-shadow: none; }
 /* Buttons stay on the last line while the textarea grows upward. */
-#app .ai-chat-page .input-wrapper { align-items: flex-end; padding: 13px 12px; gap: 10px; background: var(--ej-surface); border: 1px solid var(--ej-ink); border-radius: 18px; box-shadow: var(--ej-shadow); transition: box-shadow 350ms var(--studio-spring), transform 350ms var(--studio-spring); }
-#app .ai-chat-page .input-wrapper:focus-within { box-shadow: var(--ej-shadow-lift); transform: translateY(-1px); }
-#app .ai-chat-page .input-wrapper textarea { font-size: 13px; color: var(--ej-ink); padding: 4px 0; background: transparent; }
-#app .ai-chat-page .input-wrapper textarea::placeholder { color: var(--ej-muted); }
-#app .ai-chat-page .upload-btn { color: var(--ej-ink); width: 30px; height: 30px; padding: 5px; background: transparent; border-radius: 50%; }
-#app .ai-chat-page .upload-btn:hover { background: var(--studio-lime); }
-#app .ai-chat-page :is(.send-btn, .stop-btn) { width: 32px; height: 32px; border-radius: 50%; background: var(--ej-ink); color: var(--ej-surface); border: 1px solid var(--ej-ink); box-shadow: none; }
-#app .ai-chat-page .send-btn:hover:not(:disabled) { background: var(--studio-lime); color: var(--ej-ink); transform: translateY(-1px); }
-#app .ai-chat-page .send-btn:disabled { background: var(--ej-soft); color: var(--ej-muted); border-color: var(--ej-line); }
-#app .ai-chat-page .input-tips { display: flex; justify-content: space-between; gap: 12px; margin-top: 9px; color: var(--ej-muted); }
-#app .ai-chat-page :is(.tip-text, .tip-note) { font-size: 10px; color: var(--ej-muted); }
-#app .ai-chat-page .citation-link { border: 1px solid var(--ej-ink); border-radius: 999px; color: var(--ej-ink); font-size: 11px; background: var(--ej-surface); }
-#app .ai-chat-page .citation-link:hover { background: var(--studio-lime); }
-#app .ai-chat-page .article-cards { padding: 0; background: transparent; border: 0; gap: 8px; grid-template-columns: minmax(0, 1fr); }
-#app .ai-chat-page .article-card { box-shadow: var(--ej-shadow); border: 1px solid var(--ej-ink); border-radius: 14px; background: var(--ej-surface); }
-#app .ai-chat-page .article-card:hover { box-shadow: var(--ej-shadow-lift); border-color: var(--ej-ink); }
-#app .ai-chat-page .draft-review-card { background: var(--ej-surface); border: 1px solid var(--ej-ink); border-radius: 18px; box-shadow: var(--ej-shadow); }
-#app .ai-chat-page .draft-review-header { border-color: var(--ej-ink); background: var(--studio-lime-soft); }
-#app .ai-chat-page .draft-review-status { background: var(--studio-lime); color: var(--ej-ink); border: 1px solid var(--ej-ink); border-radius: 999px; }
-#app .ai-chat-page .draft-review-footer { background: var(--ej-canvas); border-color: var(--ej-hairline); }
-#app .ai-chat-page :is(.interrupt-btn, .draft-revision button) { border-radius: 999px; border: 1px solid var(--ej-ink); }
-#app .ai-chat-page :is(.interrupt-btn.approve, .draft-revision button) { background: var(--ej-ink); color: var(--ej-surface); border-color: var(--ej-ink); }
-#app .ai-chat-page :is(.interrupt-btn.approve, .draft-revision button):hover:not(:disabled) { background: var(--studio-lime); color: var(--ej-ink); box-shadow: 3px 3px 0 var(--ej-ink); }
-#app .ai-chat-page .draft-link { background: var(--ej-accent-soft); border: 1px solid var(--ej-ink); border-radius: 14px; color: var(--ej-ink); }
+:is(#app, .writing-ai-panel) .ai-chat-page .input-wrapper { align-items: flex-end; padding: 13px 12px; gap: 10px; background: var(--ej-surface); border: 1px solid var(--ej-ink); border-radius: 18px; box-shadow: var(--ej-shadow); transition: box-shadow 350ms var(--studio-spring), transform 350ms var(--studio-spring); }
+:is(#app, .writing-ai-panel) .ai-chat-page .input-wrapper:focus-within { box-shadow: var(--ej-shadow-lift); transform: translateY(-1px); }
+:is(#app, .writing-ai-panel) .ai-chat-page .input-wrapper textarea { font-size: 13px; color: var(--ej-ink); padding: 4px 0; background: transparent; }
+:is(#app, .writing-ai-panel) .ai-chat-page .input-wrapper textarea::placeholder { color: var(--ej-muted); }
+:is(#app, .writing-ai-panel) .ai-chat-page .upload-btn { color: var(--ej-ink); width: 30px; height: 30px; padding: 5px; background: transparent; border-radius: 50%; }
+:is(#app, .writing-ai-panel) .ai-chat-page .upload-btn:hover { background: var(--studio-lime); }
+:is(#app, .writing-ai-panel) .ai-chat-page :is(.send-btn, .stop-btn) { width: 32px; height: 32px; border-radius: 50%; background: var(--ej-ink); color: var(--ej-surface); border: 1px solid var(--ej-ink); box-shadow: none; }
+:is(#app, .writing-ai-panel) .ai-chat-page .send-btn:hover:not(:disabled) { background: var(--studio-lime); color: var(--ej-ink); transform: translateY(-1px); }
+:is(#app, .writing-ai-panel) .ai-chat-page .send-btn:disabled { background: var(--ej-soft); color: var(--ej-muted); border-color: var(--ej-line); }
+:is(#app, .writing-ai-panel) .ai-chat-page .input-tips { display: flex; justify-content: space-between; gap: 12px; margin-top: 9px; color: var(--ej-muted); }
+:is(#app, .writing-ai-panel) .ai-chat-page :is(.tip-text, .tip-note) { font-size: 10px; color: var(--ej-muted); }
+:is(#app, .writing-ai-panel) .ai-chat-page .citation-link { border: 1px solid var(--ej-ink); border-radius: 999px; color: var(--ej-ink); font-size: 11px; background: var(--ej-surface); }
+:is(#app, .writing-ai-panel) .ai-chat-page .citation-link:hover { background: var(--studio-lime); }
+:is(#app, .writing-ai-panel) .ai-chat-page .article-cards { padding: 0; background: transparent; border: 0; gap: 8px; grid-template-columns: minmax(0, 1fr); }
+:is(#app, .writing-ai-panel) .ai-chat-page .article-card { box-shadow: var(--ej-shadow); border: 1px solid var(--ej-ink); border-radius: 14px; background: var(--ej-surface); }
+:is(#app, .writing-ai-panel) .ai-chat-page .article-card:hover { box-shadow: var(--ej-shadow-lift); border-color: var(--ej-ink); }
+:is(#app, .writing-ai-panel) .ai-chat-page .draft-review-card { background: var(--ej-surface); border: 1px solid var(--ej-ink); border-radius: 18px; box-shadow: var(--ej-shadow); }
+:is(#app, .writing-ai-panel) .ai-chat-page .draft-review-header { border-color: var(--ej-ink); background: var(--studio-lime-soft); }
+:is(#app, .writing-ai-panel) .ai-chat-page .draft-review-status { background: var(--studio-lime); color: var(--ej-ink); border: 1px solid var(--ej-ink); border-radius: 999px; }
+:is(#app, .writing-ai-panel) .ai-chat-page .draft-review-footer { background: var(--ej-canvas); border-color: var(--ej-hairline); }
+:is(#app, .writing-ai-panel) .ai-chat-page :is(.interrupt-btn, .draft-revision button) { border-radius: 999px; border: 1px solid var(--ej-ink); }
+:is(#app, .writing-ai-panel) .ai-chat-page :is(.interrupt-btn.approve, .draft-revision button) { background: var(--ej-ink); color: var(--ej-surface); border-color: var(--ej-ink); }
+:is(#app, .writing-ai-panel) .ai-chat-page :is(.interrupt-btn.approve, .draft-revision button):hover:not(:disabled) { background: var(--studio-lime); color: var(--ej-ink); box-shadow: 3px 3px 0 var(--ej-ink); }
+:is(#app, .writing-ai-panel) .ai-chat-page .draft-link { background: var(--ej-accent-soft); border: 1px solid var(--ej-ink); border-radius: 14px; color: var(--ej-ink); }
 /* Private chat: both columns share one frame (cream paper, ink outline, offset shadow); inner rules are hairlines. */
 #app .chat-page :is(.conversation-list, .chat-area) { background: var(--ej-surface); border: 1px solid var(--ej-ink); box-shadow: var(--ej-shadow); }
 #app .chat-page :is(.chat-header, .input-area) { background: var(--ej-surface); border-color: var(--ej-hairline); }
@@ -577,7 +566,7 @@ html .modern-dialog .el-tabs__item.is-active { color: var(--ej-ink); font-weight
 @media (max-width: 1000px) {
   #app .home-page .sidebar { width: 195px; }
   #app .home-page .main-content { gap: 26px; }
-  #app :is(.ai-chat-page, .chat-page) .conversation-sidebar { width: 225px; }
+  :is(#app, .writing-ai-panel) :is(.ai-chat-page, .chat-page) .conversation-sidebar { width: 225px; }
   #app .home-page .nav-icon-btn { padding: 8px 6px; }
   #app .article-detail-page .article-card { padding: 28px; }
 }
@@ -597,11 +586,11 @@ html .modern-dialog .el-tabs__item.is-active { color: var(--ej-ink); font-weight
   #app .article-detail-page .main-container { margin-top: 80px; }
   #app .article-detail-page :is(.toc-sidebar, .online-sidebar) { top: 76px; max-height: calc(100dvh - 92px); }
   #app .article-detail-page .article-card { padding: 24px 20px; border-radius: 18px; }
-  :is(#app .article-detail-page .article-content, .article-rich-editor .w-e-text-container [data-slate-editor], #app .ai-chat-page .message-bubble, #app .ai-chat-page .draft-review-body) pre:not(.streaming-table) > code { padding: 14px 16px; font-size: calc(12px * var(--article-reading-scale, 1)); }
+  :is(:is(#app, .writing-ai-panel) .article-detail-page .article-content, .article-rich-editor .w-e-text-container [data-slate-editor], :is(#app, .writing-ai-panel) .ai-chat-page .message-bubble, :is(#app, .writing-ai-panel) .ai-chat-page .draft-review-body) pre:not(.streaming-table) > code { padding: 14px 16px; font-size: calc(12px * var(--article-reading-scale, 1)); }
   :is(#app .article-detail-page .article-content, .article-rich-editor .w-e-text-container [data-slate-editor]) h1 { font-size: calc(24px * var(--article-reading-scale, 1)); }
-  :is(#app .article-detail-page .article-content, .article-rich-editor .w-e-text-container [data-slate-editor]) h2 { font-size: calc(20px * var(--article-reading-scale, 1)); padding-left: 15px; }
-  :is(#app .article-detail-page .article-content, .article-rich-editor .w-e-text-container [data-slate-editor]) h3 { font-size: calc(17px * var(--article-reading-scale, 1)); padding-left: 16px; }
-  :is(#app .article-detail-page .article-content, .article-rich-editor .w-e-text-container [data-slate-editor]) h4 { font-size: calc(15px * var(--article-reading-scale, 1)); padding-left: 16px; }
+  :is(#app .article-detail-page .article-content, .article-rich-editor .w-e-text-container [data-slate-editor]) h2 { font-size: calc(20px * var(--article-reading-scale, 1)); }
+  :is(#app .article-detail-page .article-content, .article-rich-editor .w-e-text-container [data-slate-editor]) h3 { font-size: calc(17px * var(--article-reading-scale, 1)); }
+  :is(#app .article-detail-page .article-content, .article-rich-editor .w-e-text-container [data-slate-editor]) h4 { font-size: calc(15px * var(--article-reading-scale, 1)); }
   #app .space-header { margin-top: 82px; height: auto; min-height: 0; padding: 0 16px; }
   #app .space-header .header-content { padding: 24px 20px; flex-wrap: wrap; gap: 15px; }
   #app .space-header .user-avatar { width: 76px; height: 76px; }
@@ -614,22 +603,22 @@ html .modern-dialog .el-tabs__item.is-active { color: var(--ej-ink); font-weight
   #app .notify-page .tabs::-webkit-scrollbar { display: none; }
   #app .notify-page .btn-mark-all { align-self: flex-end; }
   #app .notify-page .tab { flex-shrink: 0; white-space: nowrap; }
-  #app :is(.ai-chat-page, .chat-page) .chat-container { padding-top: 60px; }
+  :is(#app, .writing-ai-panel) :is(.ai-chat-page, .chat-page) .chat-container { padding-top: 60px; }
   #app .chat-page .chat-container { position: relative; margin-top: 60px; height: calc(100dvh - 60px); padding: 12px; }
   #app .chat-page :is(.conversation-list, .chat-area) { left: 12px; top: 12px; width: calc(100% - 24px); height: calc(100% - 24px); }
   #app .chat-page .conversation-list.hidden { transform: translateX(-110%); pointer-events: none; }
   #app .chat-page .msg-content, #app .chat-page .msg-content.image-content { max-width: calc(100% - 50px); }
   #app .chat-page .msg-image { max-height: 300px; }
-  #app .ai-chat-page .conversation-sidebar { width: 100%; top: 60px; height: auto; bottom: 0; }
-  #app .ai-chat-page .conversation-sidebar.hidden { display: none; }
-  #app .ai-chat-page .sidebar-header { padding: 20px; }
-  #app .ai-chat-page .message-list { padding: 25px 18px; gap: 24px; }
-  #app .ai-chat-page .message-image .el-image__inner { max-width: 100%; max-height: 300px; }
-  #app .ai-chat-page .message-item.assistant .message-avatar { display: none; }
-  #app .ai-chat-page .message-item.assistant .message-content { max-width: 100%; }
-  #app .ai-chat-page .input-area { padding: 12px 16px max(12px, env(safe-area-inset-bottom)); }
-  #app .ai-chat-page .welcome-area { padding: 30px 24px; }
-  #app .ai-chat-page .tip-note { display: none; }
+  :is(#app, .writing-ai-panel) .ai-chat-page .conversation-sidebar { width: 100%; top: 60px; height: auto; bottom: 0; }
+  :is(#app, .writing-ai-panel) .ai-chat-page .conversation-sidebar.hidden { display: none; }
+  :is(#app, .writing-ai-panel) .ai-chat-page .sidebar-header { padding: 20px; }
+  :is(#app, .writing-ai-panel) .ai-chat-page .message-list { padding: 25px 18px; gap: 24px; }
+  :is(#app, .writing-ai-panel) .ai-chat-page .message-image .el-image__inner { max-width: 100%; max-height: 300px; }
+  :is(#app, .writing-ai-panel) .ai-chat-page .message-item.assistant .message-avatar { display: none; }
+  :is(#app, .writing-ai-panel) .ai-chat-page .message-item.assistant .message-content { max-width: 100%; }
+  :is(#app, .writing-ai-panel) .ai-chat-page .input-area { padding: 12px 16px max(12px, env(safe-area-inset-bottom)); }
+  :is(#app, .writing-ai-panel) .ai-chat-page .welcome-area { padding: 30px 24px; }
+  :is(#app, .writing-ai-panel) .ai-chat-page .tip-note { display: none; }
 }
 @media (max-width: 480px) {
   #app .home-page .category-item { padding: 7px 12px; }
@@ -643,21 +632,27 @@ html .modern-dialog .el-tabs__item.is-active { color: var(--ej-ink); font-weight
 /* Feedback is teleported outside #app; share the same paper, ink and accent. */
 html .el-message { --el-message-bg-color: var(--ej-surface); --el-message-border-color: var(--ej-ink); border-radius:12px; box-shadow:var(--ej-shadow); max-width:calc(100vw - 32px); }
 html .el-message .el-message__content { color:var(--ej-ink); overflow-wrap:anywhere; }
-html .ej-confirm { background:var(--ej-surface); border:1px solid var(--ej-ink); border-radius:20px; box-shadow:var(--ej-shadow-lift); width:460px; max-width:min(460px, calc(100vw - 32px)); padding:24px; }
-html .ej-confirm .el-message-box__header { padding-bottom:16px; }
-html .ej-confirm .el-message-box__title { font-size:20px; font-weight:750; color:var(--ej-ink); }
-html .ej-confirm .el-message-box__headerbtn { top:12px; right:12px; }
-html .ej-confirm .el-message-box__container { align-items:flex-start; gap:12px; }
-html .ej-confirm .el-message-box__status { flex-shrink:0; margin-top:3px; }
-html .ej-confirm .el-message-box__message { color:var(--ej-muted); overflow-wrap:anywhere; }
-html .ej-confirm .el-message-box__message p { line-height:1.8; }
-html .ej-confirm .el-message-box__btns { padding-top:24px; gap:10px; }
-html .ej-confirm .el-button { border-radius:999px; margin:0; min-height:38px; padding:10px 18px; }
-html .ej-confirm .el-button--primary { background:var(--ej-ink); border-color:var(--ej-ink); color:var(--ej-surface); }
+html :is(.ej-confirm, .el-message-box) { background:var(--ej-surface); border:1px solid var(--ej-ink); border-radius:20px; box-shadow:var(--ej-shadow-lift); width:460px; max-width:min(460px, calc(100vw - 32px)); padding:24px; }
+html :is(.ej-confirm, .el-message-box) .el-message-box__header { padding-bottom:16px; }
+html :is(.ej-confirm, .el-message-box) .el-message-box__title { font-size:20px; font-weight:750; color:var(--ej-ink); }
+html :is(.ej-confirm, .el-message-box) .el-message-box__headerbtn { top:12px; right:12px; }
+html :is(.ej-confirm, .el-message-box) .el-message-box__container { align-items:flex-start; gap:12px; }
+html :is(.ej-confirm, .el-message-box) .el-message-box__status { flex-shrink:0; margin-top:3px; }
+html :is(.ej-confirm, .el-message-box) .el-message-box__message { color:var(--ej-muted); overflow-wrap:anywhere; }
+html :is(.ej-confirm, .el-message-box) .el-message-box__message p { line-height:1.8; }
+html :is(.ej-confirm, .el-message-box) .el-message-box__btns { display:flex; justify-content:flex-end; flex-wrap:wrap; padding-top:24px; gap:10px; }
+html :is(.ej-confirm, .el-message-box) .el-button { border-radius:999px; margin:0; min-height:38px; padding:10px 18px; }
+html :is(.ej-confirm, .el-message-box) .el-button--primary { background:var(--ej-ink); border-color:var(--ej-ink); color:var(--ej-surface); }
+html :is(.ej-confirm, .el-message-box) .el-button:not(.el-button--primary) { border-color:var(--ej-line); background:var(--ej-surface); color:var(--ej-ink); }
+html :is(.ej-confirm, .el-message-box) .el-button:hover:not(:disabled) { background:var(--studio-lime-soft); color:var(--ej-ink); border-color:var(--ej-ink); }
+html :is(.ej-confirm, .el-message-box) .el-button--primary:hover:not(:disabled) { background:var(--studio-lime); }
+html :is(.ej-confirm, .el-message-box) .el-button:focus-visible { outline:2px solid var(--ej-ink); outline-offset:3px; }
+html :is(.ej-confirm, .el-message-box) .el-input__wrapper { min-height:40px; border-radius:10px; background:var(--ej-canvas); box-shadow:0 0 0 1px var(--ej-line) inset; }
+html :is(.ej-confirm, .el-message-box) .el-input__wrapper.is-focus { box-shadow:0 0 0 1px var(--ej-ink) inset,0 0 0 3px var(--studio-lime-soft); }
 #app button:disabled { cursor:not-allowed; }
 #app .virtual-spacer { flex-shrink: 0; width: 1px; pointer-events: none; overflow-anchor: none; transition: none !important; animation: none !important; }
 #app .message-list:has(.virtual-spacer) { overflow-anchor: none; display: block; }
-#app .ai-chat-page .message-list > [data-virtual-key] { margin-bottom: 30px; }
+:is(#app, .writing-ai-panel) .ai-chat-page .message-list > [data-virtual-key] { margin-bottom: 30px; }
 #app .chat-page .message-list > [data-virtual-key] { display: flow-root; }
 
 /* Recycled historical rows must not replay the arrival animation while scrolling. */

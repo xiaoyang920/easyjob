@@ -1,3 +1,4 @@
+from tool_fakes import retrieval_call, raw_retrieval_call
 """Real guards and graph with scripted models; no network or quality claims."""
 import os
 os.environ['DEEPSEEK_API_KEY'] = 'offline-test'
@@ -11,6 +12,7 @@ from unittest.mock import AsyncMock, Mock, patch
 from fastapi import HTTPException
 from langgraph.checkpoint.memory import InMemorySaver
 
+from app.services import main_tools
 from app.graph import builder, main_agent, action_runtime, staged_runtime
 from app.graph.state_factory import create_initial_state
 from app.models.evidence_assessment import EvidenceAssessment
@@ -178,8 +180,8 @@ class GroundingGraphTests(unittest.IsolatedAsyncioTestCase):
     async def run_graph(self, reply, audits, repairs=(), web='not_requested', assessment=None, retrieval=True, retrieved=None):
         decisions = []
         if retrieval:
-            decisions.append(main_agent.MainDecision(action='retrieve', retrieval=main_agent.RetrievalRequest(
-                instruction='缓存一致性', filters={}, allow_web=web != 'not_requested')))
+            decisions.append(main_agent.MainDecision(action='call_tool', tool_call=retrieval_call(main_agent.RetrievalRequest(
+                instruction='缓存一致性', filters={}, allow_web=web != 'not_requested'))))
         decisions.append(main_agent.MainDecision(action='answer', reply=reply,
             evidence_assessment=assessment or (EvidenceAssessment(selected_ids=[CID], adequacy='sufficient', reason='有资料') if retrieval else None)))
         from app.graph.delivery_recovery import DeliveryLookup
@@ -218,7 +220,7 @@ class GroundingGraphTests(unittest.IsolatedAsyncioTestCase):
         graph = builder._build_graph().compile(checkpointer=InMemorySaver())
         with patch.object(main_agent, 'get_llm', return_value=main), \
              patch.object(grounding, 'get_llm', return_value=model), \
-             patch.object(action_runtime, 'retrieve_evidence', AsyncMock(return_value=retrieved or source_result(web))):
+             patch.object(main_tools, 'retrieve_evidence', AsyncMock(return_value=retrieved or source_result(web))):
             result = await graph.ainvoke(create_initial_state(7, '解释缓存一致性', []),
                 config={'configurable': {'thread_id': self.id()}, 'recursion_limit': 50})
         return result, control, audit_control, repair_control
@@ -249,11 +251,13 @@ class GroundingGraphTests(unittest.IsolatedAsyncioTestCase):
         assessment = EvidenceAssessment(selected_ids=[CID, 'retrieve_1:2'], adequacy='sufficient', reason='第二个来源')
         fixed = '重试不保证强一致性。[retrieve_1:2]'
         result, _, audit, repair = await self.run_graph(f'重试不保证强一致性。[{CID}]',
-            [review(citation_id='retrieve_1:2'), review(citation_id='retrieve_1:2')], [fixed],
+            [review(citation_id='retrieve_1:2'), review('unsupported', quote='', citation_id=CID),
+             review(citation_id='retrieve_1:2')], [fixed],
             assessment=assessment, retrieved=retrieved)
         self.assertEqual(result['final_reply'], fixed)
         self.assertEqual(result['grounding_audit']['status'], 'repaired')
-        self.assertEqual((audit.ainvoke.await_count, repair.ainvoke.await_count), (2, 1))
+        self.assertEqual((audit.ainvoke.await_count, repair.ainvoke.await_count), (3, 1))
+        self.assertEqual(result['grounding_audit']['citation_recheck_calls'], 1)
         from app.services.run_service import RunService
         conversations = SimpleNamespace(add_message=AsyncMock())
         settled = await RunService(conversations, SimpleNamespace()).finish(11, 7,

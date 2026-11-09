@@ -11,10 +11,11 @@ def pagination(q):
 async def query(q,uid,database=db):
     if q.kind=='conversation_library':
         from app.services.conversation import ConversationService,_to_camel_dict
-        if q.state not in ('all','general','article') or len(q.name)>80:raise HTTPException(422,'搜索条件无效')
+        if q.state not in ('all','general','article','writing') or len(q.name)>80:raise HTTPException(422,'搜索条件无效')
         values={'uid':uid,**pagination(q)};where='c.user_id=:uid AND c.status=1'
-        if q.state=='general':where+=' AND c.origin_article_id IS NULL'
-        if q.state=='article':where+=' AND c.origin_article_id IS NOT NULL AND c.message_count>0'
+        if q.state=='general':where+=' AND c.origin_article_id IS NULL AND c.is_writing=0'
+        if q.state=='article':where+=' AND c.origin_article_id IS NOT NULL AND c.is_writing=0 AND c.message_count>0'
+        if q.state=='writing':where+=' AND c.is_writing=1 AND c.message_count>0'
         if q.name.strip():
             values['keyword']='%'+q.name.strip().replace('!','!!').replace('%','!%').replace('_','!_')+'%'
             where+=" AND (c.title LIKE :keyword ESCAPE '!' OR EXISTS(SELECT 1 FROM ai_message m WHERE m.conversation_id=c.conversation_id AND m.content LIKE :keyword ESCAPE '!'))"
@@ -24,9 +25,19 @@ async def query(q,uid,database=db):
         # These maps bypass Java's entity serializers. Keep Snowflake identifiers
         # as strings at the browser boundary, including values beyond 2**53.
         for row in rows:
-            for key in ('conversation_id','user_id','origin_article_id'):
+            for key in ('conversation_id','user_id','origin_article_id','writing_article_id'):
                 if row.get(key) is not None:row[key]=str(row[key])
         return {'rows':[_to_camel_dict(r) for r in rows],'total':total}
+    if q.kind=='conversation_writing_context':
+        from app.services.writing_conversations import bind_writing, WritingContext
+        try:
+            cid = int(q.name)
+            context = WritingContext.model_validate(decode_object(q.edit))
+        except (ValueError, TypeError):
+            raise HTTPException(422, '草稿关联参数无效') from None
+        if not 0 < cid < 2**63:
+            raise HTTPException(422, '会话标识无效')
+        return await bind_writing(cid, uid, context, database)
     if q.kind=='conversation_edit':
         try:cid=int(q.name)
         except ValueError:raise HTTPException(422,'会话标识无效') from None

@@ -15,12 +15,18 @@ import org.springframework.web.servlet.HandlerInterceptor;
  */
 @Component
 public class JwtInterceptor implements HandlerInterceptor {
+    @org.springframework.beans.factory.annotation.Value("${easyjob.auth.enabled:false}")
+    private boolean unified;
 
     @Autowired
     private JwtUtil jwtUtil;
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
+        if (unified) {
+            if (UserContext.getUserId()!=null) return true;
+            response.setStatus(401);response.setContentType("application/json;charset=UTF-8");response.getWriter().write("{\"code\":401,\"message\":\"未登录，请先登录\"}");return false;
+        }
         String requestURI = request.getRequestURI();
         System.out.println("拦截器被触发，请求路径: " + requestURI);
 

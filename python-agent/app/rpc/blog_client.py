@@ -1,6 +1,7 @@
 """Pooled asynchronous client for Java's Dubbo Triple business service."""
 import grpc
 from app.config import settings
+from app.services.trace_rpc import RpcClientTracingInterceptor
 from .codec import decode
 from .generated import easyjob_rpc_pb2 as pb, easyjob_rpc_pb2_grpc as api
 from .peer_pool import PeerPool
@@ -8,8 +9,12 @@ from .peer_pool import PeerPool
 _channel = None
 _stub = None
 def _peer(target):
-    channel = grpc.aio.insecure_channel(target, options=[('grpc.enable_retries', 0),
-        ('grpc.max_receive_message_length', 8 * 1024 * 1024)])
+    channel = grpc.aio.insecure_channel(
+        target,
+        options=[('grpc.enable_retries', 0),
+                 ('grpc.max_receive_message_length', 8 * 1024 * 1024)],
+        interceptors=[RpcClientTracingInterceptor()],
+    )
     return channel, api.BlogRpcStub(channel)
 
 
@@ -22,20 +27,27 @@ class ServiceError(Exception):
         self.status = status
 
 
-def identity(user_id):
+def identity(user_id, *, service_only=False):
     if len(settings.AGENT_SERVICE_KEY.encode()) < 32 or user_id <= 0:
         raise ServiceError(503, '服务身份未配置')
     from app.services.logging_config import current_trace_id, normalize_trace
+    from app.security.delegation import current_identity
+    user=None if service_only else current_identity.get()
+    if user and int(user['user_id'])!=user_id:raise ServiceError(403,'用户委托不匹配')
     return pb.Identity(user_id=user_id, service_key=settings.AGENT_SERVICE_KEY,
-        trace_id=normalize_trace(current_trace_id()))
+        trace_id=normalize_trace(current_trace_id()),auth_session_id=user['sid'] if user else '',auth_version=user['version'] if user else 0)
 
 
 def client():
     global _channel, _stub
     if _channel is None:
         # No transparent retry: writes are retried only by their durable idempotency contract.
-        _channel = grpc.aio.insecure_channel(settings.BLOG_RPC_TARGET,
-            options=[('grpc.enable_retries', 0), ('grpc.max_receive_message_length', 8 * 1024 * 1024)])
+        _channel = grpc.aio.insecure_channel(
+            settings.BLOG_RPC_TARGET,
+            options=[('grpc.enable_retries', 0),
+                     ('grpc.max_receive_message_length', 8 * 1024 * 1024)],
+            interceptors=[RpcClientTracingInterceptor()],
+        )
         _stub = api.BlogRpcStub(_channel)
     return _stub
 
@@ -79,6 +91,16 @@ async def read_draft(user_id, article_id):
     return await call('ReadDraft', pb.DraftRequest(identity=identity(user_id), article_id=article_id))
 
 
+async def writing_metadata(user_id, ids):
+    ids = list(ids)
+    if not ids:
+        return []
+    if len(ids) > 128:
+        raise ServiceError(400, '查询批次过大')
+    # Unlike public_read, the authenticated owner is the authorization principal.
+    return await call('ReadPublic', pb.BlogQuery(identity=identity(user_id), kind='writing_metadata', ids=[int(i) for i in ids]))
+
+
 async def public_read(kind, *, ids=(), names=(), name='', target_id=0, page=1, limit=20):
     # These methods expose published, unrestricted blog data only. 1 is the service
     # routing key; target_id is data, never a private authorization principal.
@@ -90,13 +112,13 @@ async def public_read(kind, *, ids=(), names=(), name='', target_id=0, page=1, l
         for offset in range(0,len(ids),4):
             rows.extend(await public_read(kind,ids=ids[offset:offset+4],limit=limit))
         return rows
-    return await call('ReadPublic', pb.BlogQuery(identity=identity(1), kind=kind,
+    return await call('ReadPublic', pb.BlogQuery(identity=identity(1, service_only=True), kind=kind,
         ids=[int(i) for i in ids], names=names, name=name, target_id=int(target_id), page=page, limit=limit))
 
 
 async def maintenance(kind, *, target_id=0, cursor=0, name='', expected=None):
     from .codec import encode
-    return await call('Maintenance', pb.BlogQuery(identity=identity(1), kind=kind,
+    return await call('Maintenance', pb.BlogQuery(identity=identity(1, service_only=True), kind=kind,
         target_id=target_id, cursor=cursor, name=name, expected=encode(expected or {}).object))
 
 

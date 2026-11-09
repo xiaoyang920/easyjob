@@ -12,6 +12,9 @@ async function setup(page: Page, fail = false) {
     const url = new URL(request.url())
     calls.push(url.pathname)
     let data: any = []
+    if (url.pathname === '/api/auth/login') {
+      return route.fulfill({ json: { code: 200, status: 'success', data: identity } })
+    }
     if (url.pathname === '/api/auth/register') {
       submitted.push(request.postDataJSON())
       if (fail) return route.fulfill({ json: { code: 400, status: 'error', message: '验证码错误' } })
@@ -44,6 +47,38 @@ async function register(page: Page) {
   await form.getByPlaceholder('请再次输入密码', { exact: true }).fill('test-password')
   await form.getByRole('button', { name: '注册', exact: true }).click()
 }
+
+for (const viewport of [{ name: 'desktop', width: 1440 }, { name: 'mobile', width: 390 }]) {
+  test(`header auth buttons open and reopen on an already mounted homepage (${viewport.name})`, async ({ page }) => {
+    await page.setViewportSize({ width: viewport.width, height: 844 })
+    await setup(page)
+    await page.goto('/')
+    await expect(page.locator('.home-page')).toBeVisible()
+    for (const label of ['登录', '注册', '登录', '注册']) {
+      await page.getByRole('banner', { name: '站点导航' }).getByRole('button', { name: label, exact: true }).click()
+      const form = page.locator(label === '登录' ? '.login-form' : '.register-form')
+      await expect(form).toBeVisible()
+      await expect(page.getByRole('dialog')).toHaveCount(1)
+      await page.getByRole('dialog').getByRole('button', { name: 'Close this dialog' }).click()
+      await expect(form).toHaveCount(0)
+    }
+  })
+}
+
+test('login from the homepage header submits once and updates the account menu', async ({ page }) => {
+  const { calls, identity } = await setup(page)
+  await page.goto('/')
+  await expect(page.locator('.home-page')).toBeVisible()
+  await page.getByRole('banner', { name: '站点导航' }).getByRole('button', { name: '登录', exact: true }).click()
+  const form = page.locator('.login-form').getByRole('tabpanel', { name: '密码登录', exact: true })
+  await form.getByPlaceholder('请输入邮箱', { exact: true }).fill('register@example.invalid')
+  await form.getByPlaceholder('请输入密码', { exact: true }).fill('test-password')
+  await form.getByRole('button', { name: '登录', exact: true }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '账户菜单', exact: true })).toBeVisible()
+  expect(calls.filter(path => path === '/api/auth/login')).toHaveLength(1)
+  expect(await page.evaluate(() => localStorage.getItem('userId'))).toBe(identity.userId)
+})
 
 test('homepage registration logs in immediately and survives refresh without another login request', async ({ page, context }) => {
   const { calls, submitted, identity } = await setup(page)

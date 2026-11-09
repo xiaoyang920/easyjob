@@ -22,6 +22,7 @@ from app.migrate import check_message_schema, check_content_schema, check_jobs_s
 from app.services.durable_jobs import background_worker
 from app.services.conversation import ConversationService
 from app.services.logging_config import setup_logging, get_logger, set_request_trace, set_run_trace
+from app.services.tracing import init_tracing, shutdown_tracing
 from app.services.memory import memory_service
 from app.services.run_service import RunService
 from app.services.executor_heartbeat import maintain_executor
@@ -46,12 +47,13 @@ run_service = RunService(conversation_service, memory_service)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     rpc_server = None
-    log.info("Agent Token budgets: total=%d main_output=%d worker_output=%d safety=%d compact_trigger=%d compact_target=%d recent=%d summary=%d",
+    log.info("Agent Token budgets: total=%d main_output=%d worker_output=%d safety=%d compact_trigger=%d compact_target=%d recent=%d summary=%d article=%d history_load=%d summary_input=%d",
              settings.MAIN_CONTEXT_MAX_TOKENS, settings.MAIN_OUTPUT_MAX_TOKENS, settings.WORKER_OUTPUT_MAX_TOKENS,
              settings.CONTEXT_SAFETY_TOKENS, settings.CONTEXT_COMPACT_TRIGGER_TOKENS, settings.CONTEXT_COMPACT_TARGET_TOKENS, settings.HISTORY_RECENT_TOKENS,
-             settings.SUMMARY_MAX_TOKENS)
-    await mysql_client.startup()
+             settings.SUMMARY_MAX_TOKENS, settings.ARTICLE_CONTEXT_MAX_TOKENS, settings.HISTORY_LOAD_MAX_TOKENS,
+             settings.SUMMARY_INPUT_MAX_TOKENS)
     try:
+        await mysql_client.startup()
         await check_message_schema(mysql_client.db)
         await check_content_schema(mysql_client.db)
         await check_runtime_schema(mysql_client.db)
@@ -68,6 +70,11 @@ async def lifespan(app: FastAPI):
         await check_product_features(mysql_client.db)
         if len(settings.AGENT_SERVICE_KEY.encode()) < 32:
             raise RuntimeError("请为 Java 和 Python 配置相同的 AGENT_SERVICE_KEY，至少32字节")
+        if settings.GATEWAY_IDENTITY_PUBLIC_KEY_FILE:
+            from app.security.gateway import public_key
+            from app.security.stream_sessions import sessions
+            public_key()
+            await sessions.start()
         from app.clients.es_client import BaseEsClient
         es = BaseEsClient()
         try:
@@ -86,30 +93,40 @@ async def lifespan(app: FastAPI):
             raise RuntimeError('AGENT_INTERNAL_TRANSPORT 必须是 http 或 triple')
         if settings.AGENT_RPC_ENABLED:
             from app.rpc.server import start_server
-            rpc_server = await start_server(sys.modules[__name__])
+            rpc_server = await start_server()
         from app.rpc.discovery import catalog
         if catalog.enabled and (not settings.AGENT_RPC_ENABLED or settings.INTERNAL_TRANSPORT != 'triple'):
             raise RuntimeError('服务发现模式需要启用 Triple RPC')
         await catalog.start()
         yield
     finally:
-        if rpc_server is not None:
-            await rpc_server.stop(3)
-        await stream_delivery.shutdown()
-        await background_worker.shutdown()
-        await run_service.shutdown()
-        await close_graph()
-        await mcp_manager.shutdown()
-        await mysql_client.shutdown()
-        from app.rpc.blog_client import close_client
-        from app.rpc.discovery import catalog
-        await catalog.close()
-        await close_client()
-        from app.services.main_context import context_service
-        await context_service._redis.client.aclose()
+        try:
+            from app.security.stream_sessions import sessions
+            await sessions.close()
+            if rpc_server is not None:
+                await rpc_server.stop(3)
+            await stream_delivery.shutdown()
+            await background_worker.shutdown()
+            await run_service.shutdown()
+            await close_graph()
+            await mcp_manager.shutdown()
+            await mysql_client.shutdown()
+            from app.rpc.blog_client import close_client
+            from app.rpc.discovery import catalog
+            await catalog.close()
+            await close_client()
+            from app.services.main_context import context_service
+            await context_service._redis.client.aclose()
+        finally:
+            await shutdown_tracing()
 
 
 app = FastAPI(title="EasyJob Python Agent", lifespan=lifespan)
+init_tracing(app)
+
+
+from app.services.editor_tools import EditorSnapshot
+from app.services.writing_conversations import WritingContext
 
 
 class ChatRequest(BaseModel):
@@ -119,6 +136,8 @@ class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=16000)
     image_paths: list[str] | None = Field(default=None, max_length=4)
     request_id: UUID = Field(default_factory=uuid4)
+    editor_context: 'EditorSnapshot | None' = None
+    writing_context: WritingContext | None = None
 
 
 def _to_camel(value: str) -> str:
@@ -132,6 +151,7 @@ class ChatResponse(BaseModel):
     conversation_id: str
     articles: list[dict] = Field(default_factory=list)
     citations: list[dict] = Field(default_factory=list)
+    editor_edits: list[dict] = Field(default_factory=list)
     draft_article_id: str | None = None
     run_id: str
 
@@ -146,7 +166,7 @@ class ResumeRequest(BaseModel):
 
 
 NODE_TO_PROGRESS = {
-    "main_agent": "planner", "main_retrieve": "search",
+    "main_agent": "planner", "execute_tool": "tool", "main_retrieve": "search",
     "main_delegate": "subagent", "prepare_draft": "writing", "collect_draft": "writing",
     "planner": "planner", "search_worker": "search", "chat_worker": "chat",
     "analysis_worker": "analysis", "writing_worker": "writing", "synthesizer": "synthesizer",
@@ -203,6 +223,7 @@ async def _invoke(graph, graph_input, conv_id, user_id, config) -> ChatResponse:
         reply = result["reply"]
     return ChatResponse(reply=reply, conversation_id=str(conv_id), articles=result["articles"],
                         citations=result["citations"],
+                        editor_edits=result.get('editor_edits', []),
                         run_id=config["configurable"]["run_id"],
                         draft_article_id=str(result["draft_article_id"]) if result["draft_article_id"] else None)
 
@@ -257,6 +278,8 @@ def _stream_source(graph, graph_input, conv_id, user_id, config):
                     yield _sse("__ARTICLES__:" + json.dumps(result["articles"], ensure_ascii=False))
                 if result["citations"]:
                     yield _sse("__CITATIONS__:" + json.dumps(result["citations"], ensure_ascii=False))
+                if result.get('editor_edits'):
+                    yield _sse('__EDITOR_EDITS__:' + json.dumps(result['editor_edits'], ensure_ascii=False))
                 if answer_stream.started:
                     for payload in answer_stream.finish(result['reply']):
                         yield _sse('__ANSWER__:' + json.dumps(payload, ensure_ascii=False))
@@ -304,11 +327,34 @@ def _stream_source(graph, graph_input, conv_id, user_id, config):
 
 
 async def _prepare_chat(request, graph):
+    previous = await run_service.continuation_target(request)
+    if previous:
+        reconnect = await run_service.reconnect_config(previous['run_id'], request.user_id)
+        if reconnect:
+            reconnect['configurable'].update(reconnect=True, checkpoint_recovery=True,
+                recovery_generation=reconnect['configurable'].get('recovery_generation', previous.get('recovery_count', 0)),
+                recovery_input_id=json.loads(previous.get('result_json') or '{}').get('user_message_id'))
+            return previous['conversation_id'], reconnect, None
+        cid, config = await _prepare_recovery(previous['run_id'], request.user_id, graph)
+        return cid, config, None
     ticket = await execution_admission.acquire(request.user_id)
     try:
         cid, config, state = await run_service.prepare_chat(request, graph, admission_ticket=ticket)
         config['configurable'].setdefault('admission_ticket', ticket)
         return cid, config, state
+    except BaseException:
+        await asyncio.shield(execution_admission.release(ticket))
+        raise
+
+
+async def _prepare_recovery(rid, uid, graph):
+    ticket = await execution_admission.acquire(uid)
+    try:
+        cid, config = await run_service.prepare_recovery(rid, uid, graph, ticket)
+        if config['configurable'].get('reconnect'):
+            await execution_admission.release(ticket)
+            config['configurable']['checkpoint_recovery'] = True
+        return cid, config
     except BaseException:
         await asyncio.shield(execution_admission.release(ticket))
         raise
@@ -327,6 +373,8 @@ async def _prepare_resume(request, graph):
 
 async def _invoke_admitted(graph, graph_input, cid, uid, config):
     try:
+        if config['configurable'].get('reconnect'):
+            raise HTTPException(409, '任务仍在执行，请查看当前进度。')
         async with maintain_executor(run_repository, config):
             return await _invoke(graph, graph_input, cid, uid, config)
     finally:
@@ -335,10 +383,18 @@ async def _invoke_admitted(graph, graph_input, cid, uid, config):
 
 def _stream(graph, graph_input, cid, uid, config):
     cfg = config['configurable']
-    stream_delivery.start(cfg['run_id'], cfg['execution_token'],
-        _stream_source(graph, graph_input, cid, uid, config), cfg.get('admission_ticket'),
-        replay=cfg.get('replay', False))
-    return StreamingResponse(stream_delivery.follow(cfg['run_id'], cfg['execution_token']),
+    if not cfg.get('reconnect'):
+        stream_delivery.start(cfg['run_id'], cfg['execution_token'],
+            _stream_source(graph, graph_input, cid, uid, config), cfg.get('admission_ticket'),
+            replay=cfg.get('replay', False))
+    async def follow():
+        if cfg.get('checkpoint_recovery'):
+            yield _sse('__RECOVERED_RUN__:' + json.dumps({'runId': cfg['run_id'],
+                'generation': cfg.get('recovery_generation', 0),
+                'inputMessageId': cfg.get('recovery_input_id')}, ensure_ascii=False))
+        async for frame in stream_delivery.follow(cfg['run_id'], cfg['execution_token']):
+            yield frame
+    return StreamingResponse(follow(),
         media_type='text/event-stream', headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
 
@@ -353,14 +409,13 @@ async def replay_events(run_id: UUID, after: int = Query(default=0, ge=0), princ
 
 @app.post('/runs/{run_id}/recover')
 async def recover_run(run_id: UUID, principal: Principal = Depends(require_principal)):
+    reconnect = await run_service.reconnect_config(str(run_id), principal.user_id)
+    if reconnect:
+        return StreamingResponse(stream_delivery.follow(str(run_id), reconnect['configurable']['execution_token'], 0),
+            media_type='text/event-stream', headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
     graph = await get_graph()
-    ticket = await execution_admission.acquire(principal.user_id)
-    try:
-        cid, config = await run_service.prepare_recovery(str(run_id), principal.user_id, graph, ticket)
-        return _stream(graph, None, cid, principal.user_id, config)
-    except BaseException:
-        await asyncio.shield(execution_admission.release(ticket))
-        raise
+    cid, config = await _prepare_recovery(str(run_id), principal.user_id, graph)
+    return _stream(graph, None, cid, principal.user_id, config)
 
 
 @app.get("/health")
@@ -420,23 +475,25 @@ async def cancel_chat(conversation_id: int, user_id: int, principal: Principal =
     match_user(principal, user_id)
     await conversation_service.require_owner(conversation_id, user_id)
     result = await run_repository.cancel(conversation_id, user_id)
+    token = result.pop('_execution_token', None)
     if result.get('status') == 'cancelled' and result.get('runId'):
         from app.services.executor_heartbeat import cancel_local_run
-        cancel_local_run(result['runId'])
+        cancel_local_run(result['runId'], token)
     return result
 
 
 @app.get("/conversations")
 async def list_conversations(user_id: int, last_update_time: datetime | None = None,
                              last_id: int | None = None, limit: int = 10,
-                             scope: Literal["all", "general", "article"] = "all",
+                             scope: Literal["all", "general", "article", "writing"] = "all",
                              origin_article_id: int | None = Query(default=None, gt=0),
-                             principal: Principal = Depends(require_principal)):
+                             principal: Principal = Depends(require_principal),
+                             writing_article_id: int | None = None):
     match_user(principal, user_id)
     if not 1 <= limit <= 100:
         raise HTTPException(422, "分页范围无效")
     return {"data": await conversation_service.list_conversations(user_id, last_update_time, last_id, limit,
-                                                                scope=scope, origin_article_id=origin_article_id)}
+                                                                scope=scope, origin_article_id=origin_article_id, writing_article_id=writing_article_id)}
 
 
 @app.get("/conversations/{conversation_id}")
@@ -490,7 +547,8 @@ async def delete_conversation(conversation_id: int, user_id: int, principal: Pri
 
 @app.get("/tools")
 async def list_tools(principal: Principal = Depends(require_principal)):
-    return [{"name": t.name, "description": t.description} for t in tool_registry.get_all_tools()]
+    return [{key: item[key] for key in ('name', 'description', 'capability', 'read_only')}
+            for item in tool_registry.main_catalog()]
 
 
 @app.get('/memory')
@@ -547,6 +605,12 @@ async def conversation_run(conversation_id: int, principal: Principal = Depends(
     return await reconciled_run_status(run, principal.user_id) if run else None
 
 
+async def context_usage_status(conversation_id, principal):
+    from app.services.context_usage import conversation_context_usage
+    return await conversation_context_usage(conversation_id, principal.user_id,
+                                             conversation_service, run_repository)
+
+
 @app.get('/run-overview')
 async def run_overview(principal: Principal = Depends(require_principal)):
     rows = await run_repository.overview(principal.user_id)
@@ -566,6 +630,8 @@ async def run_overview(principal: Principal = Depends(require_principal)):
             if not status: continue
         items.append({'runId': row['run_id'], 'conversationId': str(row['conversation_id']),
                       'title': row['title'], 'status': status['status'],
+                      'scope': 'writing' if row.get('is_writing') else 'article' if row.get('origin_article_id') else 'general',
+                      'generation': row.get('recovery_count', 0),
                       'updatedAt': status['updated_at'].isoformat() + 'Z'})
     return {'items': items, 'serverTime': datetime.now(UTC).isoformat().replace('+00:00', 'Z')}
 
@@ -576,12 +642,23 @@ async def reconciled_run_status(run, uid):
     if run["status"] in ("running", "awaiting_approval"):
         await run_repository.expire_existing(run["conversation_id"], uid, run["run_id"])
         run = await run_repository.get(run["run_id"])
-    recoverable = RunService.recovery_candidate(run)
+    recoverable = False
+    if RunService.recovery_candidate(run):
+        try:
+            latest = await run_repository.latest(run['conversation_id'], uid)
+            if latest and latest['run_id'] == run['run_id']:
+                recoverable = await run_service.recovery_snapshot(run, await get_graph()) is not None
+        except Exception as exc:
+            log.info('Recovery status unavailable: %s', type(exc).__name__)
     return {"runId": run["run_id"], "conversationId": str(run['conversation_id']), "status": run["status"],
             "recoverable": recoverable,
             "draftHash": run["draft_hash"], "deadline": run["deadline"].isoformat() + 'Z',
             "result": public_run_result(run["result_json"]),
             "draftArticleId": str(run["draft_article_id"]) if run["draft_article_id"] else None}
+
+
+from app.public_api import install as install_public_api
+install_public_api(app, sys.modules[__name__])
 
 
 if __name__ == "__main__":

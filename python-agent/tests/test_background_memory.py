@@ -1,3 +1,4 @@
+from tool_fakes import retrieval_call, raw_retrieval_call
 """Queue acceptance, cancellation, leases, concurrent edits and current-turn policy."""
 import copy
 import json
@@ -125,7 +126,7 @@ class BackgroundMemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.db.jobs)
 
     async def test_main_never_continues_after_authorization_or_cancellation_failure(self):
-        decision = MainDecision(action='retrieve', retrieval=RetrievalRequest(instruction='find'), memory_changes=[change()])
+        decision = MainDecision(action='call_tool', tool_call=retrieval_call(RetrievalRequest(instruction='find')), memory_changes=[change()])
         model, _ = llm([decision])
         with patch.object(agent, 'get_llm', return_value=model), \
              patch.object(agent, 'assert_run', AsyncMock()), \

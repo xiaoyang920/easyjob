@@ -29,6 +29,7 @@ public class UserController {
 
     @Autowired
     UserService userService;
+    @Autowired private com.easyjob.service.SocialService social;
     @Autowired
     UserFocusService userFoucsService;
     @Autowired
@@ -107,10 +108,7 @@ public class UserController {
      */
     @GetMapping("/{userId}/follow-status")
     public ResponseVO<?> getFollowStatus(@PathVariable Long userId) {
-        boolean isFollowing = userService.checkFollowStatus(userId);
-        return ResponseVO.success(new java.util.HashMap<String, Object>() {{
-            put("isFollowing", isFollowing);
-        }});
+        return ResponseVO.success(social.relationship(UserContext.getUserId(),userId));
     }
 
 }

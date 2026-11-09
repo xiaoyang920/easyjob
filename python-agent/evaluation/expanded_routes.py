@@ -3,8 +3,8 @@ import json
 from pathlib import Path
 
 A = {'action': 'answer'}
-K = {'action': 'retrieve', 'target': 'knowledge'}
-M = {'action': 'retrieve', 'target': 'memory'}
+K = {'action': 'call_tool', 'target': 'knowledge'}
+M = {'action': 'call_tool', 'target': 'memory'}
 W = {'action': 'write_draft'}
 D = {'action': 'delegate'}
 

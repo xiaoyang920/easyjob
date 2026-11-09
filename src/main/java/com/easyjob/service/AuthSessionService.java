@@ -19,6 +19,9 @@ import java.util.ArrayList;
 import java.util.Map;
 import com.alibaba.fastjson2.JSON;
 import com.easyjob.config.ChatWebSocketHandler;
+import com.alibaba.fastjson2.JSONObject;
+import java.util.HashMap;
+import java.util.Set;
 
 /** Opaque browser credential; only its digest is stored in Redis and access JWTs. */
 @Service
@@ -61,12 +64,12 @@ public class AuthSessionService {
     }
 
     public List<Map<String,Object>> devices(Long uid, String current) {
-        var ids=redis.opsForZSet().reverseRange(DEVICES+uid,0,19);
-        var result=new ArrayList<Map<String,Object>>();
+        Set<String> ids=redis.opsForZSet().reverseRange(DEVICES+uid,0,19);
+        ArrayList<Map<String, Object>> result=new ArrayList<Map<String,Object>>();
         if(ids!=null)for(String id:ids){
             if(!valid(id,uid)){redis.opsForZSet().remove(DEVICES+uid,id);redis.delete(DEVICE+id);continue;}
             String raw=redis.opsForValue().get(DEVICE+id);
-            var info=new java.util.HashMap<String,Object>();
+            HashMap<String, Object> info=new java.util.HashMap<String,Object>();
             if(raw!=null) info.putAll(JSON.parseObject(raw));
             info.put("id",id);info.put("current",id.equals(current));result.add(info);
         }
@@ -82,7 +85,7 @@ public class AuthSessionService {
     }
 
     public void revokeOthers(Long uid,String current){
-        var ids=redis.opsForZSet().range(DEVICES+uid,0,-1);
+        Set<String> ids=redis.opsForZSet().range(DEVICES+uid,0,-1);
         if(ids!=null)for(String id:ids)if(!id.equals(current))revokeDevice(uid,id);
     }
 
@@ -120,7 +123,7 @@ public class AuthSessionService {
             remaining = (Long.parseLong(fields[1]) - System.currentTimeMillis()) / 1000;
         } catch (NumberFormatException e) { throw expired(); }
         if (remaining <= 0) { redis.delete(PREFIX + id); throw expired(); }
-        User user = users.selectById(uid);
+        User user = credentialUser(uid);
         if (!matches(user, fields)) {
             redis.delete(PREFIX + id);
             throw expired();
@@ -130,7 +133,7 @@ public class AuthSessionService {
         if (!Long.valueOf(1).equals(redis.execute(TOUCH, List.of(PREFIX + id), value, String.valueOf(ttl))))
             throw expired();
         String metadata=redis.opsForValue().get(DEVICE+id);
-        if(metadata!=null){var info=JSON.parseObject(metadata);info.put("lastSeen",System.currentTimeMillis());
+        if(metadata!=null){JSONObject info=JSON.parseObject(metadata);info.put("lastSeen",System.currentTimeMillis());
             redis.execute(TRACK,List.of(PREFIX+id,DEVICE+id,DEVICES+uid),info.toJSONString(),Long.toString(remaining),Long.toString(System.currentTimeMillis()),id);}
         else track(new Session(credential,id,user,remaining),"历史登录设备");
         return new Session(credential, id, user, remaining);
@@ -144,12 +147,19 @@ public class AuthSessionService {
         if((fields.length!=3 && fields.length!=4) || !uid.toString().equals(fields[0])) return false;
         try {if(Long.parseLong(fields[1])<=System.currentTimeMillis())return false;}
         catch(NumberFormatException e){return false;}
-        return matches(users.selectById(uid),fields);
+        return matches(credentialUser(uid),fields);
     }
 
     public boolean validLegacy(Long uid) {
         User user=uid==null?null:users.selectById(uid);
         return user!=null && Integer.valueOf(1).equals(user.getStatus()) && version(user)==0;
+    }
+    // Only used by the explicitly enabled legacy authentication path. Normal Blog
+    // queries deliberately exclude the password column and use a restricted DB user.
+    private User credentialUser(Long uid) {
+        User user = users.selectById(uid);
+        if (user != null && user.getPassword() == null) user = users.credentialById(uid);
+        return user;
     }
     private static long version(User user){return user.getAuthVersion()==null?0:user.getAuthVersion();}
     private static boolean matches(User user,String[] fields) {

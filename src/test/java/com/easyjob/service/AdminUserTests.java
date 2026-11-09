@@ -11,6 +11,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
+import com.easyjob.service.AdminUserService.Profile;
 
 class AdminUserTests {
     final AdminUserMapper store=mock(AdminUserMapper.class);
@@ -48,12 +49,12 @@ class AdminUserTests {
         assertEquals(403,assertThrows(BusinessException.class,()->service.update(7L,8L,body(ordinary,1,1,null,null))).getCode());noWrites();
     }
     @Test void staleProfileDoesNotOverwriteConcurrentEdit(){
-        lock();var stale=new AdminUserService.Profile("旧昵称",null,1,1);
+        lock();Profile stale=new AdminUserService.Profile("旧昵称",null,1,1);
         assertEquals(409,assertThrows(BusinessException.class,()->service.update(7L,8L,body(stale,1,1,null,null))).getCode());noWrites();
     }
     @Test void administratorsCannotRemoveTheirOwnAccess(){
         when(store.lockActorAndUser(eq(7L),eq(7L))).thenReturn(List.of(row(7,"管理员",2,1)));
-        var self=new AdminUserService.Profile("管理员",null,2,1);
+        Profile self=new AdminUserService.Profile("管理员",null,2,1);
         assertEquals(409,assertThrows(BusinessException.class,()->service.update(7L,7L,body(self,1,1,null,null))).getCode());
         assertEquals(409,assertThrows(BusinessException.class,()->service.update(7L,7L,body(self,2,0,null,null))).getCode());noWrites();
     }

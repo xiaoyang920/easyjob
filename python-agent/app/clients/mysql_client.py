@@ -1,7 +1,7 @@
-from databases import Database
 from app.config import settings
+from app.services.traced_database import TracedDatabase
 
-db = Database(settings.mysql_url)
+db = TracedDatabase(settings.mysql_url)
 
 async def startup():
     await db.connect()

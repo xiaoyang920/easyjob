@@ -22,7 +22,7 @@ async def get_user_articles(user_id:str, page:int=1, page_size:int=10)->str:
     for r in rows:
         row = r
         articles.append(
-            f"- [{row['title']}] 浏览:{row['view_count']} 点赞:{row['like_count']} "
+            f"- [{row['title']}] 文章ID:{row['article_id']} 浏览:{row['view_count']} 点赞:{row['like_count']} "
             f"收藏:{row['collect_count']} 发布于:{row['create_time']}"
         )
     return "\n".join(articles)

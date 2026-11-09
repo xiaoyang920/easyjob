@@ -5,6 +5,9 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.*;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.Optional;
 
 /** Bounded endpoint resources. Removed/idle peers drain in-flight calls before closing. */
 public final class RpcPeerPool<T> implements AutoCloseable {
@@ -77,7 +80,7 @@ public final class RpcPeerPool<T> implements AutoCloseable {
             entry=entries.get(target);
             if(entry==null) {
                 if(entries.size()+draining.size()>=capacity) {
-                    var victim=entries.entrySet().stream().filter(e -> e.getValue().active==0)
+                    Optional<java.util.Map.Entry<String, RpcPeerPool<T>.Entry>> victim=entries.entrySet().stream().filter(e -> e.getValue().active==0)
                         .min(Comparator.comparingLong(e -> e.getValue().used));
                     if(victim.isEmpty()) throw new IllegalStateException("RPC endpoint pool busy");
                     evicted=entries.remove(victim.get().getKey());
@@ -90,12 +93,12 @@ public final class RpcPeerPool<T> implements AutoCloseable {
         return new Lease(entry);
     }
     public void reconcile(Collection<String> healthy) {
-        var removed=new ArrayList<Entry>();
+        ArrayList<RpcPeerPool<T>.Entry> removed=new ArrayList<Entry>();
         synchronized(this) {
             long now=clock.getAsLong();
-            var iterator=entries.entrySet().iterator();
+            Iterator<java.util.Map.Entry<String, RpcPeerPool<T>.Entry>> iterator=entries.entrySet().iterator();
             while(iterator.hasNext()) {
-                var item=iterator.next();var entry=item.getValue();
+                java.util.Map.Entry<String, RpcPeerPool<T>.Entry> item=iterator.next();RpcPeerPool<T>.Entry entry=item.getValue();
                 entry.retired=entry.retired || !healthy.contains(item.getKey());
                 if(entry.active==0 && (entry.retired || now-entry.used>=idleNanos)) {
                     iterator.remove();removed.add(entry);

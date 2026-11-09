@@ -6,18 +6,17 @@ from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
 from starlette.responses import StreamingResponse
-import grpc
+import httpx
+import socket
+import uvicorn
+from contextlib import AsyncExitStack, asynccontextmanager
 from app import main
 from app.security.principal import Principal
 from app.services.executor_heartbeat import maintain_executor, cancel_local_run, _executors
 from app.services.stream_delivery import StreamDelivery
 from test_runtime_operations import FrameDatabase
-from app.rpc.server import AgentRpc
-from app.rpc.generated import easyjob_rpc_pb2 as pb, easyjob_rpc_pb2_grpc as api
-from app.rpc.codec import decode
-from app.config import settings
 
 
 class RunCancellationTests(unittest.IsolatedAsyncioTestCase):
@@ -43,7 +42,7 @@ class RunCancellationTests(unittest.IsolatedAsyncioTestCase):
             await task
         self.assertFalse(_executors)
 
-    async def test_real_rpc_channel_can_stop_one_slow_stream_and_serve_overview_while_another_runs(self):
+    async def test_real_public_http_can_stop_one_slow_stream_and_serve_overview_while_another_runs(self):
         ids = {cid: str(uuid4()) for cid in (11, 12)}
         states = {rid: {'execution_token': rid, 'status': 'running', 'deadline': datetime.utcnow() + timedelta(minutes=1)} for rid in ids.values()}
         ready = {cid: asyncio.Event() for cid in ids}
@@ -77,43 +76,63 @@ class RunCancellationTests(unittest.IsolatedAsyncioTestCase):
 
         app = SimpleNamespace(ChatRequest=main.ChatRequest, chat_stream=chat, cancel_chat=main.cancel_chat,
                               run_overview=AsyncMock(return_value={'available': True}))
-        key = 'offline-cancellation-test-key-32-bytes'
-        server = grpc.aio.server()
-        api.add_AgentRpcServicer_to_server(AgentRpc(app), server)
-        port = server.add_insecure_port('127.0.0.1:0')
-        self.assertGreater(port, 0)
-        await server.start()
-        with patch.object(settings, 'AGENT_SERVICE_KEY', key), \
+        from app import public_api
+        from app.security import gateway
+        http_app = FastAPI()
+        public_api.install(http_app, app)
+
+        @asynccontextmanager
+        async def subscribed(identity):
+            yield asyncio.Event()
+
+        listener = socket.socket()
+        listener.bind(('127.0.0.1', 0))
+        listener.listen(128)
+        port = listener.getsockname()[1]
+        server = uvicorn.Server(uvicorn.Config(http_app, log_level='error', lifespan='off'))
+        running = asyncio.create_task(server.serve(sockets=[listener]))
+        claims = {'sub': '7', 'sid': 'a' * 64, 'ver': 1}
+        with patch.object(gateway, 'verify', return_value=claims), \
+             patch.object(public_api.sessions, 'subscribe', side_effect=subscribed), \
              patch.object(main, 'run_repository', SimpleNamespace(cancel=AsyncMock(side_effect=cancel))), \
              patch.object(main, 'conversation_service', SimpleNamespace(require_owner=AsyncMock())):
             try:
-                async with grpc.aio.insecure_channel(f'127.0.0.1:{port}') as channel:
-                    stub = api.AgentRpcStub(channel)
-                    identity = pb.Identity(user_id=7, service_key=key)
-                    streams = [stub.ChatStream(pb.ChatRequest(identity=identity, conversation_id=cid, message='offline slow provider', request_id=str(uuid4()))) for cid in (11, 12)]
-                    try:
-                        for stream in streams:
-                            self.assertEqual((await anext(stream.__aiter__())).data, 'started')
-                        await asyncio.wait_for(asyncio.gather(*(event.wait() for event in ready.values())), 1)
-                        reply = await stub.Cancel(pb.ConversationRequest(identity=identity, conversation_id=11), timeout=1)
-                        self.assertEqual(decode(reply.data)['status'], 'cancelled')
-                        await asyncio.wait_for(interrupted.wait(), 1)
-                        overview = await stub.RunOverview(pb.UserRequest(identity=identity), timeout=1)
-                        self.assertEqual(decode(overview.data), {'available': True})
-                        self.assertEqual(states[ids[12]]['status'], 'running')
-                        frames = [frame.data async for frame in streams[0] if frame.HasField('data')]
-                        self.assertIn('[DONE]', frames)
-                        self.assertTrue(any('"status":"cancelled"' in frame for frame in frames))
-                        finish_other.set()
-                        other_frames = [frame.data async for frame in streams[1] if frame.HasField('data')]
-                        self.assertIn('[DONE]', other_frames)
-                    finally:
-                        for stream in streams:
-                            stream.cancel()
+                async with asyncio.timeout(3):
+                    while not server.started:
+                        if running.done():
+                            await running
+                        await asyncio.sleep(.01)
+                async with httpx.AsyncClient(base_url=f'http://127.0.0.1:{port}', timeout=3,
+                        headers={'X-Easyjob-Identity': 'offline-verified'}, trust_env=False) as client, AsyncExitStack() as stack:
+                    responses = [await stack.enter_async_context(client.stream('POST', '/api/agent/chat/stream', json={
+                        'conversationId': cid, 'message': 'offline slow provider', 'requestId': str(uuid4())})) for cid in (11, 12)]
+                    lines = [response.aiter_lines() for response in responses]
+                    for response, iterator in zip(responses, lines):
+                        self.assertEqual(response.status_code, 200)
+                        async with asyncio.timeout(3):
+                            while not (line := await anext(iterator)).startswith('data:'):
+                                pass
+                        self.assertEqual(line, 'data:started')
+                    await asyncio.wait_for(asyncio.gather(*(event.wait() for event in ready.values())), 1)
+                    reply = await client.post('/api/agent/chat/11/cancel')
+                    self.assertEqual(reply.json()['data']['status'], 'cancelled')
+                    await asyncio.wait_for(interrupted.wait(), 1)
+                    overview = await client.get('/api/agent/run-overview')
+                    self.assertEqual(overview.json()['data'], {'available': True})
+                    self.assertEqual(states[ids[12]]['status'], 'running')
+                    frames = [line async for line in lines[0]]
+                    self.assertTrue(any('[DONE]' in frame for frame in frames))
+                    self.assertTrue(any('"status":"cancelled"' in frame for frame in frames))
+                    finish_other.set()
+                    self.assertTrue(any('[DONE]' in frame for frame in [line async for line in lines[1]]))
             finally:
                 finish_other.set()
                 await delivery.shutdown()
-                await server.stop(0)
+                server.should_exit = True
+                try:
+                    await asyncio.wait_for(running, 3)
+                finally:
+                    listener.close()
         self.assertFalse(_executors)
 
     async def test_stop_interrupts_waiting_model_and_releases_capacity_without_waiting_for_heartbeat(self):

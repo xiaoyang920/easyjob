@@ -1,0 +1,3 @@
+logging:
+  pattern:
+    console: '%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [trace=%X{otel_trace_id:-} span=%X{otel_span_id:-} request=%X{trace_id:-} run=%X{run_id:-}] %logger{36} - %msg%n'

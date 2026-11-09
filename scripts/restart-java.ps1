@@ -1,6 +1,8 @@
 param([switch]$KeepAlive, [switch]$Build, [string]$ValidatedJar)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'java-tracing.ps1')
+[string[]]$javaTracingArguments = @(Get-JavaTracingArguments -ProjectRoot $root -ServiceName 'easyjob-blog')
 $java = 'D:\jdk\bin\java.exe'
 if ($ValidatedJar) {
     if ($Build) { throw 'Use Build or ValidatedJar, not both.' }
@@ -30,14 +32,14 @@ if ($Build) {
         if ($LASTEXITCODE -ne 0) { throw 'Java package failed; service not restarted.' }
     } finally { Pop-Location }
 }
-$started = Start-Process -FilePath $java -ArgumentList @('-jar', 'target\easyjob-0.0.1-SNAPSHOT.jar', '--server.address=127.0.0.1', '--spring.config.additional-location=file:./temp/application-runtime.yml') `
+$started = Start-Process -FilePath $java -ArgumentList ($javaTracingArguments + @('-jar', 'target\easyjob-0.0.1-SNAPSHOT.jar', '--server.address=127.0.0.1', '--spring.profiles.include=tracing', '--spring.config.additional-location=file:./temp/application-runtime.yml')) `
     -WorkingDirectory $root -WindowStyle Hidden -RedirectStandardOutput (Join-Path $root 'logs/java.out.log') `
     -RedirectStandardError (Join-Path $root 'logs/java.err.log') -PassThru
 for ($attempt = 0; $attempt -lt 25; $attempt++) {
     Start-Sleep -Seconds 2
     try {
-        $result = Invoke-RestMethod -Uri 'http://127.0.0.1:8080/api/article/list' -TimeoutSec 2
-        if ($result.code -eq 200) {
+        $result = Invoke-RestMethod -Uri 'http://127.0.0.1:8080/actuator/health' -TimeoutSec 2
+        if ($result.status -eq 'UP') {
             Write-Host "Java restarted and healthy (PID $($started.Id))."
             if ($KeepAlive) { $started.WaitForExit() }
             exit 0

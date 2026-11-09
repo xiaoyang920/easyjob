@@ -4,50 +4,7 @@
     <div class="chat-container">
       <!-- 左侧：会话列表 -->
       <div :class="['conversation-list', { hidden: !showConversationList && currentConversation }]">
-        <div class="conversation-header">
-          <h3>消息列表</h3>
-          <span class="unread-total" v-if="totalUnread > 0">{{ totalUnread }}</span>
-        </div>
-        
-        <div class="conversation-search">
-          <input 
-            v-model="searchKeyword" 
-            type="text" 
-            placeholder="搜索用户..."
-            @input="filterConversations"
-          >
-        </div>
-        
-        <div v-if="loadingConversations" class="loading-state">加载中...</div>
-        <div v-else-if="filteredConversations.length === 0" class="empty-state">
-          <p>暂无消息</p>
-          <p class="tip">去关注一些用户，开始聊天吧</p>
-        </div>
-        <div v-else class="conversation-items">
-          <div 
-            v-for="conv in filteredConversations" 
-            :key="conv.conversationId"
-            :class="['conversation-item', { active: currentConversation?.conversationId === conv.conversationId }]"
-            @click="selectConversation(conv)"
-          >
-            <img 
-              :src="avatarUrl(conv.otherUserAvatar, conv.otherUserName)"
-              :alt="conv.otherUserName"
-              class="conversation-avatar"
-              @error="onAvatarError($event, conv.otherUserName)"
-            >
-            <div class="conversation-info">
-              <div class="conversation-name">{{ conv.otherUserName }}</div>
-              <div class="conversation-last-msg">{{ conv.lastMessage || '暂无消息' }}</div>
-            </div>
-            <div class="conversation-meta">
-              <div class="conversation-time">{{ formatTime(conv.lastMessageTime) }}</div>
-              <span v-if="conv.unreadCount > 0" class="unread-badge">
-                {{ conv.unreadCount > 99 ? '99+' : conv.unreadCount }}
-              </span>
-            </div>
-          </div>
-        </div>
+        <ChatSidebar :conversations="conversations" :conversations-loading="loadingConversations" :current-id="currentConversation?.conversationId" :refresh-key="socialVersion" @select="selectConversation" @target="createConversation" />
       </div>
 
       <!-- 右侧：聊天区域 -->
@@ -80,14 +37,25 @@
             >
             <div class="chat-user-info">
               <div class="chat-user-name" @click="goToUserSpace(currentConversation.otherUserId)">
-                {{ currentConversation.otherUserName }}
+                {{ currentConversation.remark || currentConversation.otherUserName }}
               </div>
               <div :class="['chat-user-status', onlineStatus === '在线' ? 'online' : 'offline']">{{ onlineStatus }}</div>
             </div>
+            <div class="chat-social-actions">
+              <FollowButton :user-id="currentConversation.otherUserId" @changed="refreshSocial" />
+              <details><summary aria-label="会话设置">•••</summary><div class="chat-options">
+                <button @click="editRemark">设置备注</button><button @click="setPreference('isTop',!currentConversation.isTop)">{{currentConversation.isTop?'取消置顶':'置顶会话'}}</button>
+                <button @click="setPreference('isMuted',!currentConversation.isMuted)">{{currentConversation.isMuted?'关闭免打扰':'消息免打扰'}}</button>
+                <button @click="removeConversation">移出消息列表</button><button @click="toggleBlock">{{currentConversation.isBlockedByMe?'解除拉黑':'拉黑用户'}}</button>
+              </div></details>
+            </div>
           </div>
 
+          <div v-if="currentConversation.requestIncoming && currentConversation.requestState==='PENDING'" class="chat-request-banner"><span>这是一条消息请求，查看不会自动接受。<small>接受或回复后即可正常聊天。</small></span><button :disabled="actionBusy" @click="handleRequest('accept')">接受</button><button :disabled="actionBusy" @click="handleRequest('decline')">拒绝</button></div>
+          <div v-else-if="currentConversation.sendReason" class="chat-request-banner" role="status">{{currentConversation.sendReason}}</div>
+          <button v-if="replyContext" class="return-latest" @click="selectConversation(currentConversation)">返回最新消息</button>
           <!-- 消息列表 -->
-          <div class="message-list" ref="messageListRef" :data-message-count="messages.length" :data-virtualized="messages.length > 60">
+          <div class="message-list" ref="messageListRef" @scroll="readVisible" :data-message-count="messages.length" :data-virtualized="messages.length > 60">
             <div v-if="loadingMessages" class="loading-messages">加载中...</div>
             <div v-if="hasMoreMessages && !loadingMessages" class="load-more" @click="loadMoreMessages">
               加载更多消息
@@ -116,6 +84,7 @@
                 >
                 <div class="msg-content" :class="{ 'image-content': msg.messageType === 2 }">
                   <div class="msg-bubble" :class="{ 'image-bubble': msg.messageType === 2 }" @contextmenu.prevent="showMessageMenu($event, msg)">
+                    <button v-if="msg.replyToMessageId" class="message-quote" @click.stop="locateReply(msg)"><strong>{{msg.replyToSenderName||'引用消息'}}</strong><span>{{msg.replyToStatus ? '原消息已撤回' : msg.replyToContent||'查看原消息'}}</span></button>
                     <!-- 文本消息 -->
                     <template v-if="msg.messageType === 1">
                       {{ msg.content }}
@@ -126,7 +95,9 @@
                         <img :src="msg.content" alt="聊天图片" class="msg-image" loading="lazy">
                       </button>
                     </template>
+                    <template v-else-if="msg.messageType === 3"><router-link v-if="msg.article?.available" class="chat-article-card" :to="`/article/${msg.article.articleId}`"><img v-if="msg.article.coverImage" :src="msg.article.coverImage" alt=""><strong>{{msg.article.title}}</strong><small>{{msg.article.authorName}} · 文章</small></router-link><span v-else class="chat-article-unavailable">文章已不可用</span></template>
                   </div>
+                  <button v-if="currentConversation.canSendRich !== false" class="inline-reply" @click="replyTo=msg">回复</button>
                   <div class="msg-time">{{ formatMsgTime(msg.createTime) }}</div>
                 </div>
                 <img 
@@ -142,6 +113,7 @@
           </div>
 
           <!-- 输入区域 -->
+          <div v-if="replyTo" class="reply-draft"><span>回复 {{replyTo.senderName}}：{{replyTo.messageType===1?replyTo.content:replyTo.messageType===2?'[图片]':'[文章]'}}</span><button aria-label="取消引用回复" @click="replyTo=null">×</button></div>
           <div class="input-area">
             <div class="input-tools">
               <!-- 表情按钮 -->
@@ -175,13 +147,13 @@
                   <path d="M853.161077 892.549156 362.595248 892.549156l-209.432916-0.413416c-0.605797-0.001023-1.210571-0.031722-1.813299-0.092098-24.848944-2.484587-47.825238-14.060227-64.696488-32.594349-16.990976-18.665105-26.349111-42.85504-26.349111-68.112284L60.303434 264.62596c0-55.80805 45.403073-101.211123 101.211123-101.211123l691.645496 0c55.80805 0 101.2101 45.403073 101.2101 101.211123l0 225.51315c0 0.275269-0.00614 0.551562-0.01842 0.825808-0.021489 0.494257-1.971911 51.723012 15.481599 85.46244 4.716418 9.118682 1.14815 20.335141-7.970532 25.052582-9.116635 4.714372-20.335141 1.149173-25.052582-7.970532-21.300119-41.176818-19.844977-97.642854-19.618826-103.738689L917.191392 264.62596c0-35.307134-28.724205-64.031339-64.031339-64.031339L161.51558 200.594621c-35.307134 0-64.031339 28.724205-64.031339 64.031339l0 526.71105c0 32.755008 24.320918 59.957557 56.717769 63.61997l208.4311 0.412392 490.528989 0c35.307134 0 64.031339-28.725228 64.031339-64.032362l-0.382717-93.676519c-0.104377-1.749854-1.587148-19.548218-19.549242-42.499953-0.050142-0.063445-0.098237-0.125867-0.147356-0.190335L875.401614 626.481358 758.174726 471.362464c-0.415462-0.550539-38.995129-50.852178-86.271876-45.534056-38.335097 4.314259-75.954903 45.163619-108.789729 118.131491-17.615193 39.141462-34.650171 68.26885-52.082192 89.046059-17.607006 20.985964-35.679617 33.519418-55.251372 38.316677-43.422975 10.638291-81.049944-18.99461-120.886231-50.372248l-5.057179-3.980661c-46.555315-36.57808-68.750827-28.223808-158.330028 59.60247-7.330966 7.187703-19.101033 7.071046-26.288736-0.25992-7.187703-7.330966-7.071046-19.101033 0.25992-26.287713 46.658669-45.74588 77.544097-72.726372 107.085924-84.282568 33.357735-13.048177 64.274886-6.266727 100.242052 21.99392l5.092995 4.00829c33.9226 26.719548 63.219857 49.795103 89.028663 43.466977 25.618471-6.279007 53.30095-42.114167 82.279958-106.508779 39.139415-86.97591 85.837994-134.027529 138.79716-139.849118 68.454068-7.515161 117.823476 57.404408 119.891578 60.171428l117.122511 154.980747 21.599947 28.343535c26.276457 33.630958 27.333532 61.638849 27.367301 64.72514 0.001023 0.042979 0.001023 0.084934 0.001023 0.127913l0.38374 94.059236C954.371176 847.146083 908.969127 892.549156 853.161077 892.549156z"/>
                   <path d="M312.328401 446.967868c-42.324968 0-76.759221-34.434254-76.759221-76.759221s34.434254-76.759221 76.759221-76.759221 76.759221 34.434254 76.759221 76.759221S354.654392 446.967868 312.328401 446.967868zM312.328401 330.628186c-21.824051 0-39.579437 17.755386-39.579437 39.579437s17.755386 39.579437 39.579437 39.579437 39.579437-17.755386 39.579437-39.579437S334.153476 330.628186 312.328401 330.628186z"/>
                 </svg>
-                <input type="file" accept="image/*" @change="handleImageUpload" hidden>
+                <input type="file" accept="image/*" :disabled="currentConversation.canSendRich===false" @change="handleImageUpload" hidden>
               </label>
             </div>
             <div class="input-wrapper">
               <textarea 
                 v-model="messageInput"
-                placeholder="输入消息..."
+                :disabled="currentConversation.canMessage===false" :placeholder="currentConversation.canMessage===false ? currentConversation.sendReason : '输入消息...'"
                 @keydown.enter.exact.prevent="sendMessage"
                 @keydown.enter.shift.exact="newLine"
                 rows="1"
@@ -193,7 +165,7 @@
               <div class="progress-bar" :style="{ width: imageUploadProgress + '%' }"></div>
               <span class="progress-text">{{ imageUploadProgress }}%</span>
             </div>
-            <button class="send-btn" @click="sendMessage" :disabled="!messageInput.trim()">
+            <button class="send-btn" aria-label="发送消息" @click="sendMessage" :disabled="!messageInput.trim() || sending || currentConversation.canMessage===false">
               <svg viewBox="0 0 24 24" fill="currentColor">
                 <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
               </svg>
@@ -226,6 +198,7 @@
       >
         撤回
       </div>
+      <div v-if="currentConversation?.canSendRich!==false" class="menu-item" @click="replyTo=contextMenu.message;contextMenu.visible=false">引用回复</div>
       <div class="menu-item" @click="copyMessage">复制</div>
     </div>
 
@@ -244,12 +217,14 @@ import { useVirtualMessages } from '@/composables/useVirtualMessages'
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { goBackOr } from '@/utils/navigation'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import ChatSidebar from '@/components/ChatSidebar.vue'
+import FollowButton from '@/components/FollowButton.vue'
 import LoginForm from '@/components/LoginForm.vue'
 import RegisterForm from '@/components/RegisterForm.vue'
 import request from '@/utils/request'
 import { uploadFile } from '@/utils/upload'
-import { ensureAccessToken } from '@/utils/authSession'
+import { subscribeChatEvents } from '@/utils/chatRealtime'
 import { eventBus, EVENT_AUTH_EXPIRED } from '@/utils/eventBus'
 import { avatarUrl, onAvatarError } from '@/utils/avatar'
 
@@ -261,6 +236,8 @@ const myUserId = ref(localStorage.getItem('userId') || '')
 const myAvatar = ref(localStorage.getItem('avatar') || '')
 const myNickName = ref(localStorage.getItem('nickName') || '')
 
+const socialVersion=ref(0),actionBusy=ref(false),replyTo=ref<any>(null),replyContext=ref(false)
+let routeOpenedTarget='',conversationFetch=0,selectionGeneration=0,openingTarget=0
 // 会话列表
 const conversations = ref<any[]>([])
 const filteredConversations = ref<any[]>([])
@@ -319,18 +296,13 @@ const contextMenu = ref({
   message: null as any
 })
 
-// WebSocket
-let ws: WebSocket | null = null
-let reconnectTimer: number | null = null
-let heartbeatTimer: number | null = null
-let shouldReconnect = true  // 控制是否应该重连
-
+let stopRealtime:(()=>void)|undefined
 // 用户在线状态缓存
 const onlineUsers = ref<Set<string>>(new Set())
 
 // 计算总未读数
 const totalUnread = computed(() => {
-  return conversations.value.reduce((sum, c) => sum + (c.unreadCount || 0), 0)
+  return conversations.value.filter(c=>!c.isMuted).reduce((sum, c) => sum + (c.unreadCount || 0), 0)
 })
 
 // 在线状态
@@ -366,16 +338,21 @@ async function ensureUserInfo() {
 
 // 获取会话列表
 async function fetchConversations() {
+  const ticket=++conversationFetch
   loadingConversations.value = true
   try {
     const res = await request.get('/chat/conversations')
+    if(ticket!==conversationFetch)return
     if (res.code === 200 && res.data) {
       conversations.value = res.data
       filteredConversations.value = res.data
+      if(currentConversation.value){const updated=res.data.find((c:any)=>c.conversationId===currentConversation.value.conversationId);if(updated)currentConversation.value={...currentConversation.value,...updated}}
+      socialVersion.value++
       
       // 如果URL有指定用户，自动选中或创建会话
       const targetUserId = route.query.userId
-      if (targetUserId) {
+      if (targetUserId && routeOpenedTarget!==String(targetUserId)) {
+        routeOpenedTarget=String(targetUserId)
         const existConv = conversations.value.find(c => c.otherUserId == targetUserId)
         if (existConv) {
           selectConversation(existConv)
@@ -387,14 +364,16 @@ async function fetchConversations() {
   } catch (error) {
     console.error('获取会话列表失败:', error)
   } finally {
-    loadingConversations.value = false
+    if(ticket===conversationFetch)loadingConversations.value = false
   }
 }
 
 // 创建新会话
 async function createConversation(targetUserId: string) {
+  const opening=++openingTarget
   try {
     const res = await request.post('/chat/conversation/create', { targetUserId: String(targetUserId) })
+    if(opening!==openingTarget)return
     if (res.code === 200 && res.data) {
       // 检查是否已存在（可能是返回的已有会话）
       const existIndex = conversations.value.findIndex(c => c.conversationId === res.data.conversationId)
@@ -405,13 +384,18 @@ async function createConversation(targetUserId: string) {
       selectConversation(res.data)
     }
   } catch (error) {
-    console.error('创建会话失败:', error)
+    ElMessage.error(error instanceof Error ? error.message : '创建会话失败')
   }
 }
 
 // 选择会话
 async function selectConversation(conv: any) {
+  openingTarget++
+  const selection=++selectionGeneration
   currentConversation.value = conv
+  replyTo.value=null;replyContext.value=false
+  if(conv.requestIncoming && conv.requestState==='PENDING'){try{const viewed=await request.post(`/social/requests/${conv.conversationId}/view`);if(currentConversation.value?.conversationId===conv.conversationId)Object.assign(currentConversation.value,viewed.data);socialVersion.value++}catch(e){ElMessage.error(e instanceof Error?e.message:'请求加载失败')}}
+  if(selection!==selectionGeneration)return
   lastMessageId.value = null
   messages.value = []
   
@@ -424,9 +408,7 @@ async function selectConversation(conv: any) {
   await fetchMessages()
   
   // 标记已读
-  if (conv.unreadCount > 0) {
-    markAsRead(conv.conversationId)
-  }
+  if(currentConversation.value?.conversationId!==conv.conversationId)return
   
   // 滚动到底部
   scrollToBottom()
@@ -489,7 +471,7 @@ async function loadMoreMessages() {
 
 // 发送消息
 const sending = ref(false)
-let pendingSend: { cid: string, content: string, id: string } | null = null
+let pendingSend: { cid: string, content: string, id: string, replyId?:string } | null = null
 
 function mergeMessages(incoming: any[]) {
   const byId = new Map(messages.value.map(m => [m.messageId, m]))
@@ -519,14 +501,16 @@ async function catchUpMessages() {
 async function sendMessage() {
   const content = messageInput.value.trim()
   if (!content || !currentConversation.value || sending.value) return
+  if(currentConversation.value.canMessage===false)return
   const cid = currentConversation.value.conversationId
-  if (!pendingSend || pendingSend.cid !== cid || pendingSend.content !== content) pendingSend = { cid, content, id: crypto.randomUUID() }
+  if (!pendingSend || pendingSend.cid !== cid || pendingSend.content !== content || pendingSend.replyId!==replyTo.value?.messageId) pendingSend = { cid, content, id: crypto.randomUUID(),replyId:replyTo.value?.messageId }
   sending.value = true
   try {
     const res = await request.post('/chat/message/send', {
       conversationId: currentConversation.value.conversationId,
       messageType: 1,
       content: content,
+      replyToMessageId: replyTo.value?.messageId,
       clientMessageId: pendingSend.id
     })
     
@@ -535,10 +519,11 @@ async function sendMessage() {
       // 添加到消息列表
       if (currentConversation.value?.conversationId === cid) mergeMessages([res.data])
       pendingSend = null
-      messageInput.value = ''
+      if(currentConversation.value?.conversationId===cid){replyTo.value=null;if(messageInput.value.trim()===content)messageInput.value=''}
+      void refreshSocial()
       
       // 更新会话列表的最后消息
-      updateConversationLastMessage(content)
+      if(currentConversation.value?.conversationId===cid)updateConversationLastMessage(content)
       
       // 滚动到底部
       scrollToBottom()
@@ -554,7 +539,8 @@ async function sendMessage() {
 async function handleImageUpload(e: Event) {
   const target = e.target as HTMLInputElement
   const file = target.files?.[0]
-  if (!file || !currentConversation.value) return
+  if (!file || !currentConversation.value || currentConversation.value.canSendRich===false) return
+  const imageCid=currentConversation.value.conversationId
   
   if (file.size > 5 * 1024 * 1024) {
     ElMessage.warning('图片大小不能超过5MB')
@@ -577,7 +563,7 @@ async function handleImageUpload(e: Event) {
     if (uploadRes.code === 200 && uploadRes.data?.url) {
       // 发送图片消息
       const res = await request.post('/chat/message/send', {
-        conversationId: currentConversation.value.conversationId,
+        conversationId: imageCid,
         messageType: 2,
         content: uploadRes.data.url,
         clientMessageId: crypto.randomUUID()
@@ -585,8 +571,9 @@ async function handleImageUpload(e: Event) {
       
       if (res.code === 200 && res.data) {
         // 使用本地缓存的用户信息
-        mergeMessages([res.data])
-        updateConversationLastMessage('[图片]', 2)
+        if(currentConversation.value?.conversationId===imageCid)mergeMessages([res.data])
+        void refreshSocial()
+        if(currentConversation.value?.conversationId===imageCid)updateConversationLastMessage('[图片]', 2)
         scrollToBottom()
       }
     }
@@ -601,18 +588,28 @@ async function handleImageUpload(e: Event) {
 }
 
 // 标记已读
-async function markAsRead(conversationId: string) {
-  try {
-    await request.post(`/chat/conversation/${conversationId}/read`)
-    // 更新本地未读数
-    const conv = conversations.value.find(c => c.conversationId === conversationId)
-    if (conv) {
-      conv.unreadCount = 0
-    }
-  } catch (error) {
-    console.error('标记已读失败:', error)
-  }
+const readInFlight=new Set<string>()
+async function markAsRead(conversationId:string){
+  const element=messageListRef.value,conv=currentConversation.value
+  if(!element || !conv || conv.conversationId!==conversationId || document.hidden || !document.hasFocus() || replyContext.value || (window.innerWidth<=768 && showConversationList.value) || element.scrollHeight-element.scrollTop-element.clientHeight>45 || (conv.requestIncoming && conv.requestState==='PENDING'))return
+  const through=messages.value.at(-1)?.messageId
+  if(!through || readInFlight.has(conversationId))return
+  readInFlight.add(conversationId)
+  try{const res=await request.post(`/chat/conversation/${conversationId}/read`,{lastReadMessageId:through});const row=conversations.value.find(c=>c.conversationId===conversationId);if(row)row.unreadCount=res.data?.unreadCount ?? row.unreadCount;eventBus.emit('chat:unread-changed')}catch{/* Retry on the next visible scroll/focus. */}finally{readInFlight.delete(conversationId)}
 }
+function readVisible(){void nextTick(()=>{if(currentConversation.value)void markAsRead(currentConversation.value.conversationId)})}
+async function refreshSocial(){
+  await fetchConversations()
+  const cid=currentConversation.value?.conversationId
+  if(cid){try{const res=await request.get(`/social/conversations/${cid}`);if(currentConversation.value?.conversationId===cid)Object.assign(currentConversation.value,res.data)}catch{/* Keep history visible while metadata reload is unavailable. */}}
+  socialVersion.value++;eventBus.emit('social:updated')
+}
+async function setPreference(key:string,value:boolean){if(!currentConversation.value||actionBusy.value)return;actionBusy.value=true;const cid=currentConversation.value.conversationId;try{const res=await request.put(`/social/conversations/${cid}/preferences`,{[key]:value});if(currentConversation.value?.conversationId===cid)Object.assign(currentConversation.value,res.data);await refreshSocial()}catch(e){ElMessage.error(e instanceof Error?e.message:'设置失败')}finally{actionBusy.value=false}}
+async function editRemark(){if(!currentConversation.value)return;const person=currentConversation.value;try{const result=await ElMessageBox.prompt('备注仅自己可见，最多50字','设置备注',{inputValue:person.remark||'',inputValidator:v=>[...v].length<=50||'最多50字',confirmButtonText:'保存',cancelButtonText:'取消'});await request.put(`/social/relationships/${person.otherUserId}/remark`,{remark:result.value});await refreshSocial()}catch(e){if(e instanceof Error)ElMessage.error(e.message)}}
+async function toggleBlock(){if(!currentConversation.value)return;const person=currentConversation.value;try{if(!person.isBlockedByMe)await ElMessageBox.confirm('拉黑后将取消双方关注，并停止接收和发送彼此的私信。解除拉黑不会恢复关注。','拉黑用户',{confirmButtonText:'拉黑',cancelButtonText:'取消'});await request.put(`/social/relationships/${person.otherUserId}/block`,{blocked:!person.isBlockedByMe});await refreshSocial()}catch(e){if(e instanceof Error)ElMessage.error(e.message)}}
+async function removeConversation(){if(!currentConversation.value)return;const cid=currentConversation.value.conversationId;try{await request.post(`/chat/conversation/${cid}/delete`);if(currentConversation.value?.conversationId===cid){currentConversation.value=null;showConversationList.value=true;routeOpenedTarget=String(route.query.userId||'')}await refreshSocial()}catch(e){ElMessage.error(e instanceof Error?e.message:'操作失败')}}
+async function handleRequest(action:string){if(!currentConversation.value||actionBusy.value)return;actionBusy.value=true;const cid=currentConversation.value.conversationId;try{const res=await request.post(`/social/requests/${cid}/${action}`);if(currentConversation.value?.conversationId===cid)Object.assign(currentConversation.value,res.data);await refreshSocial();if(currentConversation.value?.conversationId!==cid)return;if(action==='decline'){currentConversation.value=null;showConversationList.value=true}else scrollToBottom()}catch(e){ElMessage.error(e instanceof Error?e.message:'操作失败')}finally{actionBusy.value=false}}
+async function locateReply(msg:any){const cid=currentConversation.value?.conversationId;if(!cid)return;let index=messages.value.findIndex(m=>m.messageId===msg.replyToMessageId);try{if(index<0){const res=await request.get(`/chat/message/${msg.replyToMessageId}/context`,{params:{conversationId:cid}});if(currentConversation.value?.conversationId!==cid)return;messages.value=[];mergeMessages(res.data.records||[]);lastMessageId.value=messages.value[0]?.messageId||null;hasMoreMessages.value=true;replyContext.value=true;index=messages.value.findIndex(m=>m.messageId===msg.replyToMessageId)}await nextTick();await virtual.scrollToIndex(index)}catch(e){ElMessage.error(e instanceof Error?e.message:'无法定位原消息')}}
 
 // 更新会话最后消息
 function updateConversationLastMessage(content: string, messageType: number = 1) {
@@ -697,59 +694,22 @@ function showMessageMenu(e: MouseEvent, msg: any) {
 }
 
 // 初始化WebSocket
-async function initWebSocket() {
-  let token: string | null
-  try { token = await ensureAccessToken() } catch { return }
-  if (!token) return
-  
-  // 如果已经有连接，先关闭
-  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
-    return
-  }
-  
-  shouldReconnect = true
-  
-  const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const wsHost = window.location.host
-  ws = new WebSocket(`${wsProtocol}//${wsHost}/ws/chat?token=${token}`)
-  
-  ws.onopen = () => {
-    console.log('WebSocket连接成功')
-    startHeartbeat()
-    fetchConversations()
-    catchUpMessages().catch(() => ElMessage.warning('网络已连接，消息同步失败，可重新打开会话'))
-  }
-  
-  ws.onmessage = (event) => {
-    const data = JSON.parse(event.data)
-    handleWsMessage(data)
-  }
-  
-  ws.onclose = () => {
-    console.log('WebSocket连接关闭')
-    stopHeartbeat()
-    // 只有应该重连时才重连
-    if (shouldReconnect) {
-      reconnectTimer = window.setTimeout(() => {
-        initWebSocket()
-      }, 3000)
-    }
-  }
-  
-  ws.onerror = (error) => {
-    console.error('WebSocket错误:', error)
-  }
+async function initWebSocket(){
+  if(stopRealtime)return
+  stopRealtime=subscribeChatEvents(data=>{if(data.type==='connected'){void fetchConversations();void catchUpMessages().catch(()=>ElMessage.warning('消息同步失败，请重新打开会话'))}else handleWsMessage(data)})
 }
 
 // 处理WebSocket消息
 function handleWsMessage(data: any) {
+  if (data.type === 'social_update') { void refreshSocial(); return }
   if (data.type === 'message') {
+    socialVersion.value++;eventBus.emit('chat:unread-changed');void fetchConversations()
     // 收到新消息
     if (currentConversation.value && data.conversationId === currentConversation.value.conversationId) {
       // 当前会话的消息
+      const el=messageListRef.value,atBottom=!!el && el.scrollHeight-el.scrollTop-el.clientHeight<45
       mergeMessages([data])
-      markAsRead(currentConversation.value.conversationId)
-      scrollToBottom()
+      if(atBottom && !replyContext.value)scrollToBottom()
     } else {
       // 其他会话的消息，更新未读数
       const conv = conversations.value.find(c => c.conversationId === data.conversationId)
@@ -767,9 +727,8 @@ function handleWsMessage(data: any) {
   } else if (data.type === 'recall') {
     // 消息撤回
     const msg = messages.value.find(m => m.messageId === data.messageId)
-    if (msg) {
-      msg.status = 1
-    }
+    if (msg) { msg.status = 1 }
+    for(const quoted of messages.value)if(quoted.replyToMessageId===data.messageId){quoted.replyToStatus=1;quoted.replyToContent='原消息已撤回'}
     // 同步更新会话列表的 lastMessage
     const conv = conversations.value.find(c => c.conversationId === data.conversationId)
     if (conv) {
@@ -803,22 +762,6 @@ function moveConversationToTop(conv: any) {
   }
 }
 
-// 心跳
-function startHeartbeat() {
-  heartbeatTimer = window.setInterval(() => {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'ping' }))
-    }
-  }, 30000)
-}
-
-function stopHeartbeat() {
-  if (heartbeatTimer) {
-    clearInterval(heartbeatTimer)
-    heartbeatTimer = null
-  }
-}
-
 // 搜索过滤
 function filterConversations() {
   if (!searchKeyword.value.trim()) {
@@ -835,6 +778,7 @@ function scrollToBottom() {
   nextTick(() => {
     if (messageListRef.value) {
       messageListRef.value.scrollTop = messageListRef.value.scrollHeight
+      readVisible()
     }
   })
 }
@@ -934,7 +878,7 @@ function closeContextMenu() {
 
 // 监听路由变化
 watch(() => route.query.userId, (newUserId) => {
-  if (newUserId && conversations.value.length > 0) {
+  if (newUserId) {
     const existConv = conversations.value.find(c => c.otherUserId == newUserId)
     if (existConv) {
       selectConversation(existConv)
@@ -951,13 +895,7 @@ const dialogWidth = ref(window.innerWidth <= 480 ? '92%' : '420px')
 
 // 登录过期处理：跳转首页并弹出登录弹窗
 function handleAuthExpired() {
-  // 关闭WebSocket连接
-  shouldReconnect = false
-  if (ws) {
-    ws.close()
-    ws = null
-  }
-  stopHeartbeat()
+  stopRealtime?.();stopRealtime=undefined
   showLoginDialog.value = true
 }
 
@@ -998,28 +936,22 @@ onMounted(async () => {
   
   // 监听点击事件关闭右键菜单
   document.addEventListener('click', closeContextMenu)
+  document.addEventListener('visibilitychange',readVisible);window.addEventListener('focus',readVisible)
 })
 
 onUnmounted(() => {
   // 移除登录过期事件监听
   eventBus.off(EVENT_AUTH_EXPIRED, handleAuthExpired)
-  // 停止重连
-  shouldReconnect = false
-  
-  if (reconnectTimer) {
-    clearTimeout(reconnectTimer)
-    reconnectTimer = null
-  }
-  if (ws) {
-    ws.close()
-    ws = null
-  }
-  stopHeartbeat()
+  stopRealtime?.();stopRealtime=undefined
   document.removeEventListener('click', closeContextMenu)
+  document.removeEventListener('visibilitychange',readVisible);window.removeEventListener('focus',readVisible)
 })
 </script>
 
 <style scoped>
+.chat-social-actions{display:flex;align-items:center;gap:10px;margin-left:auto}.chat-social-actions details{position:relative}.chat-social-actions summary{list-style:none;cursor:pointer;padding:12px}.chat-options{position:absolute;right:0;top:100%;z-index:25;width:160px;padding:6px;background:var(--ej-surface);border:1px solid var(--ej-ink);border-radius:12px;box-shadow:0 5px 20px #0002}.chat-options button{display:block;width:100%;padding:10px;border:0;background:transparent;color:var(--ej-ink);text-align:left;cursor:pointer}.chat-options button:hover{background:var(--ej-canvas)}.chat-request-banner{padding:12px 20px;background:#eaf5d8;color:var(--ej-ink);font-size:13px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}.chat-request-banner span{flex:1}.chat-request-banner button,.return-latest{border:1px solid var(--ej-ink);border-radius:99px;padding:6px 14px;background:var(--ej-surface);cursor:pointer}.reply-draft{display:flex;align-items:center;gap:10px;padding:10px 18px;border-top:1px solid var(--ej-hairline);font-size:12px}.reply-draft span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.reply-draft button{border:0;background:transparent;font-size:20px;cursor:pointer}.message-quote{display:block;width:100%;border:0;border-left:3px solid var(--ej-muted);padding:5px 10px;background:#00000008;text-align:left;color:inherit;white-space:normal;font:inherit;font-size:12px;cursor:pointer;margin-bottom:8px}.message-quote strong,.message-quote span{display:block}.chat-article-card{display:block;min-width:180px;max-width:280px;text-decoration:none;color:inherit;white-space:normal}.chat-article-card img{max-width:100%;max-height:130px;border-radius:8px;object-fit:cover;display:block;margin-bottom:8px}.chat-article-card strong,.chat-article-card small{display:block}.chat-article-card small{color:var(--ej-muted);font-size:11px;margin-top:8px}.inline-reply{background:transparent;border:0;color:var(--ej-muted);font-size:11px;cursor:pointer}.chat-area textarea:disabled{cursor:default;background:var(--ej-canvas)}
+@media(max-width:768px){.chat-header{flex-wrap:wrap}.chat-social-actions{gap:2px}.chat-request-banner{font-size:12px;padding:9px 12px}}
+
 .chat-page {
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   min-height: 100vh;

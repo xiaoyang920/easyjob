@@ -1,3 +1,4 @@
+from tool_fakes import retrieval_call, raw_retrieval_call
 from rpc_fakes import public_reader
 """Verify adaptive routing on the production graph without network calls."""
 import os
@@ -17,6 +18,7 @@ from unittest.mock import AsyncMock, Mock, patch
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
+from app.services import main_tools
 from app.graph import builder, main_agent as agent, staged_runtime as runtime, action_runtime as actions
 from app.graph.nodes import search_worker, writing_worker
 from app.graph.main_agent import MainArtifact, MainDecision, RetrievalRequest, CitationRepair, ArtifactCitationRepair
@@ -55,7 +57,7 @@ class DecisionTests(unittest.TestCase):
         plan = DependencyPlan(tasks=[DelegatedTask(task_id="a", subagent="search", instruction="research")])
         cases = [dict(action="answer", reply=""),
                  dict(action="answer", reply="hello", plan=plan),
-                 dict(action="retrieve"),
+                 dict(action="call_tool"),
                  dict(action="analyze", plan=plan),
                  dict(action="delegate", plan=plan),
                  dict(action="answer", reply="hello", user_id=99),
@@ -195,12 +197,12 @@ class MainAgentTests(unittest.IsolatedAsyncioTestCase):
         model, control = llm([
             MainDecision(action="write_draft", draft_request=DraftRequest(
                 task_id="draft", instruction="基于站内文章写作", requires_evidence=True)),
-            MainDecision(action="retrieve", retrieval=RetrievalRequest(
-                task_id="sources", instruction="查找 Agent 开发资料"))])
+            MainDecision(action='call_tool', tool_call=retrieval_call(RetrievalRequest(
+                task_id="sources", instruction="查找 Agent 开发资料")))])
         state = create_initial_state(7, "基于站内文章写一篇 Agent 开发文章", [])
         with patch.object(agent, "get_llm", return_value=model):
             result = await agent.decide_main_action(state)
-        self.assertEqual(result["main_action"], "retrieve")
+        self.assertEqual(result["main_action"], "call_tool")
         self.assertTrue(result["plan"]["tasks"][0]["requires_evidence"])
         self.assertEqual(result["main_round"], 1)
         self.assertEqual(len(result["action_history"]), 1)
@@ -281,8 +283,8 @@ class MainAgentTests(unittest.IsolatedAsyncioTestCase):
         search.assert_not_awaited()
 
     async def test_direct_retrieval_uses_shared_rag_and_final_source_recheck(self):
-        decision = MainDecision(action="retrieve", retrieval=RetrievalRequest(instruction="find RAG articles"))
-        decision.retrieval.task_id = "main"
+        decision = MainDecision(action='call_tool', tool_call=retrieval_call(RetrievalRequest(instruction="find RAG articles")))
+        decision.tool_call.task_id = "main"
         model, control = llm([decision, MainDecision(action="answer", reply="回答 [main:1]",
             evidence_assessment=EvidenceAssessment(selected_ids=['main:1'], adequacy='sufficient', reason='正文覆盖目标'))])
         source = "<p>current public evidence</p>"
@@ -303,7 +305,7 @@ class MainAgentTests(unittest.IsolatedAsyncioTestCase):
              patch.object(search_worker, "do_search", AsyncMock()) as web, \
              patch.object(runtime, "subagent_node", AsyncMock()) as subagent:
             result, nodes = await run_updates(builder._build_graph().compile(checkpointer=InMemorySaver()), state)
-        self.assertEqual(nodes, ["main_agent", "main_retrieve", "main_agent", "final_gate"])
+        self.assertEqual(nodes, ["main_agent", "execute_tool", "main_agent", "final_gate"])
         self.assertEqual(control.ainvoke.await_count, 2)
         model.ainvoke.assert_not_awaited()
         context = json.loads(control.ainvoke.call_args.args[0][1].content)
@@ -320,25 +322,25 @@ class MainAgentTests(unittest.IsolatedAsyncioTestCase):
         subagent.assert_not_awaited()
 
     async def test_empty_retrieval_returns_observation_and_main_can_explain_insufficiency(self):
-        model, control = llm([MainDecision(action="retrieve", retrieval=RetrievalRequest(instruction="find")),
+        model, control = llm([MainDecision(action='call_tool', tool_call=retrieval_call(RetrievalRequest(instruction="find"))),
                               MainDecision(action="answer", reply="没有可用资料")])
         with patch.object(agent, "get_llm", return_value=model), \
-             patch.object(actions, "retrieve_evidence", AsyncMock(return_value={"status": "insufficient_evidence",
+             patch.object(main_tools, "retrieve_evidence", AsyncMock(return_value={"status": "insufficient_evidence",
                  "result": "没有可用资料", "citations": [], "article_cards": [], "rag_context": ""})) as retrieve:
             result, nodes = await run_updates(builder._build_graph().compile(checkpointer=InMemorySaver()), create_initial_state(7, "find", []))
         self.assertEqual(result["final_reply"], "没有可用资料")
-        self.assertEqual(nodes, ["main_agent", "main_retrieve", "main_agent", "final_gate"])
+        self.assertEqual(nodes, ["main_agent", "execute_tool", "main_agent", "final_gate"])
         self.assertEqual(retrieve.await_count, 1)
         model.ainvoke.assert_not_awaited()
 
     async def test_gap_driven_second_retrieval_reuses_sources_in_three_main_calls(self):
         def assess(ids, adequacy, gaps=()):
             return EvidenceAssessment(selected_ids=ids, adequacy=adequacy, reason='按用户目标核对正文', missing_aspects=list(gaps))
-        decisions = [MainDecision(action='retrieve', retrieval=RetrievalRequest(task_id='principle',
-                         instruction='缓存一致性原理', search_query='Cache Aside 原理', filters={})),
-                     MainDecision(action='retrieve', evidence_assessment=assess(['principle:1'], 'partial', ['删除失败补偿']),
-                         retrieval=RetrievalRequest(task_id='recovery', instruction='补充删除失败补偿',
-                             search_query='缓存删除失败 重试补偿', filters={})),
+        decisions = [MainDecision(action='call_tool', tool_call=retrieval_call(RetrievalRequest(task_id='principle',
+                         instruction='缓存一致性原理', search_query='Cache Aside 原理', filters={}))),
+                     MainDecision(action='call_tool', evidence_assessment=assess(['principle:1'], 'partial', ['删除失败补偿']),
+                         tool_call=retrieval_call(RetrievalRequest(task_id='recovery', instruction='补充删除失败补偿',
+                             search_query='缓存删除失败 重试补偿', filters={}))),
                      MainDecision(action='answer', reply='原理 [principle:1]；补偿 [recovery:1]',
                          evidence_assessment=assess(['principle:1', 'recovery:1'], 'sufficient'))]
         model, control = llm(decisions)
@@ -346,12 +348,12 @@ class MainAgentTests(unittest.IsolatedAsyncioTestCase):
             return {**evidence(tid), 'retrieval_report': {'assessment_owner': 'main',
                     'platform': {'status': 'found'}, 'web': {'status': 'not_requested'}}}
         with patch.object(agent, 'get_llm', return_value=model), \
-             patch.object(actions, 'retrieve_evidence', AsyncMock(side_effect=[retrieved('principle'), retrieved('recovery')])) as retrieve:
+             patch.object(main_tools, 'retrieve_evidence', AsyncMock(side_effect=[retrieved('principle'), retrieved('recovery')])) as retrieve:
             result, nodes = await run_updates(builder._build_graph().compile(checkpointer=InMemorySaver()),
                 create_initial_state(7, '解释缓存一致性并说明删除失败补偿', []))
         self.assertEqual(control.ainvoke.await_count, 3)
         self.assertEqual(retrieve.await_count, 2)
-        self.assertEqual(nodes.count('main_retrieve'), 2)
+        self.assertEqual(nodes.count('execute_tool'), 2)
         self.assertEqual(set(result['task_results']), {'principle', 'recovery'})
         self.assertEqual([c['id'] for c in result['citations']], ['principle:1', 'recovery:1'])
         final_context = json.loads(control.ainvoke.await_args_list[-1].args[0][1].content)
@@ -377,11 +379,11 @@ class MainAgentTests(unittest.IsolatedAsyncioTestCase):
     async def test_citation_correction_reuses_retrieval_and_invalid_final_is_rejected(self):
         for replies, fails in [(["bad [unknown:1]", "fixed [main:1]"], False),
                                (["bad [unknown:1]"] * 2, True)]:
-            model, control = llm([MainDecision(action="retrieve", retrieval=RetrievalRequest(task_id="main", instruction="find")),
+            model, control = llm([MainDecision(action='call_tool', tool_call=retrieval_call(RetrievalRequest(task_id="main", instruction="find"))),
                                   MainDecision(action="answer", reply=replies[0], answer_dependencies=["main"]),
                                   CitationRepair(reply=replies[1])])
             with self.subTest(fails=fails), patch.object(agent, "get_llm", return_value=model), \
-                 patch.object(actions, "retrieve_evidence", AsyncMock(return_value=evidence())) as retrieve:
+                 patch.object(main_tools, "retrieve_evidence", AsyncMock(return_value=evidence())) as retrieve:
                 graph = builder._build_graph().compile(checkpointer=InMemorySaver())
                 result, _ = await run_updates(graph, create_initial_state(7, "find", []))
                 if fails:
@@ -398,11 +400,11 @@ class MainAgentTests(unittest.IsolatedAsyncioTestCase):
             model.ainvoke.assert_not_awaited()
 
     async def test_mixed_reply_retry_explains_validation_and_stops_after_two_calls(self):
-        invalid = {"action": "retrieve", "retrieval": {"instruction": "find"}, "reply": "progress"}
+        invalid = {"action": 'call_tool', 'tool_call': raw_retrieval_call({"instruction": "find"}), "reply": "progress"}
         for second, fails in [(invalid, True), (MainDecision(action="answer", reply="fixed"), False)]:
             model, control = llm([invalid, second])
             with self.subTest(fails=fails), patch.object(agent, "get_llm", return_value=model), \
-                 patch.object(actions, "retrieve_evidence", AsyncMock()) as retrieve:
+                 patch.object(main_tools, "retrieve_evidence", AsyncMock()) as retrieve:
                 result, nodes = await run_updates(builder._build_graph().compile(checkpointer=InMemorySaver()), create_initial_state(7, "find", []))
             self.assertEqual(control.ainvoke.await_count, 2)
             self.assertEqual(nodes, ["main_agent", "final_gate"])
@@ -412,7 +414,7 @@ class MainAgentTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_text_repair_preserves_request_constraints_and_artifact_dependencies(self):
         state = MainArtifactTests().state()
-        decision = MainDecision(action="retrieve", retrieval=RetrievalRequest(instruction="original", allow_web=True),
+        decision = MainDecision(action='call_tool', tool_call=retrieval_call(RetrievalRequest(instruction="original", allow_web=True)),
             constraint_overrides=["constraint-1"], artifacts=[
                 MainArtifact(task_id="notes", instruction="compare", result="bad [fake:1]", depends_on=["source"], requires_evidence=True),
                 MainArtifact(task_id="outline", instruction="outline", result="bad [fake:2]", depends_on=["notes"], requires_evidence=True)])
@@ -430,7 +432,7 @@ class MainAgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(set(agent.prepare_artifacts(state, fixed.artifacts)), {"notes", "outline"})
 
     async def test_text_repair_rejects_missing_duplicate_extra_ids_and_changed_action(self):
-        decision = MainDecision(action="retrieve", retrieval=RetrievalRequest(instruction="original"),
+        decision = MainDecision(action='call_tool', tool_call=retrieval_call(RetrievalRequest(instruction="original")),
             artifacts=[MainArtifact(task_id="notes", instruction="compare", result="bad [fake:1]")])
         good = ArtifactCitationRepair(task_id="notes", result="fixed")
         for output in (CitationRepair(), CitationRepair(artifacts=[good, good]),
@@ -442,10 +444,10 @@ class MainAgentTests(unittest.IsolatedAsyncioTestCase):
                 await agent.repair_citation_text(create_initial_state(7, "find", []), decision, model, [])
 
     async def test_text_repair_timeout_stops_without_repeating_search(self):
-        model, control = llm([MainDecision(action="retrieve", retrieval=RetrievalRequest(task_id="main", instruction="find")),
+        model, control = llm([MainDecision(action='call_tool', tool_call=retrieval_call(RetrievalRequest(task_id="main", instruction="find"))),
             MainDecision(action="answer", reply="bad [unknown:1]"), TimeoutError()])
         with patch.object(agent, "get_llm", return_value=model), \
-             patch.object(actions, "retrieve_evidence", AsyncMock(return_value=evidence())) as retrieve:
+             patch.object(main_tools, "retrieve_evidence", AsyncMock(return_value=evidence())) as retrieve:
             result, _ = await run_updates(builder._build_graph().compile(checkpointer=InMemorySaver()), create_initial_state(7, "find", []))
         self.assertIn("回答引用未通过校验", result["final_reply"])
         self.assertEqual(control.ainvoke.await_count, 3)
@@ -455,14 +457,14 @@ class MainAgentTests(unittest.IsolatedAsyncioTestCase):
         draft_request = DraftRequest(task_id="draft", instruction="write", depends_on=["analysis"], requires_evidence=True)
         artifact = MainArtifact(task_id="analysis", instruction="compare research", result="analysis [research:1]",
                                 depends_on=["research"], requires_evidence=True)
-        model, control = llm([MainDecision(action="retrieve", retrieval=RetrievalRequest(task_id="research", instruction="find")),
+        model, control = llm([MainDecision(action='call_tool', tool_call=retrieval_call(RetrievalRequest(task_id="research", instruction="find"))),
                               MainDecision(action="write_draft", draft_request=draft_request, artifacts=[artifact])])
         repo = repository()
         state = create_initial_state(7, "find analyze draft", [])
         state.update(run_id=RUN_ID, execution_token="first")
         config = {"configurable": {"thread_id": "workflow", "execution_token": "first"}, "recursion_limit": 80}
         with patch.object(agent, "get_llm", return_value=model), patch.object(runtime, "run_repository", repo), \
-             patch.object(actions, "retrieve_evidence", AsyncMock(return_value=evidence("research"))) as retrieve, \
+             patch.object(main_tools, "retrieve_evidence", AsyncMock(return_value=evidence("research"))) as retrieve, \
              patch.object(runtime, "search_worker_node", AsyncMock()) as search, \
              patch.object(runtime, "analysis_worker_node", AsyncMock()) as analysis, \
              patch.object(writing_worker, "generate_draft", AsyncMock(return_value=DraftOutput(title="A", summary="S", content="draft [research:1]"))) as draft, \
@@ -519,17 +521,17 @@ class MainAgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("planner", nodes)
 
     async def test_new_turn_resets_retrieval_and_route_on_existing_checkpoint(self):
-        model, control = llm([MainDecision(action="retrieve", retrieval=RetrievalRequest(task_id="main", instruction="find")),
+        model, control = llm([MainDecision(action='call_tool', tool_call=retrieval_call(RetrievalRequest(task_id="main", instruction="find"))),
                               MainDecision(action="answer", reply="source [main:1]"), MainDecision(action="answer", reply="hello")])
         with patch.object(agent, "get_llm", return_value=model), \
-             patch.object(actions, "retrieve_evidence", AsyncMock(return_value=evidence())) as retrieve:
+             patch.object(main_tools, "retrieve_evidence", AsyncMock(return_value=evidence())) as retrieve:
             graph = builder._build_graph().compile(checkpointer=InMemorySaver())
             await run_updates(graph, create_initial_state(7, "find", []), "same")
             result, nodes = await run_updates(graph, create_initial_state(7, "hello", []), "same")
         self.assertEqual(nodes, ["main_agent", "final_gate"])
         self.assertEqual(result["citations"], [])
         self.assertEqual(result["article_cards"], [])
-        self.assertIsNone(result["main_decision"]["retrieval"])
+        self.assertIsNone(result["main_decision"]["tool_call"])
         self.assertEqual(result["main_round"], 1)
         self.assertEqual(result["action_history"], [])
         self.assertEqual(result["observations"], [])
@@ -552,10 +554,10 @@ class MainAgentTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_direct_answer_correction_cannot_switch_to_tools_or_delegate(self):
         for second, fails in [(CitationRepair(reply="corrected"), False),
-                              ({"action": "retrieve", "retrieval": {"instruction": "new search"}}, True)]:
+                              ({"action": 'call_tool', 'tool_call': raw_retrieval_call({"instruction": "new search"})}, True)]:
             model, control = llm([MainDecision(action="answer", reply="bad [fake:1]"), second])
             with self.subTest(fails=fails), patch.object(agent, "get_llm", return_value=model), \
-                 patch.object(actions, "retrieve_evidence", AsyncMock()) as retrieve:
+                 patch.object(main_tools, "retrieve_evidence", AsyncMock()) as retrieve:
                 graph = builder._build_graph().compile(checkpointer=InMemorySaver())
                 result, nodes = await run_updates(graph, create_initial_state(7, "hello", []))
                 if fails:
@@ -567,10 +569,10 @@ class MainAgentTests(unittest.IsolatedAsyncioTestCase):
             retrieve.assert_not_awaited()
 
     async def test_insufficient_evidence_returns_to_main_once_without_starting_subagents(self):
-        model, control = llm([MainDecision(action="retrieve", retrieval=RetrievalRequest(task_id="a", instruction="first query")),
-                              MainDecision(action="retrieve", retrieval=RetrievalRequest(task_id="b", instruction="narrower query"))])
+        model, control = llm([MainDecision(action='call_tool', tool_call=retrieval_call(RetrievalRequest(task_id="a", instruction="first query"))),
+                              MainDecision(action='call_tool', tool_call=retrieval_call(RetrievalRequest(task_id="b", instruction="narrower query")))])
         with patch.object(agent, "get_llm", return_value=model), \
-             patch.object(actions, "retrieve_evidence", AsyncMock(return_value={"status": "insufficient_evidence",
+             patch.object(main_tools, "retrieve_evidence", AsyncMock(return_value={"status": "insufficient_evidence",
                  "result": "no evidence", "citations": [], "article_cards": [], "rag_context": ""})) as retrieve, \
              patch.object(runtime, "search_worker_node", AsyncMock()) as search:
             result, nodes = await run_updates(builder._build_graph().compile(checkpointer=InMemorySaver()), create_initial_state(7, "compare", []))

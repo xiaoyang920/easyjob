@@ -55,8 +55,8 @@ public class ArticleEmbeddingService {
                     if (System.nanoTime() >= deadline) throw new TimeoutException();
                     int offset = next * batchSize;
                     List<String> batch = input.subList(offset, Math.min(offset + batchSize, input.size()));
-                    var task = new FutureTask<BatchResult>(() -> {
-                        try (var ignored = new RequestTrace(trace, run)) {
+                    FutureTask<BatchResult> task = new FutureTask<BatchResult>(() -> {
+                        try (RequestTrace ignored = new RequestTrace(trace, run)) {
                             return new BatchResult(offset, embedding.embedBatch(batch));
                         }
                     }) {
@@ -68,7 +68,7 @@ public class ArticleEmbeddingService {
                 }
                 long remaining = deadline - System.nanoTime();
                 if (remaining <= 0) throw new TimeoutException();
-                var future = completed.poll(remaining, TimeUnit.NANOSECONDS);
+                FutureTask<BatchResult> future = completed.poll(remaining, TimeUnit.NANOSECONDS);
                 if (future == null) throw new TimeoutException();
                 BatchResult result = future.get();
                 int expected = Math.min(batchSize, input.size() - result.offset());
@@ -89,7 +89,7 @@ public class ArticleEmbeddingService {
         } finally {
             // Cancelling a Future does not prove its HTTP call has stopped. The worker slot remains
             // occupied until it really returns; queued work is removed and can never write ES.
-            for (var task : submitted) {
+            for (FutureTask<BatchResult> task : submitted) {
                 task.cancel(true);
                 executor.getThreadPoolExecutor().remove(task);
             }

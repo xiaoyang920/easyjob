@@ -8,6 +8,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.*;
 
 @RestController @RequestMapping("/api")
+@org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(name="easyjob.auth.enabled",havingValue="false",matchIfMissing=true)
 public class AccountSecurityController {
     private final AccountSecurityService security;private final AuthSessionService sessions;private final JwtUtil jwt;
     public AccountSecurityController(AccountSecurityService security,AuthSessionService sessions,JwtUtil jwt){this.security=security;this.sessions=sessions;this.jwt=jwt;}

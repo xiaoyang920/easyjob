@@ -7,6 +7,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 /**
  * Web配置类
@@ -16,7 +17,7 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 public class WebMvcConfig implements WebMvcConfigurer {
     @org.springframework.context.annotation.Bean
     public org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor mvcStreamExecutor() {
-        var executor = new org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor();
+        ThreadPoolTaskExecutor executor = new org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor();
         executor.setCorePoolSize(8); executor.setMaxPoolSize(32); executor.setQueueCapacity(64);
         executor.setThreadNamePrefix("mvc-stream-"); executor.initialize(); return executor;
     }
@@ -51,10 +52,12 @@ public class WebMvcConfig implements WebMvcConfigurer {
         registry.addInterceptor(jwtInterceptor)
                 // 拦截所有请求
                 .addPathPatterns("/**")
+                .excludePathPatterns("/actuator/health")
                 // 排除登录接口
                 .excludePathPatterns("/api/auth/**")
                 // Dedicated service-key authentication inside this exact endpoint.
                 .excludePathPatterns("/internal/agent/drafts", "/internal/agent/drafts/**")
+                .excludePathPatterns("/internal/agent/ready")
                 .excludePathPatterns("/api/user/space/**")
                 .excludePathPatterns("/test/**")
                 // 排除文章详情（公开看）

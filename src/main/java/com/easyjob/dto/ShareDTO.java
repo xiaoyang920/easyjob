@@ -10,5 +10,5 @@ import lombok.NoArgsConstructor;
 public class ShareDTO {
     Long articleId;
     Long commentId;
-    Integer shareType;//0-复制链接 1-二维码 2-海报
+    Integer shareType;//0-复制链接 1-二维码 2-海报 3-分享给朋友
 }

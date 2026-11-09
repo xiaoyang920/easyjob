@@ -12,6 +12,7 @@
           <label>账号状态<AppSelect v-model.number="form.status" :disabled="ownAccount"><AppSelectOption :value="1">正常</AppSelectOption><AppSelectOption :value="0">禁用</AppSelectOption></AppSelect></label>
         </div>
         <p class="user-editor-note">{{ ownAccount ? '当前账号的管理员身份和启用状态受保护。' : '修改角色或状态后，用户需重新登录；禁用后无法继续使用账号。' }}</p>
+        <button type="button" class="user-editor-reload" :disabled="saving || ownAccount || !securityVersion" @click="saveSecurity">单独保存角色与账号状态</button>
         <section class="user-growth-editor">
           <div><strong>阅读成长</strong><span class="user-editor-level">L{{ original.readingLevel }}</span><span>{{ readingDuration(original.readingSeconds) }}</span></div>
           <label class="user-editor-check"><input v-model="correctReading" type="checkbox" />校正累计有效阅读时长</label>
@@ -25,7 +26,7 @@
       <p v-if="error" role="alert" class="user-editor-error">{{ error }}</p>
       <button v-if="error" type="button" class="user-editor-reload" :disabled="saving" @click="load">重新加载最新资料（会重置表单）</button>
     </form>
-    <template #footer><div class="user-editor-footer"><button type="button" :disabled="saving" @click="close()">取消</button><button v-if="original" class="primary" type="submit" form="admin-user-form" :disabled="saving || loading">{{ saving ? '正在保存…' : '保存修改' }}</button></div></template>
+    <template #footer><div class="user-editor-footer"><button type="button" :disabled="saving" @click="close()">取消</button><button v-if="original" class="primary" type="submit" form="admin-user-form" :disabled="saving || loading">{{ saving ? '正在保存…' : '保存资料与阅读成长' }}</button></div></template>
   </el-dialog>
 </template>
 
@@ -44,6 +45,7 @@ const props=defineProps<{userId:string;operatorId?:string}>()
 const emit=defineEmits<{changed:[]}>()
 const original=ref<Detail>(),form=reactive<Profile>({nickName:'',personIntroduction:'',role:1,status:1})
 const loading=ref(false),saving=ref(false),error=ref(''),reason=ref(''),correctReading=ref(false)
+const securityVersion=ref('')
 const hours=ref(0),minutes=ref(0),seconds=ref(0),gate=latestRequest()
 const ownAccount=computed(()=>props.userId===props.operatorId)
 const correctedSeconds=computed(()=>Number(hours.value)*3600+Number(minutes.value)*60+Number(seconds.value))
@@ -55,20 +57,33 @@ async function load(){
     const result:any=await request.get(`/admin/users/${props.userId}`,{signal:run.signal})
     if(!run.isCurrent())return
     original.value=result.data;Object.assign(form,result.data)
+    const account:any=await request.get(`/admin/accounts/${props.userId}/security`,{signal:run.signal})
+    if(!run.isCurrent())return
+    securityVersion.value=account.data.version
     hours.value=Math.floor(result.data.readingSeconds/3600);minutes.value=Math.floor(result.data.readingSeconds%3600/60);seconds.value=result.data.readingSeconds%60
     reason.value='';correctReading.value=false
   }catch(e){if(run.isCurrent())error.value=message(e)}finally{if(run.isCurrent())loading.value=false}
 }
 function close(done?:()=>void){if(saving.value)return;gate.cancel();visible.value=false;done?.()}
+async function saveSecurity(){
+  if(!original.value || saving.value || ownAccount.value)return
+  if(!reason.value.trim()){error.value='请先填写修改原因';return}
+  saving.value=true;error.value=''
+  try{
+    await request.put(`/admin/accounts/${props.userId}/security`,{expectedVersion:securityVersion.value,role:form.role,status:form.status,commandId:crypto.randomUUID(),reason:reason.value.trim()})
+    ElMessage.success('角色与账号状态已更新');emit('changed');await load()
+  }catch(e){error.value=message(e)}finally{saving.value=false}
+}
 async function save(){
   if(!original.value || saving.value)return
+  if(form.role!==original.value.role || form.status!==original.value.status){error.value='角色或账号状态尚未保存，请先点击“单独保存角色与账号状态”';return}
   if(!form.nickName.trim() || !reason.value.trim()){error.value='请填写昵称和修改原因';return}
   if(correctReading.value && (![hours.value,minutes.value,seconds.value].every(v=>Number.isInteger(v) && v>=0) || minutes.value>59 || seconds.value>59 || correctedSeconds.value>315360000)){error.value='请填写有效的阅读时长';return}
   const data=original.value;saving.value=true;error.value=''
   try{
     await request.put(`/admin/users/${data.userId}`,{
       expectedProfile:{nickName:data.nickName,personIntroduction:data.personIntroduction,role:data.role,status:data.status},
-      nickName:form.nickName.trim(),personIntroduction:form.personIntroduction || null,role:form.role,status:form.status,
+      nickName:form.nickName.trim(),personIntroduction:form.personIntroduction || null,role:data.role,status:data.status,
       readingSeconds:correctReading.value?correctedSeconds.value:null,expectedReadingMillis:correctReading.value?data.readingMillis:null,reason:reason.value.trim()
     })
     ElMessage.success('用户资料已更新');visible.value=false;emit('changed')

@@ -26,6 +26,7 @@
         <AdminOperationsPanel v-else-if="section==='operations'" ref="operationsPanel" />
         <AdminCategoriesPanel v-else-if="section==='categories'" ref="categoriesPanel" />
         <AdminAgentMetricsPanel v-else-if="section==='agentMetrics'" ref="agentMetricsPanel" :permissions="operator?.permissions" />
+        <AdminGrowthPanel v-else-if="section==='growth'" ref="growthPanel" />
         <section v-else class="admin-panel admin-list-panel">
           <form v-if="section !== 'logs'" class="admin-filters" @submit.prevent="search">
             <label class="admin-search"><Search /><input v-model="keyword" maxlength="80" :placeholder="section === 'articles' ? '搜索文章标题、作者' : '搜索昵称、用户 ID'" :aria-label="section === 'articles' ? '搜索文章标题、作者' : '搜索昵称、用户 ID'"></label>
@@ -51,7 +52,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { DataAnalysis, Document, User, Tickets, Refresh, Search, ArrowRight } from '@element-plus/icons-vue'
+import { DataAnalysis, Document, User, Tickets, Refresh, Search, ArrowRight, Coin } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import ContentState from '@/components/ContentState.vue'
 import ArticleReviewPanel from '@/components/ArticleReviewPanel.vue'
@@ -60,11 +61,12 @@ import AdminUserEditor from '@/components/AdminUserEditor.vue'
 import AdminStatisticsPanel from '@/components/AdminStatisticsPanel.vue'
 import AdminCategoriesPanel from '@/components/AdminCategoriesPanel.vue'
 import AdminAgentMetricsPanel from '@/components/AdminAgentMetricsPanel.vue'
+import AdminGrowthPanel from '@/components/AdminGrowthPanel.vue'
 import request from '@/utils/request'
 import { latestRequest } from '@/utils/latestRequest'
 import { readingDuration } from '@/utils/readingGrowth'
 
-type Section = 'overview'|'articles'|'users'|'logs'|'reviews'|'operations'|'categories'|'agentMetrics'
+type Section = 'overview'|'articles'|'users'|'logs'|'reviews'|'operations'|'categories'|'agentMetrics'|'growth'
 type Row = { articleId:string;title:string;authorName:string;status:number;requiredLevel:number;selectedLevel:number;viewCount:number;updateTime:string;userId:string;nickName:string;role:number;readingLevel:number;readingSeconds:number;joinTime:string;id:string;action:string;adminName:string;adminUserId:string;targetId:string;beforeValue:string;afterValue:string;createdAt:string;reason?:string;detailsJson?:string }
 type Overview = { users:number;published:number;restricted:number;removed:number;readingSeconds:number;pendingReviews:number;rules:{level:number;minSeconds:number}[] }
 const router=useRouter(),route=useRoute()
@@ -74,16 +76,18 @@ const sections=[
   {key:'articles' as Section,title:'文章管理',description:'调整阅读门槛，管理已发布内容的可见状态。',icon:Document},
   {key:'categories' as Section,title:'分类管理',description:'添加文章分类，组织社区内容与创作选项。',icon:Document},
   {key:'users' as Section,title:'用户与成长',description:'管理用户资料、角色、账号状态与阅读成长。',icon:User},
+  {key:'growth' as Section,title:'硬币商城',description:'发布阅读成长套餐，管理活动名额、上下架与库存对账。',icon:Coin},
   {key:'operations' as Section,title:'运行与任务',description:'检查后台积压、失败任务和索引同步状态。',icon:DataAnalysis},
   {key:'agentMetrics' as Section,title:'Agent 指标',description:'查看运行结果、活跃时长及供应商实际返回的 Token 使用量。',icon:DataAnalysis},
   {key:'logs' as Section,title:'操作日志',description:'查看用户与内容变更、任务重试及索引对账记录。',icon:Tickets}
 ]
 const section=ref<Section>(sections.some(s=>s.key===route.query.section)?route.query.section as Section:'overview')
 const currentSection=computed(()=>sections.find(s=>s.key===section.value)!)
-const operator=ref<{userId:string;nickName:string;permissions:string[]}>(),authorizing=ref(true),accessError=ref('')
-const sectionPermission:Record<Section,string>={overview:'overview.read',articles:'articles.read',reviews:'reviews.read',users:'users.read',categories:'categories.read',operations:'operations.read',logs:'logs.read',agentMetrics:'metrics.read'}
+const operator=ref<{userId:string;nickName:string;role:number;permissions:string[]}>(),authorizing=ref(true),accessError=ref('')
+const sectionPermission:Record<Section,string>={overview:'overview.read',articles:'articles.read',reviews:'reviews.read',users:'users.read',categories:'categories.read',operations:'operations.read',logs:'logs.read',agentMetrics:'metrics.read',growth:''}
 const can=(permission:string)=>operator.value?.permissions?.includes(permission) || false
-const availableSections=computed(()=>sections.filter(s=>can(sectionPermission[s.key])))
+const canSection=(key:Section)=>key==='growth'?Number(operator.value?.role)===2:can(sectionPermission[key])
+const availableSections=computed(()=>sections.filter(s=>canSection(s.key)))
 const roleName=(role:number)=>({1:'普通用户',2:'管理员',3:'审核员',4:'运营员'}[role] || '未知角色')
 const overview=ref<Overview>(),overviewError=ref(''),refreshing=ref(false)
 const rules=computed(()=>overview.value?.rules || [])
@@ -109,6 +113,7 @@ const statisticsPanel=ref<{reload:()=>Promise<void>}>()
 const operationsPanel=ref<{reload:()=>Promise<void>}>()
 const categoriesPanel=ref<{reload:()=>Promise<void>}>()
 const agentMetricsPanel=ref<{reload:()=>Promise<void>}>()
+const growthPanel=ref<{reload:()=>Promise<void>}>()
 const message=(error:unknown)=>error instanceof Error?error.message:'请求失败，请稍后重试'
 const articleStatus=(status:number)=>({0:'草稿',1:'已发布',2:'已下架'}[status] || '其他状态')
 const logLabel=(action:string)=>({category_create:'新增文章分类',category_update:'修改文章分类',category_migrate:'迁移文章分类',user_update:'修改用户资料',reading_level:'设置阅读等级',visibility:'调整文章状态',task_retry:'重试后台任务',index_reconcile:'安排索引对账'}[action] || action)
@@ -116,7 +121,7 @@ const logChange=(row:Row)=>row.action==='category_create'?`新增：${row.afterV
 const time=(value:string)=>value?value.replace('T',' ').slice(0,16):'—'
 async function authorize(){
   authorizing.value=true;accessError.value=''
-  try{const result:any=await request.get('/admin/me');if(disposed)return;operator.value=result.data;if(!can(sectionPermission[section.value])){section.value='overview';await router.replace('/admin')}await refresh()}
+  try{const result:any=await request.get('/admin/me');if(disposed)return;operator.value=result.data;if(!canSection(section.value)){section.value='overview';await router.replace('/admin')}await refresh()}
   catch(err){if(!disposed)accessError.value=message(err)}finally{if(!disposed)authorizing.value=false}
 }
 async function loadOverview(){
@@ -129,6 +134,7 @@ async function loadRecords(){
   if(section.value==='operations'){await operationsPanel.value?.reload();return}
   if(section.value==='categories'){await categoriesPanel.value?.reload();return}
   if(section.value==='agentMetrics'){await agentMetricsPanel.value?.reload();return}
+  if(section.value==='growth'){await growthPanel.value?.reload();return}
   const run=gate.begin();loading.value=true;error.value=''
   try{
     const result:any=await request.get(`/admin/${section.value}`,{params:{keyword:keyword.value.trim(),page:page.value,size:20,...(section.value==='articles' && status.value!==''?{status:Number(status.value)}:{})},signal:run.signal})
@@ -137,7 +143,7 @@ async function loadRecords(){
   }catch(err){if(run.isCurrent() && !disposed)error.value=message(err)}finally{if(run.isCurrent() && !disposed)loading.value=false}
 }
 async function refresh(){refreshing.value=true;await Promise.all([loadOverview(),loadRecords(),statisticsPanel.value?.reload()]);if(!disposed)refreshing.value=false}
-function changeSection(next:Section){if(!can(sectionPermission[next]))return;gate.cancel();section.value=next;keyword.value='';status.value='';page.value=1;records.value=[];total.value=0;pages.value=0;error.value='';loading.value=false;void router.replace({path:'/admin',query:next==='overview'?{}:{section:next}});void loadRecords()}
+function changeSection(next:Section){if(!canSection(next))return;gate.cancel();section.value=next;keyword.value='';status.value='';page.value=1;records.value=[];total.value=0;pages.value=0;error.value='';loading.value=false;void router.replace({path:'/admin',query:next==='overview'?{}:{section:next}});void loadRecords()}
 function search(){page.value=1;void loadRecords()}
 function turnPage(delta:number){page.value+=delta;void loadRecords()}
 async function saveLevel(row:Row){

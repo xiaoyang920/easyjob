@@ -11,6 +11,7 @@ import org.springframework.web.socket.WebSocketHandler;
 import org.springframework.web.socket.server.HandshakeInterceptor;
 
 import java.util.Map;
+import com.easyjob.security.IdentityTokens.Principal;
 
 @Component
 @Slf4j
@@ -31,6 +32,8 @@ public class ChatHandshakeInterceptor implements HandshakeInterceptor {
                                    WebSocketHandler wsHandler, Map<String, Object> attributes) throws Exception {
         if(request instanceof ServletServerHttpRequest){
             ServletServerHttpRequest serverHttpRequest = (ServletServerHttpRequest) request;
+            Principal identity=(com.easyjob.security.IdentityTokens.Principal)serverHttpRequest.getServletRequest().getAttribute(com.easyjob.security.TrustedGatewayFilter.ATTRIBUTE);
+            if(identity!=null){if(identity.anonymous())return false;attributes.put("userId",Long.valueOf(identity.userId()));attributes.put("authSessionId",identity.sid());attributes.put("authPrincipal",identity);return true;}
             String token = serverHttpRequest.getServletRequest().getParameter("token");
             if(token != null){
                 try{

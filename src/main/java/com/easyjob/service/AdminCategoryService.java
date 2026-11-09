@@ -11,6 +11,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.text.Normalizer;
 import java.util.*;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 @Service @RequiredArgsConstructor
 public class AdminCategoryService {
@@ -33,16 +36,16 @@ public class AdminCategoryService {
         if(description.codePointCount(0,description.length())>200)throw new BusinessException(400,"分类说明最多200字");
         if(parent<0 || order<0 || order>9999)throw new BusinessException(400,"父分类或排序值无效");
         if(parent!=0) {
-            var rows=store.lockParent(parent);
+            List<Map<String, Object>> rows=store.lockParent(parent);
             if(rows.isEmpty())throw new BusinessException(400,"父分类不存在");
-            var row=rows.getFirst();
+            Map<String, Object> row=rows.getFirst();
             if(!(row.get("status") instanceof Number status) || status.intValue()!=1 || row.get("parent_id")==null || ((Number)row.get("parent_id")).longValue()!=0)throw new BusinessException(400,"只能在启用的一级分类下添加二级分类");
         }
         long id=IdWorker.getId();
         try {
             store.insertCategory(id,name,parent,order,description);
         }catch(DuplicateKeyException e){throw new BusinessException(409,"同一父分类下已有该名称，请使用其他名称");}
-        var result=new LinkedHashMap<String,Object>();result.put("categoryId",Long.toString(id));result.put("categoryName",name);result.put("parentId",Long.toString(parent));result.put("sortOrder",order);result.put("description",description);result.put("status",1);result.put("version","0");
+        LinkedHashMap<String, Object> result=new LinkedHashMap<String,Object>();result.put("categoryId",Long.toString(id));result.put("categoryName",name);result.put("parentId",Long.toString(parent));result.put("sortOrder",order);result.put("description",description);result.put("status",1);result.put("version","0");
         try {
             store.insertCreateAudit(actor,id,name,json.writeValueAsString(result));
         }catch(JsonProcessingException e){throw new IllegalStateException("分类操作记录生成失败",e);}

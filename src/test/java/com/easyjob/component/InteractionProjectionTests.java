@@ -20,11 +20,11 @@ import static org.mockito.Mockito.*;
 @SuppressWarnings({"unchecked", "rawtypes"})
 class InteractionProjectionTests {
     @Test void articleUpdateAssignsBothCountsAndDoesNotCreatePartialDocument() throws Exception {
-        var client = mock(ElasticsearchClient.class);
-        var text = new EsComponent(); ReflectionTestUtils.setField(text, "client", client);
+        ElasticsearchClient client = mock(ElasticsearchClient.class);
+        EsComponent text = new EsComponent(); ReflectionTestUtils.setField(text, "client", client);
         when(client.update(any(Function.class), eq(ArticleEsDTO.class))).thenAnswer(call -> {
             Function<UpdateRequest.Builder<ArticleEsDTO, ArticleEsDTO>, ObjectBuilder<UpdateRequest<ArticleEsDTO, ArticleEsDTO>>> build = call.getArgument(0);
-            var request = build.apply(new UpdateRequest.Builder<>()).build();
+            UpdateRequest<ArticleEsDTO, ArticleEsDTO> request = build.apply(new UpdateRequest.Builder<>()).build();
             assertEquals("article", request.index()); assertEquals("42", request.id());
             assertEquals(2, request.script().params().get("likes").to(Integer.class));
             assertEquals(0, request.script().params().get("collects").to(Integer.class));
@@ -37,18 +37,18 @@ class InteractionProjectionTests {
     }
 
     @Test void articleTransportFailureIsNotSwallowed() throws Exception {
-        var client = mock(ElasticsearchClient.class);
-        var text = new EsComponent(); ReflectionTestUtils.setField(text, "client", client);
+        ElasticsearchClient client = mock(ElasticsearchClient.class);
+        EsComponent text = new EsComponent(); ReflectionTestUtils.setField(text, "client", client);
         when(client.update(any(Function.class), eq(ArticleEsDTO.class))).thenThrow(new IOException("offline"));
         assertThrows(BusinessException.class, () -> text.syncInteractionCounts("42", 2, 0));
     }
 
     @Test void vectorUpdateTargetsOneArticleAndAssignsAbsoluteCounts() throws Exception {
-        var client = mock(ElasticsearchClient.class);
-        var store = new EsVectorStore(); ReflectionTestUtils.setField(store, "esClient", client);
+        ElasticsearchClient client = mock(ElasticsearchClient.class);
+        EsVectorStore store = new EsVectorStore(); ReflectionTestUtils.setField(store, "esClient", client);
         when(client.updateByQuery(any(Function.class))).thenAnswer(call -> {
             Function<UpdateByQueryRequest.Builder, ObjectBuilder<UpdateByQueryRequest>> build = call.getArgument(0);
-            var request = build.apply(new UpdateByQueryRequest.Builder()).build();
+            UpdateByQueryRequest request = build.apply(new UpdateByQueryRequest.Builder()).build();
             assertEquals("article_id", request.query().term().field());
             assertEquals("42", request.query().term().value().stringValue());
             assertEquals(2, request.script().params().get("likes").to(Integer.class));
@@ -61,8 +61,8 @@ class InteractionProjectionTests {
     }
 
     @Test void partialVectorFailureAndTimeoutBothReachOutboxRetry() throws Exception {
-        var client = mock(ElasticsearchClient.class);
-        var store = new EsVectorStore(); ReflectionTestUtils.setField(store, "esClient", client);
+        ElasticsearchClient client = mock(ElasticsearchClient.class);
+        EsVectorStore store = new EsVectorStore(); ReflectionTestUtils.setField(store, "esClient", client);
         when(client.updateByQuery(any(Function.class))).thenReturn(
                 UpdateByQueryResponse.of(b -> b.timedOut(true)),
                 UpdateByQueryResponse.of(b -> b.versionConflicts(1L)),

@@ -8,7 +8,7 @@
       <div class="ai-run-heading">对话动态<button aria-label="收起对话动态" @click="open = false">×</button></div>
       <p v-if="aiRunConnection === 'reconnecting'" role="status">暂时无法同步，正在重新连接…</p>
       <RouterLink v-for="item in aiRunItems" :key="item.runId" :to="{ path: '/ai-chat', query: { conversationId: item.conversationId } }" @click="open = false">
-        <span>{{ item.title }}</span><small>{{ runLabel(item) }} ↗</small>
+        <span>{{ item.title }}</span><small><span class="ai-run-category">{{ runCategory(item) }}</span>{{ runLabel(item) }} ↗</small>
       </RouterLink>
     </div>
   </aside>
@@ -17,7 +17,7 @@
 import { ref, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { aiRunItems, aiRunCount, aiRunConnection } from '@/utils/aiRuns'
-import { runLabel } from '@/utils/runOverview'
+import { runCategory, runLabel } from '@/utils/runOverview'
 const route = useRoute()
 const open = ref(false)
 const running = computed(() => aiRunItems.value.filter(item => item.status === 'running').length)
@@ -36,6 +36,7 @@ const dockClass = computed(() => route.meta.aiRunDock ? `dock-${route.meta.aiRun
 .ai-run-menu a { display: flex; flex-direction: column; gap: 6px; padding: 14px 0; border-bottom: 1px solid #17171718; color: inherit; text-decoration: none; }
 .ai-run-menu a > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .ai-run-menu small, .ai-run-menu p { color: var(--ej-muted); font-size: 12px; }
+.ai-run-category { display: inline-block; margin-right: 8px; padding: 2px 6px; border-radius: 5px; background: var(--studio-lime-soft); color: var(--ej-ink); }
 /* 私信页底部是输入区：停到会话标题栏右侧，菜单改为向下展开 */
 .ai-run-panel.dock-top { top: 104px; right: 40px; bottom: auto; }
 .ai-run-panel.dock-top .ai-run-menu { top: calc(100% + 12px); bottom: auto; }

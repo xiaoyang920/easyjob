@@ -178,7 +178,7 @@ class NativeImageTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(history[0]['image_paths'], [self.path])
         self.assertNotIn('image_paths', history[1])
         self.assertIn('image_paths', database.fetch_all.call_args.args[0])
-        self.assertIn('full:v4', service._llm_cache_key(11))
+        self.assertIn('window:v5', service._llm_cache_key(11))
 
     async def test_compaction_records_an_upload_without_claiming_to_see_the_image(self):
         history = [{'role':'user','content':'解释图片','image_paths':[self.path]},

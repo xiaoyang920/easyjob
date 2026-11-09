@@ -7,6 +7,9 @@ import com.easyjob.mapper.AdminOperationsMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.*;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 /** Operational metadata only: never expose prompts, results, job payloads or lease tokens. */
 @Service @RequiredArgsConstructor
@@ -16,8 +19,8 @@ public class AdminOperationsService {
     private static final Set<String> QUEUES=Set.of("memory","article");
     private static final Set<String> KINDS=Set.of("article","memory","article_orphan","memory_orphan","chunk_orphan");
     public Map<String,Object> summary(Long uid) {
-        admin.requirePermission(uid,"operations.read");var result=new LinkedHashMap<String,Object>();
-        for(var queue:QUEUES) result.put(queue,store.queueSummary(queue));
+        admin.requirePermission(uid,"operations.read");LinkedHashMap<String, Object> result=new LinkedHashMap<String,Object>();
+        for(String queue:QUEUES) result.put(queue,store.queueSummary(queue));
         result.put("runs",store.runSummary());
         result.put("views",store.viewSummary());
         result.put("reconciliation",store.reconciliationSummary());
@@ -28,22 +31,22 @@ public class AdminOperationsService {
         if(!knownQueue || !Set.of("all","pending","running","dispatched","completed","dead").contains(state==null?"":state))throw new BusinessException(400,"任务筛选无效");
         ArticleRevisionService.bounds(page,size);
         long count=store.countJobs(queue,state);
-        var rows=store.findJobs(queue,state,size,(page-1)*size);
+        List<Map<String, Object>> rows=store.findJobs(queue,state,size,(page-1)*size);
         return new PageVO<>(rows,count,(long)size,(long)page,(count+size-1)/size);
     }
     public PageVO<Map<String,Object>> runs(Long uid,String state,int page,int size) {
         admin.requirePermission(uid,"operations.read");ArticleRevisionService.bounds(page,size);
         if(!Set.of("all","running","awaiting_approval","succeeded","failed","cancelled","expired").contains(state==null?"":state))throw new BusinessException(400,"运行筛选无效");
         long count=store.countRuns(state);
-        var rows=store.findRuns(state,size,(page-1)*size);
+        List<Map<String, Object>> rows=store.findRuns(state,size,(page-1)*size);
         return new PageVO<>(rows,count,(long)size,(long)page,(count+size-1)/size);
     }
     @Transactional public void retry(Long uid,String queue,String id) {
         admin.requirePermission(uid,"operations.manage");boolean knownQueue=QUEUES.contains(queue==null?"":queue);
         if(!knownQueue || id==null || !id.matches(queue.equals("article")?"[a-f0-9-]{36}":"[a-f0-9]{64}"))throw new BusinessException(400,"任务标识无效");
         if(queue.equals("memory")) { store.retryMemory(uid,id); return; }
-        var rows=store.lockJob(queue,id);
-        if(rows.isEmpty())throw new BusinessException(404,"任务不存在");var row=rows.getFirst();
+        List<Map<String, Object>> rows=store.lockJob(queue,id);
+        if(rows.isEmpty())throw new BusinessException(404,"任务不存在");Map<String, Object> row=rows.getFirst();
         if(!"dead".equals(row.get("status")))throw new BusinessException(409,"只能重试已终止的失败任务，请刷新状态");
         if(queue.equals("memory") && !Set.of("memory_write","memory_index","checkpoint_cleanup").contains(row.get("kind")))throw new BusinessException(409,"该任务类型已停用，不能重试");
         store.retryJob(queue,id);

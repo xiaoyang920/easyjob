@@ -37,6 +37,49 @@ def run(**extra):
 
 
 class HistoryProjectionTests(unittest.TestCase):
+    def test_successful_reply_restores_activity_plan_and_original_timing(self):
+        messages = [{'messageId': '1', 'role': 'user'},
+                    {'messageId': '2', 'role': 'assistant', 'runId': RID, 'content': '原始回答'}]
+        payloads = [
+            {'version': 1, 'kind': 'commentary', 'text': '我会直接回答这个问题。'},
+            {'version': 1, 'kind': 'plan', 'tasks': [{'id': 'a', 'label': '理解请求', 'role': 'analysis', 'stage': 1}]},
+            {'version': 1, 'kind': 'activity', 'id': 'a/task', 'label': '理解请求', 'status': 'active'},
+            {'version': 1, 'kind': 'activity', 'id': 'a/task', 'label': '理解请求', 'status': 'done'},
+            {'version': 1, 'kind': 'status', 'status': 'complete'}]
+        frames = {RID: [{'data': 'data:__AGENT_EVENT__:' + json.dumps(payload),
+                        'created_at': datetime(2026, 10, 11, 1, 0, i)} for i, payload in enumerate(payloads)]}
+        projected = project_history(messages, [run(status='succeeded')], frames, {})
+        self.assertEqual(len(projected), 2)
+        reply = projected[1]
+        self.assertEqual(reply['runStatus'], 'succeeded')
+        self.assertEqual(reply['runStartedAt'], '2026-10-11T01:00:00Z')
+        self.assertEqual(reply['runFinishedAt'], '2026-10-11T01:01:00Z')
+        self.assertEqual([event['kind'] for event in reply['agentEvents']], [p['kind'] for p in payloads])
+        self.assertEqual(reply['agentEvents'][3]['timestamp'], '2026-10-11T01:00:03Z')
+        self.assertEqual(reply['content'], '原始回答')
+        self.assertNotIn('deliveryStatus', reply)
+        self.assertNotIn('progress', reply)
+
+    def test_successful_old_cache_matches_committed_message_id_and_falls_back_to_nodes(self):
+        messages = [{'messageId': '1', 'role': 'user'}, {'messageId': '2', 'role': 'assistant'}]
+        nodes = {RID: [{'node': 'round_1.main_agent', 'status': status,
+                       'created_at': datetime(2026, 10, 11, 1, 0, second)}
+                      for status, second in [('started', 1), ('succeeded', 4)]]}
+        projected = project_history(messages, [run(status='succeeded', draft_article_id=42,
+            result_json=json.dumps({'assistant_message_id': '2', 'editor_edits': [{'proposalId': 'p1'}]}))], {}, nodes)
+        self.assertEqual(len(projected), 2)
+        self.assertEqual(projected[1]['runId'], RID)
+        self.assertEqual([event['status'] for event in projected[1]['agentEvents']], ['active', 'done'])
+        self.assertEqual(projected[1]['editorEdits'], [{'proposalId': 'p1'}])
+
+    def test_success_never_attaches_activity_to_an_unrelated_reply_or_creates_a_duplicate(self):
+        for messages in ([], [{'messageId': '1', 'role': 'user'},
+                              {'role': 'assistant', 'runId': 'different-run', 'content': '另一轮回答'}]):
+            original = json.loads(json.dumps(messages))
+            projected = project_history(messages, [run(status='succeeded',
+                result_json=json.dumps({'editor_edits': [{'proposalId': 'private'}]}))], {}, {})
+            self.assertEqual(projected, original)
+
     def test_incomplete_delivery_annotates_committed_message_without_duplicate(self):
         for meta in ({'delivery_status': 'incomplete'}, {'progress': {'decision_contract_audit': {'last_outcome': 'stopped'}}}):
             messages = [{'messageId': '1', 'role': 'user'}, {'messageId': '2', 'role': 'assistant', 'content': '已检索，但未完成'}]
@@ -101,6 +144,27 @@ class HistoryProjectionTests(unittest.TestCase):
 
 
 class HistoryQueryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_normal_success_is_included_in_bounded_activity_queries(self):
+        activity = {'version': 1, 'kind': 'activity', 'id': 'main', 'label': '理解请求', 'status': 'done'}
+        database = SimpleNamespace(fetch_all=AsyncMock(side_effect=[
+            [row(**run(status='succeeded'))],
+            [row(run_id=RID, data='data:__AGENT_EVENT__:' + json.dumps(activity), created_at=datetime(2026, 10, 11, 1, 0, 3))], []]))
+        projected = await RunHistory(database).history(11, 7,
+            [{'messageId': '1', 'role': 'user'}, {'messageId': '2', 'role': 'assistant', 'runId': RID}], turn_ids=[1])
+        self.assertEqual(projected[1]['agentEvents'][0]['label'], '理解请求')
+        calls = database.fetch_all.await_args_list
+        self.assertEqual(len(calls), 3)
+        sql, params = calls[0].args
+        self.assertIn("r.status IN ('succeeded','failed','expired','cancelled')", sql)
+        self.assertIn("CONVERT_TZ(r.created_at,@@session.time_zone,'+00:00') AS created_at", sql)
+        self.assertIn('IN (:t0)', sql)
+        self.assertEqual(params, {'cid': 11, 'uid': 7, 't0': '1'})
+        for call in calls[1:]:
+            self.assertIn('r.user_id=:uid', call.args[0])
+            self.assertIn('e.run_id IN (:r0)', call.args[0])
+            self.assertIn("CONVERT_TZ(e.created_at,@@session.time_zone,'+00:00') AS created_at", call.args[0])
+            self.assertEqual(call.args[1], {'cid': 11, 'uid': 7, 'r0': RID})
+
     async def test_history_query_keeps_safe_failure_notice_and_completion_metadata(self):
         db = SimpleNamespace(fetch_all=AsyncMock(return_value=[]))
         await RunHistory(db).history(11, 7, [])
@@ -118,6 +182,16 @@ class HistoryQueryTests(unittest.IsolatedAsyncioTestCase):
 
 
 class PreviousRunTests(unittest.IsolatedAsyncioTestCase):
+    async def test_recovery_updated_at_does_not_refresh_original_web_result(self):
+        from datetime import timezone
+        old = result(citations=[{'url': 'https://example.com', 'id': 'web:1'}])
+        previous = run(created_at=datetime(2000, 1, 1), updated_at=datetime.now(timezone.utc),
+            result_json=json.dumps({'progress': {'results': {'search_1': old}}}))
+        service, _ = self.service(previous=previous)
+        summary, reusable = await service.previous(11, 7, 'current')
+        self.assertEqual(reusable, {})
+        self.assertIn('search_1', summary['unavailable_tasks'])
+
     async def test_incomplete_normally_settled_run_keeps_verified_retrieval_for_continuation(self):
         previous = run(status='succeeded')
         meta = json.loads(previous['result_json'])

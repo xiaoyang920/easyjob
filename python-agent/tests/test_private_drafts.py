@@ -1,3 +1,4 @@
+from tool_fakes import retrieval_call, raw_retrieval_call
 """Owner-only draft reads and approved edits on the real production graph."""
 import os
 os.environ['DEEPSEEK_API_KEY'] = 'offline-test'
@@ -10,6 +11,7 @@ import httpx
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
+from app.services import main_tools
 from app.graph import builder, main_agent as agent, action_runtime as actions, staged_runtime as runtime
 from app.graph.main_agent import MainDecision, RetrievalRequest
 from app.graph.staged_plan import DraftRequest, ExecutionTask
@@ -107,7 +109,7 @@ class PrivateDraftTests(unittest.IsolatedAsyncioTestCase):
         result = {'status': 'succeeded', 'result': '本人草稿全文 原文 [9]', 'draft_document': document,
                   'citations': [], 'article_cards': []}
         model, control = llm([
-            MainDecision(action='retrieve', retrieval=RetrievalRequest(task_id='own', target='drafts', instruction='read', article_ids=[42])),
+            MainDecision(action='call_tool', tool_call=retrieval_call(RetrievalRequest(task_id='own', target='drafts', instruction='read', article_ids=[42]))),
             MainDecision(action='write_draft', draft_request=DraftRequest(task_id='edit', instruction='修改并保留图片和引用', depends_on=['own'], draft_source_task_id='own')),
         ])
         state = create_initial_state(7, '修改我的原草稿', [])
@@ -116,7 +118,7 @@ class PrivateDraftTests(unittest.IsolatedAsyncioTestCase):
         generated = DraftOutput(title='改写版', summary='摘要', content='改写正文 [9]')
         edited = {'title': '手动标题', 'summary': '手动摘要', 'content': '# 手动正文\n保留旧脚注 [9]\n![图片](/uploads/a.png)'}
         with patch.object(agent, 'get_llm', return_value=model), patch.object(runtime, 'run_repository', repository()), \
-             patch.object(actions, 'retrieve_drafts', AsyncMock(return_value=result)), \
+             patch.object(main_tools, 'retrieve_drafts', AsyncMock(return_value=result)), \
              patch.object(writing_worker, 'generate_draft', AsyncMock(return_value=generated)) as generate, \
              patch.object(writing_worker, 'save_approved_draft', AsyncMock(return_value=42)) as save:
             graph = builder._build_graph().compile(checkpointer=InMemorySaver())

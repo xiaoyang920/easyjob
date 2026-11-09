@@ -6,8 +6,9 @@ def create_initial_state(user_id: int, user_message: str, history_messages: list
         "user_id": user_id, "user_message": user_message,
         "user_image_paths": [],
         "history_messages": list(history_messages),
-        "origin_article_id": None, "article_context": {},
+        "origin_article_id": None, "article_context": {}, "editor_context": {}, "editor_edits": [],
         "context_compaction": {"attempted_versions": []},
+        "task_context": {}, "user_message_id": None,
         "active_workers": [], "task_descriptions": {}, "required_skills": [],
         # None is an explicit reset signal for the result reducers on a new turn.
         "worker_results": None, "article_cards": None, "citations": None,

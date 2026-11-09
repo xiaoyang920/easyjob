@@ -84,7 +84,7 @@ class LocalGapContractTests(unittest.TestCase):
         value = grounding.retained_answer(review, execution_facts({}), include_limits=True)
         self.assertEqual(value, '可靠说明。')
         self.assertEqual(review.limitation_count, 0)
-        self.assertEqual(grounding.rejection_notice(review)[0], 'content_rejected')
+        self.assertEqual(grounding.rejection_notice(review)[0], 'citation_unverified')
 
     def test_mixed_uncertain_and_unsupported_gaps_are_not_called_contradictions(self):
         _, review = with_gap('可靠说明。错误断言甲。错误断言乙。')

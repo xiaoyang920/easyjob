@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.easyjob.mapper.ProviderBalanceMapper">
+  <select id="checkSchema" resultType="map" useCache="false" flushCache="true">
+    SELECT monitor_key,account_fingerprint,threshold_amount,recipient,alert_state,balance_amount,alert_id,alert_sent_at,last_notified_at,last_checked_at,check_count,failure_count,last_error_code,next_check_at,lease_token,lease_until FROM provider_balance_monitor WHERE 1=0
+  </select>
+  <insert id="ensureMonitor">
+    INSERT IGNORE INTO provider_balance_monitor
+  (monitor_key,currency,account_fingerprint,threshold_amount,recipient,next_check_at,created_at,updated_at)
+VALUES (#{key},#{currency},#{fingerprint},#{threshold},#{recipient},UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+  </insert>
+  <select id="lockMonitor" resultType="map" useCache="false" flushCache="true">
+    SELECT *, (lease_until IS NULL OR lease_until&lt;=UTC_TIMESTAMP(6)) AS unlocked,
+  next_check_at&lt;=UTC_TIMESTAMP(6) AS due FROM provider_balance_monitor WHERE monitor_key=#{key} FOR UPDATE
+  </select>
+  <update id="resetMonitor">
+    UPDATE provider_balance_monitor SET account_fingerprint=#{fingerprint},threshold_amount=#{threshold},recipient=#{recipient},
+  alert_state='unknown',alert_id=NULL,alert_sent_at=NULL,failure_count=0,
+  balance_amount=IF(#{accountChanged},NULL,balance_amount),last_checked_at=IF(#{clearChecked},NULL,last_checked_at)
+WHERE monitor_key=#{key}
+  </update>
+  <update id="claimLease">
+    UPDATE provider_balance_monitor SET lease_token=#{token},lease_until=TIMESTAMPADD(SECOND,120,UTC_TIMESTAMP(6)),
+  updated_at=UTC_TIMESTAMP(6) WHERE monitor_key=#{key}
+  </update>
+  <select id="lockLease" resultType="map" useCache="false" flushCache="true">
+    SELECT *,UTC_TIMESTAMP(6) AS observed_at FROM provider_balance_monitor
+WHERE monitor_key=#{key} AND lease_token=#{token} AND lease_until&gt;UTC_TIMESTAMP(6) FOR UPDATE
+  </select>
+  <update id="recordBalance">
+    UPDATE provider_balance_monitor SET balance_amount=#{balance},is_available=#{available},alert_state=#{state},alert_id=#{alertId},alert_sent_at=#{sentAt},
+  last_checked_at=UTC_TIMESTAMP(6),check_count=check_count+1,last_error_code=NULL,updated_at=UTC_TIMESTAMP(6)
+WHERE monitor_key=#{key} AND lease_token=#{token}
+  </update>
+  <select id="lastCheckedAt" resultType="java.time.LocalDateTime" useCache="false" flushCache="true">
+    SELECT last_checked_at FROM provider_balance_monitor WHERE monitor_key=#{key}
+  </select>
+  <update id="extendLease">
+    UPDATE provider_balance_monitor SET lease_until=TIMESTAMPADD(SECOND,120,UTC_TIMESTAMP(6))
+WHERE monitor_key=#{key} AND lease_token=#{token} AND lease_until&gt;UTC_TIMESTAMP(6)
+  AND alert_state='low' AND alert_id=#{alertId} AND alert_sent_at IS NULL
+  </update>
+  <update id="markSent">
+    UPDATE provider_balance_monitor SET alert_sent_at=UTC_TIMESTAMP(6),last_notified_at=UTC_TIMESTAMP(6)
+WHERE monitor_key=#{key} AND lease_token=#{token} AND lease_until&gt;UTC_TIMESTAMP(6) AND alert_id=#{alertId} AND alert_state='low'
+  </update>
+  <update id="finishLease">
+    UPDATE provider_balance_monitor SET next_check_at=TIMESTAMPADD(SECOND,#{seconds},UTC_TIMESTAMP(6)),
+  failure_count=0,last_error_code=NULL,lease_token=NULL,lease_until=NULL,updated_at=UTC_TIMESTAMP(6)
+WHERE monitor_key=#{key} AND lease_token=#{token} AND lease_until&gt;UTC_TIMESTAMP(6)
+  </update>
+  <update id="retryLease">
+    UPDATE provider_balance_monitor SET failure_count=failure_count+1,last_error_code=#{error},
+  next_check_at=TIMESTAMPADD(SECOND,#{seconds},UTC_TIMESTAMP(6)),lease_token=NULL,lease_until=NULL,updated_at=UTC_TIMESTAMP(6)
+WHERE monitor_key=#{key} AND lease_token=#{token} AND lease_until&gt;UTC_TIMESTAMP(6)
+  </update>
+</mapper>

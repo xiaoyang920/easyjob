@@ -23,14 +23,15 @@ from app.services.run_service import RunService
 from app.services.memory import memory_service
 from app.services.run_repository import run_repository
 from app.rpc.blog_client import close_client
+from evaluation.fixture_cleanup import revoke_sessions
 
 
-async def main(restart):
+async def main(restart, output):
     uid=(1<<57)+secrets.randbits(48)
     suffix=secrets.token_hex(6)
     email=f'rpc-restart-qa-{suffix}@example.invalid'
     password='Qa-restart-'+secrets.token_hex(12)
-    cid=None;checks={};temporary_runs=[]
+    cid=None;checks={};temporary_runs=[];created=False
     await db.connect()
     conversations=ConversationService()
     async with httpx.AsyncClient(base_url='http://127.0.0.1:8090/api',timeout=20,trust_env=False) as client:
@@ -38,6 +39,7 @@ async def main(restart):
             await db.execute('''INSERT INTO user_info(user_id,nick_name,email,password,person_introduction,join_time,status,sex,article_count,total_coin_count,current_coin_count,theme,role,follower_count,following_count,data_source)
                 VALUES(:uid,:name,:email,:password,'Disposable RPC restart QA',NOW(),1,2,0,0,0,1,1,0,0,'evaluation')''',
                 {'uid':uid,'name':f'重连验收{suffix}','email':email,'password':password})
+            created=True
             login=(await client.post('/auth/login',json={'email':email,'password':password})).json()
             assert login['code']==200
             client.headers['Authorization']='Bearer '+login['data']['token']
@@ -58,13 +60,12 @@ async def main(restart):
                         creationflags=subprocess.CREATE_NO_WINDOW,timeout=120)
                 assert result.returncode==0,'Agent restart helper failed; check service logs'
                 checks['actual_agent_restart_completed']=True
-            started=monotonic();failures=0
-            while not await probe():
-                failures+=1
-                if monotonic()-started>20:
-                    raise AssertionError('Java did not recover its Agent connection after restart')
-                await asyncio.sleep(.3)
-            checks.update(failed_read_probes=failures,recovered_in_ms=round((monotonic()-started)*1000))
+            started=monotonic()
+            # The restart script must warm its connection before releasing the
+            # admission guard. No retry here may hide a first-user-request 502.
+            checks['first_gateway_rpc_after_restart_ok']=await probe()
+            assert checks['first_gateway_rpc_after_restart_ok'], 'First request failed after restart completed'
+            checks.update(failed_read_probes=0,recovered_in_ms=round((monotonic()-started)*1000))
             assert all([await probe() for _ in range(3)])
             checks['subsequent_gateway_rpc_probes_stable']=True
 
@@ -78,7 +79,7 @@ async def main(restart):
             summary,_=await RunHistory().previous(cid,uid,str(uuid4()))
             assert summary['status']=='failed' and summary['original_request']=='临时故障恢复验收问题'
             checks['real_failed_run_context_loaded']=True
-            # Exercise the same application preparation used by ChatStream,
+            # Exercise the same application preparation used by Python HTTP/SSE chat,
             # including real MySQL, prior failures and memory loading. Stop at
             # model admission: this test does not spend any model allowance.
             from types import SimpleNamespace
@@ -101,18 +102,21 @@ async def main(restart):
                 await db.execute('DELETE FROM ai_message WHERE conversation_id=:cid',{'cid':cid})
                 await db.execute('DELETE FROM agent_run WHERE conversation_id=:cid AND user_id=:uid',{'cid':cid,'uid':uid})
                 await db.execute('DELETE FROM ai_conversation WHERE conversation_id=:cid AND user_id=:uid',{'cid':cid,'uid':uid})
-            await client.post('/auth/logout',headers={'X-Auth-Refresh':'1'})
-            await db.execute('DELETE FROM user_info WHERE user_id=:uid',{'uid':uid})
+            if created:
+                await revoke_sessions([uid])
+                await db.execute('DELETE FROM user_info WHERE user_id=:uid AND email=:email',{'uid':uid,'email':email})
             await conversations._redis.client.aclose()
             await close_client()
             await db.disconnect()
     checks['temporary_fixture_cleaned']=True
     checks['live_llm_calls']=0
-    (ROOT/'logs/rpc-restart-http-smoke.json').write_text(json.dumps(checks,indent=2),encoding='utf-8')
+    Path(output).write_text(json.dumps(checks,indent=2),encoding='utf-8')
     print(json.dumps(checks,indent=2))
 
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser()
     parser.add_argument('--restart-agent',action='store_true')
-    asyncio.run(main(parser.parse_args().restart_agent))
+    parser.add_argument('--output', default=str(ROOT/'logs/rpc-restart-http-smoke.json'))
+    args=parser.parse_args()
+    asyncio.run(main(args.restart_agent, args.output))

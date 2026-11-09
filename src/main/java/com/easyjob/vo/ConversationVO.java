@@ -11,6 +11,10 @@ import java.time.LocalDateTime;
 @Data
 @NoArgsConstructor
 public class ConversationVO {
+    private String remark;
+    private Boolean isFollowing, isFollowedBy, isBlockedByMe;
+    private String requestState, sendReason, lastReadMessageId;
+    private Boolean requestIncoming, requestUnseen, canMessage, canSendRich;
     
     /**
      * 会话ID

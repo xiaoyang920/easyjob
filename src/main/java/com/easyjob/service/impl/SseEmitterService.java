@@ -53,6 +53,10 @@ public class SseEmitterService {
     public SseEmitter connect(Long userId) {
         // 超时 30 分钟；前端 EventSource 会自动重连
         SseEmitter emitter = newEmitter();
+        AutoCloseable registration=com.easyjob.security.ConnectionSessions.register(com.easyjob.security.RequestIdentity.get(),emitter::complete);
+        emitter.onCompletion(()->{try{registration.close();}catch(Exception ignored){}});
+        emitter.onTimeout(()->{try{registration.close();}catch(Exception ignored){}});
+        emitter.onError(error->{try{registration.close();}catch(Exception ignored){}});
 
         // 回调里用"只有当前持有的 emitter 与自己相同时才清理"避免被重连覆盖时误删
         emitter.onCompletion(() -> removeIfSame(userId, emitter));

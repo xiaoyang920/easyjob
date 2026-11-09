@@ -385,6 +385,22 @@ function handleAuthExpired() {
   showLoginDialog.value = true
 }
 
+// Header buttons can change only the query while Home stays mounted. Consume
+// each open request so closing and clicking the same button works again.
+watch(() => route.query, query => {
+  if (route.path !== '/') return
+  const register = query.register === 'true'
+  if (!register && query.login !== 'true') return
+  redirectPath.value = typeof query.redirect === 'string' ? query.redirect : ''
+  showRegisterDialog.value = register
+  showLoginDialog.value = !register
+  const remainingQuery = { ...query }
+  delete remainingQuery.login
+  delete remainingQuery.register
+  delete remainingQuery.redirect
+  void router.replace({ path: '/', query: remainingQuery, hash: route.hash })
+}, { immediate: true })
+
 onMounted(() => {
   init()
   // 监听登录过期事件
@@ -404,21 +420,6 @@ onMounted(() => {
     // 通知：拉未读数 + 建立 SSE
     fetchNotifyUnreadCount()
     connectNotifyStream()
-  }
-  
-  // 检查是否需要显示登录弹窗（从需要登录的页面跳转过来）
-  if (route.query.login === 'true') {
-    showLoginDialog.value = true
-    redirectPath.value = (route.query.redirect as string) || ''
-    // 清除 URL 中的查询参数
-    router.replace({ path: '/', query: {} })
-  }
-  
-  // 检查是否需要显示注册弹窗
-  if (route.query.register === 'true') {
-    showRegisterDialog.value = true
-    redirectPath.value = (route.query.redirect as string) || ''
-    router.replace({ path: '/', query: {} })
   }
   
   // 初始化和监听窗口大小变化

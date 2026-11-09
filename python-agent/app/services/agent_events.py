@@ -27,7 +27,7 @@ async def activity(state, step, label, status="active", detail=""):
 
 
 async def node_activity(state, node, status):
-    labels = {"main_agent": "理解请求", "planner": "调整任务计划", "main_retrieve": "检索相关资料",
+    labels = {"main_agent": "理解请求", "planner": "调整任务计划", "main_retrieve": "检索相关资料", "execute_tool": "调用工具",
         "main_answer": "整理检索结果", "main_task": "执行任务", "generate_draft": "生成草稿",
         "verify_draft": "核验草稿依据", "plan_draft_lookup": "补充草稿资料", "lookup_draft_evidence": "检索草稿缺失资料",
         "approve_draft": "等待确认草稿", "save_draft": "保存草稿", "synthesizer": "整理最终回答",
@@ -41,6 +41,11 @@ async def node_activity(state, node, status):
         state = {**state, "main_round": state.get("main_round", 0) + 1}
     if node == "main_retrieve" and any(t.get("retrieval_target") == "memory" for t in state.get("plan", {}).get("tasks", [])):
         labels[node] = "召回相关记忆"
+    if node == 'execute_tool':
+        from app.services.tool_registry import tool_registry
+        task = next(iter(state.get('plan', {}).get('tasks', [])), {})
+        if task.get('tool_name'):
+            labels[node] = tool_registry.main_tool(task['tool_name']).label
     task = state.get("current_task", {})
     label = {"search": "检索资料", "analysis": "分析资料"}.get(task.get("kind"), labels[node]) if node == "main_task" else labels[node]
     await activity(state, "task" if node == "main_task" else node, label, status)
@@ -48,10 +53,16 @@ async def node_activity(state, node, status):
 
 async def publish_route(state, action, plan_update=None):
     texts = {"answer": "我会直接回答这个问题。", "retrieve": "我会先检索相关资料，核对来源后给出回答。",
+        "call_tool": "我会读取所需资料，再根据结果继续处理。",
         "delegate": "我会把需要独立处理的任务交给子代理，再根据结果继续处理。",
         "write_draft": "我会生成草稿，核对来源后请你确认保存。"}
     if action == "retrieve" and plan_update and plan_update["plan"]["tasks"][0].get("retrieval_target") == "memory":
         texts[action] = "我会先查找相关历史记忆，再根据结果继续处理。"
+    if action == 'call_tool' and plan_update:
+        from app.services.tool_registry import tool_registry
+        task = plan_update['plan']['tasks'][0]
+        spec = tool_registry.main_tool(task['tool_name'])
+        texts[action] = f'我会先{spec.label}，再根据结果继续处理。'
     await publish_event({"kind": "commentary", "text": texts[action], "mode": action})
     if plan_update:
         tasks = plan_update["plan"]["tasks"]

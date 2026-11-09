@@ -8,6 +8,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import java.util.UUID;
+import java.util.List;
+import java.util.Map;
 
 /** Durable count-only projection. Rows coalesce reads; leases fence concurrent workers. */
 @Component @Slf4j
@@ -28,9 +30,9 @@ public class ArticleViewSync {
     }
     public Job claim() {
         return transactions.execute(status -> {
-            var rows=store.lockAvailableJob();
+            List<Map<String, Object>> rows=store.lockAvailableJob();
             if(rows.isEmpty()) return null;
-            var row=rows.getFirst(); String token=UUID.randomUUID().toString();
+            Map<String, Object> row=rows.getFirst(); String token=UUID.randomUUID().toString();
             long aid=((Number)row.get("article_id")).longValue();
             store.leaseJob(token,aid);
             return new Job(aid,((Number)row.get("target_count")).intValue(),((Number)row.get("attempts")).intValue(),token);
@@ -48,7 +50,7 @@ public class ArticleViewSync {
     public boolean syncOnce() {
         Job job=claim(); if(job==null) return false;
         try {
-            var rows=store.findArticleVisibility(job.articleId());
+            List<Map<String, Object>> rows=store.findArticleVisibility(job.articleId());
             // Never create a search document for deleted or unpublished content.
             if(rows.isEmpty() || ((Number)rows.getFirst().get("status")).intValue()!=1 || ((Number)rows.getFirst().get("deleted")).intValue()!=0) complete(job);
             else if(es.syncViewCount(Long.toString(job.articleId()),job.count())) complete(job);

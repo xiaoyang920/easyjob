@@ -1,0 +1,59 @@
+/* Product controls also render in teleported writing panels and dialogs. Keep
+   the fallback at element specificity so existing specialized controls win. */
+:where(#app, .writing-ai-panel, .annotation-panel, .ej-dialog, .el-message-box) button:where(:not(
+  [aria-label], [role="option"], [role="tab"], [role="menuitem"], .el-button,
+  .w-e-bar *, .w-e-hover-bar *, .w-e-modal *, .w-e-select-list *, [data-slate-editor] *,
+  .el-select *, .el-input *, .el-pagination *
+)) {
+  appearance: none;
+  padding: 8px 14px;
+  border: 1px solid var(--ej-line);
+  border-radius: 999px;
+  background: var(--ej-surface);
+  color: var(--ej-ink);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+:where(#app, .writing-ai-panel, .annotation-panel, .ej-dialog, .el-message-box) button:where(:not(
+  [aria-label], [role="option"], [role="tab"], [role="menuitem"], .el-button,
+  .w-e-bar *, .w-e-hover-bar *, .w-e-modal *, .w-e-select-list *, [data-slate-editor] *,
+  .el-select *, .el-input *, .el-pagination *
+)):where(:hover:not(:disabled)) { background: var(--studio-lime-soft); border-color: var(--ej-ink); }
+
+/* Explicit shared primitive; no dependency on the page's DOM ancestry. */
+.ej-button {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  max-width: 100%;
+  min-height: 38px;
+  padding: 8px 16px;
+  border: 1px solid var(--ej-line);
+  border-radius: 999px;
+  background: var(--ej-surface);
+  color: var(--ej-ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.5;
+  text-align: center;
+  vertical-align: middle;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+  transition: background .16s, border-color .16s, color .16s;
+}
+.ej-button--small { min-height: 32px; padding: 6px 12px; font-size: 12px; }
+.ej-button--primary { background: var(--ej-ink); border-color: var(--ej-ink); color: var(--ej-surface); }
+.ej-button--quiet { background: transparent; border-color: transparent; color: var(--ej-muted); }
+.ej-button--danger { color: #a43b2e; }
+.ej-button:hover:not(:disabled) { background: var(--studio-lime-soft); border-color: var(--ej-ink); color: var(--ej-ink); }
+.ej-button--primary:hover:not(:disabled) { background: var(--studio-lime); }
+.ej-button--danger:hover:not(:disabled) { background: var(--studio-coral-soft); }
+.ej-button:focus-visible { outline: 2px solid var(--ej-ink); outline-offset: 3px; }
+.ej-button:disabled { opacity: .45; cursor: not-allowed; }
+.ej-button > svg { width: 15px; height: 15px; flex-shrink: 0; }
+@media (prefers-reduced-motion: reduce) { .ej-button { transition: none; } }

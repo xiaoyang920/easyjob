@@ -16,6 +16,7 @@ class OverviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(params,{'uid':7})
         for part in ['r.user_id=:uid','c.user_id=:uid','c.status=1','NOT EXISTS','LIMIT 100']:self.assertIn(part,query)
         self.assertNotIn('result_json',query)
+        self.assertIn('c.is_writing,c.origin_article_id', query)
 
     async def test_overview_reconciles_leases_but_only_returns_navigation_metadata(self):
         row={'run_id':'one','conversation_id':12,'user_id':7,'title':'缓存一致性','status':'running',
@@ -25,5 +26,15 @@ class OverviewTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(main,'run_repository',repo),patch.object(main,'run_service',service):
             result=await main.run_overview(SimpleNamespace(user_id=7))
         self.assertEqual(result['items'][0]['status'],'expired')
-        self.assertEqual(set(result['items'][0]),{'runId','conversationId','title','status','updatedAt'})
+        self.assertEqual(set(result['items'][0]),{'runId','conversationId','title','status','scope','generation','updatedAt'})
+        self.assertEqual(result['items'][0]['scope'], 'general')
         repo.expire_existing.assert_awaited_once_with(12,7,'one')
+
+    async def test_overview_exposes_conversation_scope_without_private_article_content(self):
+        rows = [dict(run_id=str(i), conversation_id=i, user_id=7, title='对话', status='succeeded', recovery_count=i,
+                     updated_at=datetime(2026,10,5), **source) for i, source in enumerate([
+                     {}, {'origin_article_id': 42}, {'is_writing': 1, 'origin_article_id': None}], 1)]
+        with patch.object(main, 'run_repository', SimpleNamespace(overview=AsyncMock(return_value=rows))):
+            result = await main.run_overview(SimpleNamespace(user_id=7))
+        self.assertEqual([item['scope'] for item in result['items']], ['general', 'article', 'writing'])
+        self.assertEqual([item['generation'] for item in result['items']], [1, 2, 3])

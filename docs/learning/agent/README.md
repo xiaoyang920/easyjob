@@ -1,0 +1,16 @@
+# Python Agent
+
+- [Python Agent 学习指南](15-python-agent-learning.md)
+- [2026年Agent扩展路线图](16-2026-agent-extension-roadmap.md)
+- [Agent Harness 工程优化方案](17-harness-engineering-optimization.md)
+- [项目优化与扩展路线图](18-optimization-roadmap.md)
+- [HITL 草稿持久化设计](19-hitl-draft-persistence.md)
+- [RAG 系统深度优化方案（修订版）](20-rag-optimization.md)
+- [2026 Agent 技术扩展实战指南](2026-agent-extension-guide.md)
+- [Main Agent + Subagent 阶段化执行架构](21-main-agent-subagent-staged-architecture.md)
+- [Main Agent 的任务、执行者与能力边界](22-task-execution-boundaries.md)
+- [技术文章结构化分片：HTML/Markdown、Token 参数与检索闭环](23-structured-article-chunking.md)
+- [EasyJob AI Agent：从当前代码到目标架构的统一实施路线](24-current-to-target-implementation-roadmap.md)
+- [HTML 结构分块与同粒度 RRF（已实现）](24-html-chunk-rag.md)
+- [扩展指南：当前可以做什么](extension-guide.md)
+- [EasyJob Agent 实战扩展学习路线](%E5%AE%9E%E6%88%98%E6%89%A9%E5%B1%95%E5%AD%A6%E4%B9%A0%E8%B7%AF%E7%BA%BF.md)

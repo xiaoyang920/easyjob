@@ -1,3 +1,4 @@
+from tool_fakes import retrieval_call, raw_retrieval_call
 """Exercise the production retrieve loop and private memory service boundary offline."""
 import os
 os.environ["DEEPSEEK_API_KEY"] = "offline-test"
@@ -15,6 +16,7 @@ from unittest.mock import AsyncMock, patch
 from langgraph.checkpoint.memory import InMemorySaver
 
 from app import main
+from app.services import main_tools
 from app.graph import builder, main_agent as agent, action_runtime as actions, staged_runtime as runtime
 from app.graph.main_agent import MainDecision, RetrievalRequest
 from app.graph.nodes import memory_retrieval, search_worker
@@ -28,7 +30,7 @@ from test_streaming import parse_frames, result as stream_result
 
 
 def decision(target="memory", tid="history", instruction="阶段屏障的调整原因"):
-    return MainDecision(action="retrieve", retrieval=RetrievalRequest(target=target, task_id=tid, instruction=instruction))
+    return MainDecision(action='call_tool', tool_call=retrieval_call(RetrievalRequest(target=target, task_id=tid, instruction=instruction)))
 
 
 def context(target="memory"):
@@ -161,9 +163,9 @@ class MemoryActionLoopTests(unittest.IsolatedAsyncioTestCase):
         model, control = llm([decision(), MainDecision(action="answer", reply="根据历史候选给出解释", answer_dependencies=["history"])])
         with patch.object(agent, "get_llm", return_value=model), \
              patch.object(memory_retrieval.memory_service, "recall_details", AsyncMock(return_value=memories())) as recall, \
-             patch.object(actions, "retrieve_evidence", AsyncMock()) as knowledge:
+             patch.object(main_tools, "retrieve_evidence", AsyncMock()) as knowledge:
             result, nodes = await run_updates(builder._build_graph().compile(checkpointer=InMemorySaver()), create_initial_state(7, "why", []))
-        self.assertEqual(nodes, ["main_agent", "main_retrieve", "main_agent", "final_gate"])
+        self.assertEqual(nodes, ["main_agent", "execute_tool", "main_agent", "final_gate"])
         self.assertEqual(control.ainvoke.await_count, 2)
         model.ainvoke.assert_not_awaited()
         recall.assert_awaited_once_with(7, "阶段屏障的调整原因", top_k=3, strict=True, conversation_id=None, include_profile=False)
@@ -191,7 +193,7 @@ class MemoryActionLoopTests(unittest.IsolatedAsyncioTestCase):
                        MainDecision(action="answer", reply="事实来自文章 [source:1]", answer_dependencies=["history", "source"])])
         with patch.object(agent, "get_llm", return_value=model), \
              patch.object(memory_retrieval.memory_service, "recall_details", AsyncMock(return_value=memories())) as recall, \
-             patch.object(actions, "retrieve_evidence", AsyncMock(return_value=evidence("source"))) as knowledge:
+             patch.object(main_tools, "retrieve_evidence", AsyncMock(return_value=evidence("source"))) as knowledge:
             result, _ = await run_updates(builder._build_graph().compile(checkpointer=InMemorySaver()), create_initial_state(7, "q", []))
         self.assertEqual(recall.await_count, 1)
         self.assertEqual(knowledge.await_count, 1)
@@ -210,7 +212,7 @@ class MemoryActionLoopTests(unittest.IsolatedAsyncioTestCase):
         model, control = llm([decision(), decision(tid="retry"), MainDecision(action="answer", reply="已恢复")])
         with patch.object(agent, "get_llm", return_value=model), \
              patch.object(memory_retrieval.memory_service, "recall_details", AsyncMock(side_effect=[TimeoutError("private endpoint"), memories()])) as recall, \
-             patch.object(actions, "retrieve_evidence", AsyncMock()) as knowledge:
+             patch.object(main_tools, "retrieve_evidence", AsyncMock()) as knowledge:
             result, _ = await run_updates(builder._build_graph().compile(checkpointer=InMemorySaver()), create_initial_state(7, "q", []))
         self.assertEqual(recall.await_count, 2)
         knowledge.assert_not_awaited()
@@ -221,7 +223,7 @@ class MemoryActionLoopTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("private endpoint", control.ainvoke.await_args_list[1].args[0][1].content)
 
     async def test_bad_memory_request_gets_one_schema_repair_without_execution(self):
-        model, control = llm([{"action": "retrieve", "retrieval": {"target": "memory", "instruction": "find", "allow_web": True}},
+        model, control = llm([{"action": 'call_tool', 'tool_call': raw_retrieval_call({"target": "memory", "instruction": "find", "allow_web": True})},
                               MainDecision(action="answer", reply="修正后回答")])
         with patch.object(agent, "get_llm", return_value=model), \
              patch.object(memory_retrieval.memory_service, "recall_details", AsyncMock()) as recall:

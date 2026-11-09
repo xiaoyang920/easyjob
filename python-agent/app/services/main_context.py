@@ -5,6 +5,7 @@ import logging
 from app.config import settings
 from app.services.conversation import ConversationService
 from app.services.agent_events import activity
+from app.services.context_projection import context_breakdown
 from app.utils.context_budget import json_text, request_tokens, input_budget, split_history, message_tokens
 
 log = logging.getLogger(__name__)
@@ -26,6 +27,8 @@ async def prepare_context(state, render, schemas, *, fence=None):
                 'round': state.get('main_round', 0) + 1, 'status': 'below_threshold'}
     def finish(status, updated=history, **extra):
         metadata.update(status=status, **extra)
+        metadata['breakdown'] = context_breakdown(render(updated), schemas)
+        log.info('Context view round=%d status=%s usage=%s', metadata['round'], status, metadata['breakdown'])
         update = {'context_compaction': metadata}
         if updated is not history:
             update['history_messages'] = updated
@@ -36,6 +39,20 @@ async def prepare_context(state, render, schemas, *, fence=None):
     if version in versions:
         return finish('already_attempted')
     versions.append(version)
+    if any(m.get('kind') == 'history_notice' for m in history):
+        if not state.get('conversation_id'):
+            return finish('paged_history')
+        try:
+            if fence is not None: await fence(state)
+            result = await context_service.compact_window(state['conversation_id'], history,
+                user_id=state.get('user_id'), before_commit=(lambda: fence(state)) if fence else None)
+        except Exception as exc:
+            if fence is not None: await fence(state)
+            return finish('failed', summary_calls=getattr(exc, 'compaction_calls', 0))
+        updated = result['history']
+        versions.append(history_version(updated))
+        return finish(result['status'], updated, after_tokens=request_tokens(render(updated), schemas),
+                      persisted=result.get('persisted', False), summary_calls=result.get('summary_calls', 0))
     mandatory = request_tokens(render([]), schemas)
     if mandatory > hard_limit:
         return finish('mandatory_over_budget')
@@ -43,7 +60,7 @@ async def prepare_context(state, render, schemas, *, fence=None):
     if len(turns) < 2:
         return finish('no_early_history')
     # Target the whole input. A latest complete turn is protected even when it
-    # exceeds the 24K soft recent target; the final request still obeys 112K.
+    # exceeds the 24K soft recent target; the final request obeys input_budget().
     target = min(settings.CONTEXT_COMPACT_TARGET_TOKENS, trigger)
     recent_budget = min(settings.HISTORY_RECENT_TOKENS,
                         max(0, target - mandatory - settings.SUMMARY_MAX_TOKENS - 512))

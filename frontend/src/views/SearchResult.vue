@@ -112,9 +112,7 @@
                 <span>{{ item.articleCount || 0 }} 文章</span>
               </div>
             </div>
-            <button v-if="String(item.userId) !== currentUserId" class="follow-btn" :class="{ following: item.isFollowing }" :disabled="followingIds.has(String(item.userId))" @click.stop="toggleFollow(item)">
-              {{ followingIds.has(String(item.userId)) ? '处理中…' : item.isFollowing ? '已关注' : '关注' }}
-            </button>
+            <FollowButton :user-id="String(item.userId)" @changed="Object.assign(item,$event)" />
           </div>
         </template>
       </div>
@@ -142,6 +140,7 @@
 </template>
 
 <script setup lang="ts">
+import FollowButton from '@/components/FollowButton.vue'
 import ContentState from '@/components/ContentState.vue'
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { latestRequest } from '@/utils/latestRequest'

@@ -35,7 +35,7 @@
         UPDATE user_reading_progress SET earned_level=GREATEST(earned_level,#{level}) WHERE user_id=#{userId} AND total_millis=#{millis} AND earned_level=#{earned}
     </update>
     <select id="findProgress" resultType="map">
-        SELECT total_millis,earned_level FROM user_reading_progress WHERE user_id=#{userId}
+        SELECT total_millis,purchased_millis,earned_level FROM user_reading_progress WHERE user_id=#{userId}
     </select>
     <select id="findRules" resultType="map">
         SELECT level,min_seconds AS minSeconds FROM reading_level_rule ORDER BY level

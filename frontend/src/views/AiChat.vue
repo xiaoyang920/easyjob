@@ -1,13 +1,14 @@
 <template>
   <div :class="['ai-chat-page', { 'embedded-chat': embedded }]">
     <header v-if="embedded" class="article-chat-header">
-      <div class="article-chat-heading"><span class="article-chat-mark">✎</span><div><strong>文章问答</strong><span>自己的对话，随时继续</span></div></div>
+      <div class="article-chat-heading"><span class="article-chat-mark">✎</span><div><strong>{{ writing ? 'AI 写作助手' : '文章问答' }}</strong><span>{{ writing ? '构思、润色、查资料' : '自己的对话，随时继续' }}</span></div></div>
       <div class="article-chat-controls">
-        <button @click="createNewConversation" :disabled="uploadingImage" title="围绕当前文章开启新话题">新话题</button>
-        <button class="article-chat-close" aria-label="收起文章问答" @click="emit('close')">×</button>
+        <button @click="createNewConversation" :disabled="uploadingImage" :title="writing ? '开启新的写作对话' : '围绕当前文章开启新话题'">新话题</button>
+        <button class="article-chat-close" :aria-label="writing ? '收起 AI 写作助手' : '收起文章问答'" @click="emit('close')">×</button>
       </div>
     </header>
-    <button v-if="embedded" class="article-reader-link" @click="emit('openChatroom')">
+    <slot name="context-tools" />
+    <button v-if="embedded && !writing" class="article-reader-link" @click="emit('openChatroom')">
       读者聊天室 · {{ readerCount }} 人在线<span v-if="readerUnread" class="reader-unread-dot"></span><span class="reader-link-arrow">↗</span>
     </button>
 
@@ -32,8 +33,8 @@
         </div>
         <div class="conversation-list" ref="conversationListRef" @scroll="handleConversationScroll">
           <section v-for="group in conversationGroups" :key="group.scope" class="conversation-group">
-          <button class="conversation-group-toggle" @click="group.scope === 'article' ? articleGroupOpen = !articleGroupOpen : generalGroupOpen = !generalGroupOpen" :aria-expanded="group.open">
-            <span>{{ group.title }}</span><svg :class="{ expanded: group.open }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>
+          <button class="conversation-group-toggle" @click="toggleConversationGroup(group.scope)" :aria-expanded="group.open">
+            <span class="conversation-group-title">{{ group.title }}<span v-if="group.updates" class="conversation-group-updates" :aria-label="`${group.updates} 条未读更新`">{{ group.updates }} 条更新</span></span><svg :class="{ expanded: group.open }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>
           </button>
           <template v-if="group.open">
           <AiConversationItem
@@ -50,7 +51,7 @@
             @rename="renameConversation(conv)"
             @delete="confirmDeleteConversation(conv)"
           />
-          <div v-if="group.items.length === 0 && !loadingConversations" class="no-conversations">{{ libraryKeyword.trim() ? '没有找到匹配的对话' : group.scope === 'article' ? '在文章页提问后，对话会出现在这里' : '开启新对话，聊聊你的想法' }}</div>
+          <div v-if="group.items.length === 0 && !loadingConversations" class="no-conversations">{{ libraryKeyword.trim() ? '没有找到匹配的对话' : group.scope === 'article' ? '在文章页提问后，对话会出现在这里' : group.scope === 'writing' ? '写作时与 AI 的讨论会出现在这里' : '开启新对话，聊聊你的想法' }}</div>
           <button v-if="hasMoreByScope[group.scope] && group.items.length" class="conversation-load-more" :disabled="loadingMoreConversations" @click="loadMoreConversations(group.scope)">加载更多</button>
           </template>
           </section>
@@ -70,6 +71,10 @@
         <div v-if="currentOriginArticleId" class="article-context-strip">
           <span>来源文章</span><button @click="openArticle(currentOriginArticleId)" :title="currentOriginArticleTitle">{{ currentOriginArticleTitle || '当前文章' }}</button>
           <small v-if="!embedded">也可以检索其他文章、进行对比</small>
+        </div>
+        <div v-else-if="activeSession.isWriting && !embedded" class="article-context-strip">
+          <span>写作草稿</span><RouterLink v-if="activeSession.writingArticleId && activeSession.writingArticleAvailable" :to="{ path: '/create-article', query: { id: activeSession.writingArticleId } }">{{ writingSourceTitle(activeSession) }} ↗</RouterLink>
+          <span v-else>{{ writingSourceTitle(activeSession) }}</span><small>编辑器中的最新内容需在写作侧栏读取</small>
         </div>
         <div v-if="historyLoadFailed" class="history-error">对话暂时无法加载。<button @click="initializeConversation">重新加载</button></div>
         <!-- 移动端返回按钮 -->
@@ -92,9 +97,9 @@
         <!-- 欢迎区域 -->
         <div v-else-if="messages.length === 0" class="welcome-area">
           <div class="welcome-inner">
-            <div class="welcome-eyebrow"><span class="quiet-dot"></span> {{ embedded ? '围绕文章，接着聊' : 'EasyJob · 写作助手' }}</div>
-            <h2 class="welcome-title">{{ embedded ? '哪里想再弄明白一点？' : '从一个想法开始。' }}</h2>
-            <p class="welcome-desc">{{ embedded ? '解释文章里的内容，也可以找其他文章一起对比。' : '找资料、理思路，或一起完成下一篇文章。' }}</p>
+            <div class="welcome-eyebrow"><span class="quiet-dot"></span> {{ writing ? 'EasyJob · 陪你写下去' : embedded ? '围绕文章，接着聊' : 'EasyJob · 写作助手' }}</div>
+            <h2 class="welcome-title">{{ writing ? '写到哪里，需要一点灵感？' : embedded ? '哪里想再弄明白一点？' : '从一个想法开始。' }}</h2>
+            <p class="welcome-desc">{{ writing ? '一起想标题、理结构，或把一句话写得更清楚。建议由你确认后采纳。' : embedded ? '解释文章里的内容，也可以找其他文章一起对比。' : '找资料、理思路，或一起完成下一篇文章。' }}</p>
 
             <!-- 快捷问题 -->
             <div class="quick-questions">
@@ -115,8 +120,8 @@
 
         <!-- 消息列表 -->
         <div v-else class="message-list" ref="messageListRef" :data-message-count="messages.length" :data-virtualized="messages.length > 60" @scroll="handleMessageScroll" @wheel.passive="handleHistoryWheel">
-          <button v-if="activeSession.historyWindow.hasOlder" class="load-earlier-btn" :disabled="activeSession.historyBusy" @click="showEarlierMessages">{{ activeSession.historyBusy ? '加载中…' : '加载更早的消息' }}</button>
-          <button v-if="questionIndexFailed" class="load-earlier-btn" @click="loadQuestionIndex(activeSession)">提问导航加载失败，点击重试</button>
+          <AppButton v-if="activeSession.historyWindow.hasOlder" size="small" class="load-earlier-btn" :disabled="activeSession.historyBusy" @click="showEarlierMessages">{{ activeSession.historyBusy ? '加载中…' : '加载更早的消息' }}</AppButton>
+          <AppButton v-if="questionIndexFailed" size="small" class="load-earlier-btn" @click="loadQuestionIndex(activeSession)">提问导航加载失败，点击重试</AppButton>
           <div ref="virtualSpacer" class="virtual-spacer" :style="{height:`${virtual.before.value}px`}" aria-hidden="true"></div>
           <div 
             v-for="{ msg, index } in visibleMessages"
@@ -143,8 +148,11 @@
                 :preview-teleported="true"
               />
               <AgentActivity v-if="msg.agent" :state="msg.agent" />
+              <div v-if="msg.role === 'user' && msg.writingReferences?.length" class="sent-writing-references">
+                <WritingReferenceCard v-for="(reference, refIndex) in msg.writingReferences" :key="refIndex" class="sent-writing-reference" :reference="reference" :index="msg.writingReferences.length > 1 ? refIndex + 1 : undefined" />
+              </div>
               <button v-if="msg.recoverable" class="interrupt-btn" :disabled="loading || resuming"
-                @click="recoverReadOnlyRun(msg)">继续未完成任务</button>
+                @click="recoverCheckpointRun(msg)">继续上次未完成任务</button>
               <div v-if="msg.role === 'assistant' && !msg.content && !msg.agent" class="typing-indicator">
                 <span></span><span></span><span></span>
               </div>
@@ -172,7 +180,10 @@
                 </footer>
               </article>
               <div v-else-if="msg.content" class="message-bubble"><CodeContent :html="renderMarkdown(msg.content, msg.provisional ? [] : msg.citations)" @expand="openCodeViewer" /></div>
-              <button v-if="msg.role === 'assistant' && msg.content && !msg.provisional && !msg.isDraft && !msg.agent?.answerReceiving" type="button" class="copy-answer-btn" @click="copyAnswer(msg.content)">复制回答</button>
+              <AppButton v-if="msg.role === 'assistant' && msg.content && !msg.provisional && !msg.isDraft && !msg.agent?.answerReceiving" size="small" class="copy-answer-btn" @click="copyAnswer(msg.content)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2" /><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" /></svg>
+                复制回答
+              </AppButton>
               <AnswerFeedback v-if="msg.role==='assistant' && msg.runId && msg.content && !msg.provisional && !msg.interrupted && !msg.isDraft && !msg.recoverable && (!msg.agent || msg.agent.status==='complete') && !loading && !resuming" :run-id="msg.runId" /><div v-if="msg.agent?.answerReceiving" class="generating-indicator"><div class="generating-dot-pulse"></div><span>{{ msg.provisional ? '正在生成，完成后确认正文…' : '正在接收回答…' }}</span></div>
               <div v-if="msg.interrupted && !msg.isDraft" class="interrupt-actions">
                 <div class="interrupt-hint">{{ msg.interruptPayload?.message || '需要您确认后继续' }}</div>
@@ -207,6 +218,7 @@
                   {{ citationIndex + 1 }}. {{ citation.title }}
                 </button>
               </div>
+              <slot v-if="msg.role === 'assistant'" name="message-tools" :message="msg" />
               <!-- 文章卡片列表 -->
               <div v-if="msg.articles && msg.articles.length > 0" class="article-cards">
                 <div 
@@ -247,8 +259,8 @@
         </div>
 
         <div v-if="activeSession.historyWindow.hasNewer" class="history-window-actions">
-          <button class="load-earlier-btn" :disabled="activeSession.historyBusy" @click="showNewerMessages">加载后续消息</button>
-          <button class="load-earlier-btn" :disabled="activeSession.historyBusy" @click="returnToLatest">回到最新消息 ↓</button>
+          <AppButton size="small" class="load-earlier-btn" :disabled="activeSession.historyBusy" @click="showNewerMessages">加载后续消息</AppButton>
+          <AppButton size="small" class="load-earlier-btn" :disabled="activeSession.historyBusy" @click="returnToLatest">回到最新消息 ↓</AppButton>
         </div>
         <!-- 提问快速定位：消息区左侧的刻度导航 -->
         <QuestionRail
@@ -280,6 +292,28 @@
               </div>
             </div>
           </div>
+          <slot name="composer-tools" :disabled="loading || uploadingImage || loadingMessages || historyLoadFailed" />
+          <div v-if="referencesEnabled" class="writing-reference-picker" @focusout="leaveReferencePicker" @keydown="referenceMenuOpen && handleComposerKeydown($event)">
+            <div v-if="referenceMenuOpen" :id="referenceMenuId" class="writing-reference-menu" role="listbox" aria-label="选择引用内容">
+              <span class="reference-menu-heading">引用到本次提问</span>
+              <button v-for="(option, index) in referenceOptions" :id="`${referenceMenuId}-${index}`" :key="option.kind" type="button" role="option"
+                :aria-selected="referenceMenuIndex === index" :class="{ active: referenceMenuIndex === index }"
+                @mousedown.prevent @click="requestReference(option.kind)">
+                <span class="reference-option-icon" aria-hidden="true">{{ option.kind === 'selection' ? '❞' : '▤' }}</span>
+                <span><strong>{{ option.label }}</strong><small>{{ option.description }}</small></span>
+              </button>
+              <p v-if="!referenceOptions.length" class="reference-menu-empty">没有匹配的引用，试试“{{ writing ? '草稿' : '文章' }}”或“选中”</p>
+            </div>
+            <div class="writing-reference-actions">
+              <button type="button" class="writing-reference-trigger" :disabled="composerBusy" :aria-expanded="referenceMenuOpen" :aria-controls="referenceMenuId"
+                aria-label="引用内容" aria-haspopup="listbox" @click="toggleReferenceMenu"><span aria-hidden="true">@</span> 引用</button>
+              <span aria-live="polite">{{ pendingReferences.length ? `已引用 ${pendingReferences.length}/5 处 · ${referenceCharacters}/12000 字` : '输入 @ 或选择引用，再写下你的要求' }}</span>
+            </div>
+            <div v-if="pendingReferences.length" class="pending-writing-references">
+              <WritingReferenceCard v-for="(reference, refIndex) in pendingReferences" :key="reference.id" class="pending-writing-reference" :reference="reference" :index="pendingReferences.length > 1 ? refIndex + 1 : undefined" removable :disabled="composerBusy" @remove="removeReference(reference.id)" />
+            </div>
+            <p v-if="pendingReferences.filter(ref => ref.kind === 'selection').length > 1" class="reference-scope-hint">多处引用可一起分析或对比{{ writing ? '；选区修改请单独引用一处。' : '。' }}</p>
+          </div>
           <div class="input-wrapper">
             <!-- 图片上传按钮 -->
             <button class="upload-btn" aria-label="添加图片" title="添加图片" @click="triggerImageUpload" :disabled="loading || uploadingImage">
@@ -297,13 +331,20 @@
             />
             <textarea 
               v-model="userInput"
-              :placeholder="embedded ? '针对这篇文章继续提问…' : '写下问题，或一个还没成形的想法…'"
+              :placeholder="writing ? '说说你想怎么改，输入 @ 引用文字…' : articleReferences ? '针对这篇文章提问，输入 @ 引用文字…' : embedded ? '针对这篇文章继续提问…' : '写下问题，或一个还没成形的想法…'"
               aria-label="消息内容"
-              @keydown.enter.exact="handleEnterKey"
+              :maxlength="referencesEnabled ? 16000 : undefined"
+              :aria-controls="referenceMenuOpen ? referenceMenuId : undefined"
+              :aria-expanded="referencesEnabled ? referenceMenuOpen : undefined"
+              :aria-activedescendant="referenceMenuOpen && referenceOptions.length ? `${referenceMenuId}-${referenceMenuIndex}` : undefined"
+              @input="updateMentionMenu" @click="updateMentionMenu"
+              @keydown="handleComposerKeydown" @blur="leaveComposer"
               rows="1"
               ref="inputRef"
               :disabled="loading || loadingMessages || historyLoadFailed"
             ></textarea>
+            <ContextUsageIndicator :key="activeSession.key" :conversation-id="currentConversationId"
+              :live-usage="activeSession.contextUsage" :busy="loading" />
             <button 
               v-if="streaming"
               class="stop-btn" 
@@ -333,7 +374,7 @@
             <span class="tip-text">Enter 发送 · Shift + Enter 换行</span>
             <span class="tip-note">重要信息请核实来源</span>
           </div>
-          <button v-if="embedded" class="expand-assistant-link" @click="expandInAssistant" :disabled="!currentConversationId" title="在智能助手中继续同一个对话">在智能助手中展开 ↗</button>
+          <button v-if="embedded" class="expand-assistant-link" @click="expandInAssistant" :disabled="!currentConversationId" title="在智能助手中继续同一个对话">{{ writing ? '在新标签页继续 ↗' : '在智能助手中展开 ↗' }}</button>
         </div>
       </div>
     </div>
@@ -353,14 +394,23 @@
 import { createDeliveryTiming } from '@/utils/deliveryTiming'
 import { useVirtualMessages } from '@/composables/useVirtualMessages'
 import AiConversationItem from '@/components/AiConversationItem.vue'
+import ContextUsageIndicator from '@/components/ContextUsageIndicator.vue'
+import { parseContextUsage } from '@/utils/contextUsage'
 import { historyPage, mergeHistory, questionPreviews } from '@/utils/historyPaging'
-import { aiConversationStatus, setViewedAiConversation, trackAiRun, refreshAiRuns } from '@/utils/aiRuns'
+import { aiConversationStatus, aiRunItems, isAiRunRead, markAiRunRead, setViewedAiConversation, trackAiRun, refreshAiRuns } from '@/utils/aiRuns'
 import { createChatSession, bindConversationId, beginChatOperation, finishChatOperation, releaseChatSessions, type ChatSession } from '@/utils/chatSessions'
 import { authenticatedFetch } from '@/utils/authSession'
 import { approvalRecovery } from '@/utils/approvalRecovery'
+import { adoptCheckpointTurn, isContinuationCommand } from '@/utils/checkpointContinuation'
 import AiDraftEditor from '@/components/AiDraftEditor.vue'
 import { draftEditFrom,draftEditError,type DraftEdit } from '@/utils/draftEdit'
 import { ref, shallowRef, shallowReactive, reactive, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
+import { parseEditorProposals, type EditorSnapshot, type EditorProposal } from '@/utils/editorTools'
+import WritingReferenceCard from '@/components/WritingReferenceCard.vue'
+import AppButton from '@/components/AppButton.vue'
+import { readWritingConversation, saveWritingConversation, migrateWritingConversation, knownWritingConversations, writingBindingKey, rememberNewWritingTopic, hasNewWritingTopic } from '@/utils/writingConversations'
+import { conversationScope, conversationCategory, writingSourceTitle, type ConversationScope } from '@/utils/conversationScope'
+import { mentionAt, readWritingMessage, validWritingReference, writingMessage, writingReferencesError, writingQuestionPreview, type WritingReference, type WritingReferenceKind, type AttachedWritingReference } from '@/utils/writingReferences'
 import { useRouter, useRoute } from 'vue-router'
 import { goBackOr } from '@/utils/navigation'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -392,16 +442,62 @@ async function copyAnswer(content: string) {
 }
 const props = withDefaults(defineProps<{
   embedded?: boolean
+  writing?: boolean
+  articleReferences?: boolean
+  writingScope?: string
+  getEditorContext?: () => EditorSnapshot | null
   originArticleId?: string
   originArticleTitle?: string
   readerCount?: number
   readerUnread?: boolean
-}>(), { embedded: false, originArticleId: '', originArticleTitle: '', readerCount: 0, readerUnread: false })
-const emit = defineEmits<{ close: []; openChatroom: []; loginRequired: [] }>()
+}>(), { embedded: false, writing: false, articleReferences: false, originArticleId: '', originArticleTitle: '', readerCount: 0, readerUnread: false })
+const emit = defineEmits<{ close: []; openChatroom: []; loginRequired: []; referenceRequested: [kind: WritingReferenceKind]; referenceAttached: [id: string, text: string]; referencesChanged: [ids: string[]]; referenceReady: [] }>()
+const referencesEnabled = computed(() => props.writing || props.articleReferences)
 
 // 用户信息
 const userAvatar = ref(localStorage.getItem('avatar') || '')
 const userNickName = localStorage.getItem('nickName') || ''
+const writingOwner = localStorage.getItem('userId')
+let writingStorageNotice = false
+const writingBindings = new Map<string, string | null>()
+const submittedWritingIds = new WeakMap<Session, string | null>()
+const writingBindRequests = new Map<string, Promise<any>>()
+function writingArticleId() { return props.writingScope && /^[1-9]\d*$/.test(props.writingScope) ? props.writingScope : null }
+async function bindWritingConversation(id: string, articleId: string | null, scope = props.writingScope || 'new') {
+  const key = `${id}:${articleId || 'new'}`
+  let pending = writingBindRequests.get(key)
+  if (!pending) {
+    pending = request.put(`/agent/conversations/${encodeURIComponent(id)}/writing-context`, { articleId }).then(response => {
+      if (response.code !== 200) throw new Error('无法同步写作会话')
+      if (!mounted || writingOwner !== localStorage.getItem('userId')) return {}
+      writingBindings.set(id, articleId)
+      try { localStorage.setItem(writingBindingKey(writingOwner, scope), id) } catch { /* The server association is still durable. */ }
+      return { isWriting: true, writingArticleId: articleId, writingArticleAvailable: !!articleId, ...(response.data && !Array.isArray(response.data) ? response.data : {}) }
+    }).finally(() => writingBindRequests.delete(key))
+    writingBindRequests.set(key, pending)
+  }
+  return pending
+}
+async function syncWritingConversation(session: Session) {
+  if (!mounted || !props.writing || !session.conversationId || activeSession.value !== session || writingOwner !== localStorage.getItem('userId')) return
+  const articleId = writingArticleId(), id = session.conversationId
+  if (writingBindings.has(id) && writingBindings.get(id) === articleId) return
+  Object.assign(session, await bindWritingConversation(id, articleId))
+}
+function syncWritingLater(session: Session) {
+  void syncWritingConversation(session).catch(() => { if (mounted) ElMessage.warning('草稿对话关联暂未同步，重新打开草稿时会重试') })
+}
+async function migrateKnownWritingConversations() {
+  // Migrate only exact per-account browser associations. Never infer ownership from a title or message.
+  for (const entry of knownWritingConversations(localStorage, writingOwner)) {
+    if (!mounted || writingOwner !== localStorage.getItem('userId')) return
+    try { await bindWritingConversation(entry.id, entry.scope === 'new' ? null : entry.scope, entry.scope) }
+    catch { /* Deleted or conflicting records remain untouched; restore offers retry in the draft. */ }
+  }
+}
+function writingStorageResult(ok: boolean) {
+  if (!ok && !writingStorageNotice) { writingStorageNotice = true; ElMessage.warning('浏览器未能记住写作会话，重新打开时可能无法恢复') }
+}
 
 // 会话状态
 const conversations = ref<any[]>([])
@@ -412,6 +508,13 @@ function selectionStorageKey() {
   return userId ? `ai_conversation_id:${userId}` : null
 }
 function persistSelection(id: string | null) {
+  if (props.embedded && props.writing) {
+    if (props.writingScope && writingOwner && writingOwner === localStorage.getItem('userId')) {
+      writingStorageResult(saveWritingConversation(localStorage, writingOwner, props.writingScope, id))
+      rememberNewWritingTopic(localStorage, writingOwner, props.writingScope, !id)
+    }
+    return
+  }
   if (props.embedded) return
   const key = selectionStorageKey()
   if (!key) return
@@ -437,23 +540,41 @@ const currentOriginArticleTitle = sessionField('originArticleTitle')
 currentOriginArticleTitle.value = props.originArticleTitle
 const loadingConversations = ref(false)
 const loadingMoreConversations = ref(false)  // 加载更多中
-type ConversationScope = 'general' | 'article'
-const hasMoreByScope = ref<Record<ConversationScope, boolean>>({ general: true, article: true })
+const hasMoreByScope = ref<Record<ConversationScope, boolean>>({ general: true, article: true, writing: true })
 const generalGroupOpen = ref(true)
 const articleGroupOpen = ref(false)
+const writingGroupOpen = ref(false)
+function toggleConversationGroup(scope: ConversationScope) {
+  if (scope === 'writing') writingGroupOpen.value = !writingGroupOpen.value
+  else if (scope === 'article') articleGroupOpen.value = !articleGroupOpen.value
+  else generalGroupOpen.value = !generalGroupOpen.value
+}
 function groupItems(scope: ConversationScope) {
-  const items = conversations.value.filter(c => scope === 'article' ? !!c.originArticleId : !c.originArticleId)
+  const items = conversations.value.filter(c => conversationScope(c) === scope)
   const selected = selectedConversation.value
-  if (!libraryKeyword.value.trim() && selected && (scope === 'article' ? !!selected.originArticleId : !selected.originArticleId)
+  if (!libraryKeyword.value.trim() && selected && conversationScope(selected) === scope
       && !items.some(c => String(c.conversationId) === String(selected.conversationId))) items.unshift(selected)
   // Preserve server ordering within each pin tier, including a selected chat
   // outside the loaded page; unpinned selection must never precede pinned rows.
   return items.sort((a, b) => Number(!!Number(b.isPinned)) - Number(!!Number(a.isPinned)))
 }
 const conversationGroups = computed(() => [
-  { scope: 'general' as const, title: '普通聊天', open: generalGroupOpen.value, items: groupItems('general') },
-  { scope: 'article' as const, title: '文章问答', open: articleGroupOpen.value, items: groupItems('article') }
+  { scope: 'article' as const, title: '文章问答', open: articleGroupOpen.value, items: groupItems('article'), updates: groupUpdates('article') },
+  { scope: 'writing' as const, title: '草稿写作', open: writingGroupOpen.value, items: groupItems('writing'), updates: groupUpdates('writing') },
+  { scope: 'general' as const, title: '普通聊天', open: generalGroupOpen.value, items: groupItems('general'), updates: groupUpdates('general') }
 ])
+function groupUpdates(scope: ConversationScope) {
+  const ids = new Set(aiRunItems.value.filter(item => {
+    if (!item.unread) return false
+    const source = conversations.value.find(c => String(c.conversationId) === item.conversationId) || sessions.get(item.conversationId)
+    return (item.scope || conversationScope(source || {})) === scope
+  }).map(item => item.conversationId))
+  for (const session of new Set(sessions.values())) {
+    if (session.conversationId && session.unread && !isAiRunRead(session.conversationId, session.messages.at(-1)?.runId)
+        && conversationScope(session) === scope) ids.add(session.conversationId)
+  }
+  return ids.size
+}
 const conversationListRef = ref<HTMLElement>()  // 会话列表容器
 const showSidebar = ref(true)
 const historyLoadFailed = sessionField('historyLoadFailed')
@@ -495,8 +616,11 @@ interface ChatMessage {
   image?: string | null
   articles?: ArticleCard[]  // 文章卡片数据
   citations?: Citation[]
+  editorEdits?: EditorProposal[]
+  writingReferences?: (WritingReference & { id?: string })[]
   agent?: AgentStreamState
   runId?: string
+  runGeneration?: number
   recoverable?: boolean
   draftRevision?: string
   editedDraft?: DraftEdit
@@ -523,7 +647,7 @@ async function loadQuestionIndex(session: Session) {
       if (!mounted || version !== session.questionVersion) return
       if (Array.isArray(response.data)) return // Older server compatibility.
       if (response.code !== 200 || !Array.isArray(response.data?.items)) throw new Error('提问导航加载失败')
-      items.push(...response.data.items)
+      items.push(...response.data.items.map((item: Session['questionIndex'][number]) => ({ ...item, question: writingQuestionPreview(item.question) })))
       if (!response.data.hasMore) break
       const next = response.data.nextCursor
       if (!next || next === after) throw new Error('提问导航游标无效')
@@ -631,13 +755,17 @@ async function resolveQuestion(id: string) {
 }
 
 function toChatMessage(msg: any): ChatMessage {
+  const content = msg.role === 'user' ? readWritingMessage(msg.content || '') : { content: msg.content || '' }
   return {
-    role: msg.role, content: msg.content || '',
+    role: msg.role, content: content.content,
+    writingReferences: 'references' in content && content.references ? content.references : 'reference' in content && content.reference ? [content.reference] : undefined,
     itemId: msg.itemId || (msg.messageId ? `message:${msg.messageId}` : msg.runId ? `run:${msg.runId}` : crypto.randomUUID()),
     messageId: msg.messageId, turnId: msg.turnId,
     runId: msg.runId, recoverable: !!msg.recoverable, agent: restoreAgentState(msg),
+    runGeneration: msg.runGeneration,
     image: msg.imagePaths?.length ? `/uploads/${msg.imagePaths[0]}` : null,
     articles: msg.articleCards || [], citations: msg.citations || [],
+    editorEdits: parseEditorProposals(msg.editorEdits),
     interrupted: msg.interrupted || false, interruptPayload: msg.interruptPayload,
     isDraft: msg.isDraft || false, draftArticleId: msg.draftArticleId || undefined,
     draftTitle: msg.draftTitle || '', draftRevision: ''
@@ -649,6 +777,80 @@ const loading = computed(() => activeSession.value.loading || activeSession.valu
 const streaming = sessionField('streaming')
 const resuming = sessionField('resuming')
 const loadingMessages = ref(false)  // 切换会话时的加载状态
+const composerBusy = computed(() => loading.value || uploadingImage.value || loadingMessages.value || historyLoadFailed.value)
+function canAttachReference() { return referencesEnabled.value && !composerBusy.value }
+const writingReferences = reactive(new Map<string, AttachedWritingReference[]>())
+const pendingReferences = computed(() => writingReferences.get(activeSession.value.key) || [])
+watch(() => [...messages.value.flatMap(message => (message.writingReferences || []).map(reference => reference.id)), ...pendingReferences.value.map(reference => reference.id)]
+  .filter((id): id is string => !!id).slice(-32), ids => emit('referencesChanged', ids), { immediate: true })
+const referenceCharacters = computed(() => pendingReferences.value.reduce((total, ref) => total + ref.text.length, 0))
+const referenceMenuId = `writing-reference-${crypto.randomUUID()}`
+const referenceMenuOpen = ref(false), referenceMenuIndex = ref(0), mentionQuery = ref('')
+let mentionRange: { start: number; end: number } | null = null
+const referenceOptions = computed(() => [
+  { kind: (props.writing ? 'draft' : 'article') as WritingReferenceKind, label: props.writing ? '当前草稿' : '当前文章', description: '引用标题、摘要与正文', search: props.writing ? '当前草稿 文章 文档 draft document' : '当前文章 正文 article document' },
+  { kind: 'selection' as const, label: '选中文字', description: '先在正文中选中需要讨论的文字', search: '选中文字 选区 selection text' }
+].filter(option => option.search.includes(mentionQuery.value.toLowerCase())))
+function closeReferenceMenu() { referenceMenuOpen.value = false; mentionRange = null; mentionQuery.value = '' }
+function toggleReferenceMenu() {
+  if (referenceMenuOpen.value) { closeReferenceMenu(); return }
+  mentionRange = null; mentionQuery.value = ''; referenceMenuIndex.value = 0; referenceMenuOpen.value = true
+}
+function updateMentionMenu() {
+  if (!referencesEnabled.value || composerBusy.value) return
+  const mention = mentionAt(userInput.value, inputRef.value?.selectionStart ?? userInput.value.length)
+  if (!mention) { closeReferenceMenu(); return }
+  mentionRange = mention; mentionQuery.value = mention.query; referenceMenuIndex.value = 0; referenceMenuOpen.value = true
+}
+function requestReference(kind: WritingReferenceKind) { if (!composerBusy.value) emit('referenceRequested', kind) }
+function attachReference(reference: WritingReference, options: { focus?: boolean } = {}) {
+  if (!referencesEnabled.value || !validWritingReference(reference)) return false
+  if (composerBusy.value) { ElMessage.info('请等待当前回答完成后再引用'); return false }
+  const attached = { ...reference, id: crypto.randomUUID() }
+  const references = [...pendingReferences.value, attached]
+  const error = writingReferencesError(references)
+  if (error) { ElMessage.warning(error); return false }
+  writingReferences.set(activeSession.value.key, references)
+  if (reference.kind === 'selection') emit('referenceAttached', attached.id, reference.text)
+  const caret = mentionRange?.start
+  if (mentionRange) userInput.value = userInput.value.slice(0, mentionRange.start) + userInput.value.slice(mentionRange.end)
+  closeReferenceMenu()
+  nextTick(() => { if (options.focus !== false) { focusInput(); if (caret !== undefined) inputRef.value?.setSelectionRange(caret, caret) } })
+  return true
+}
+function removeReference(id: string) {
+  if (composerBusy.value) return
+  const references = pendingReferences.value.filter(ref => ref.id !== id)
+  if (references.length) writingReferences.set(activeSession.value.key, references)
+  else writingReferences.delete(activeSession.value.key)
+  nextTick(focusInput)
+}
+function leaveReferencePicker(event: FocusEvent) {
+  if (!(event.currentTarget as HTMLElement).contains(event.relatedTarget as Node | null) && event.relatedTarget !== inputRef.value) closeReferenceMenu()
+}
+function leaveComposer(event: FocusEvent) {
+  if (!(event.relatedTarget instanceof Element && event.relatedTarget.closest('.writing-reference-picker'))) closeReferenceMenu()
+}
+function handleComposerKeydown(event: KeyboardEvent) {
+  if (event.isComposing || event.keyCode === 229) return
+  if (referencesEnabled.value && referenceMenuOpen.value) {
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeReferenceMenu(); return }
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      const length = referenceOptions.value.length
+      referenceMenuIndex.value = length ? (referenceMenuIndex.value + (event.key === 'ArrowDown' ? 1 : -1) + length) % length : 0
+      return
+    }
+    if ((event.key === 'Enter' && !event.shiftKey) || event.key === 'Tab') {
+      event.preventDefault()
+      const option = referenceOptions.value[referenceMenuIndex.value]
+      if (option) requestReference(option.kind)
+      return
+    }
+  }
+  if (event.key === 'Enter' && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) handleEnterKey(event)
+}
+watch(activeSession, closeReferenceMenu)
 
 // 自动跟随滚动到底部（用户手动往上滚后暂停，回到底部附近恢复）
 const messageListRef = ref<HTMLElement>()
@@ -675,7 +877,12 @@ const uploadProgress = ref(0)  // 上传进度 0-100
 const uploadingPreview = ref('')  // 上传中图片的预览URL
 
 // 快捷问题
-const quickQuestions = computed(() => props.embedded ? [
+const quickQuestions = computed(() => props.writing ? [
+  '帮我想几个更合适的文章标题',
+  '帮我梳理文章结构与写作大纲',
+  '帮我润色这段文字，保留原意',
+  '读取这个网页，帮我整理写作资料：'
+] : props.embedded ? [
   '帮我梳理这篇文章的核心思路',
   '解释一下文章里的关键概念',
   '找一篇相关文章，和本文对比一下'
@@ -692,7 +899,7 @@ function conversationBusy(id: string) {
   const session = sessions.get(String(id))
   return !!(session?.loading || session?.resuming || session?.cancelling)
 }
-const libraryPages: Record<ConversationScope,number> = { general: 1, article: 1 }
+const libraryPages: Record<ConversationScope,number> = { general: 1, article: 1, writing: 1 }
 let libraryGeneration = 0
 let librarySearchTimer: ReturnType<typeof setTimeout> | undefined
 watch(libraryKeyword, () => { libraryGeneration++;clearTimeout(librarySearchTimer);librarySearchTimer=setTimeout(()=>void loadConversations(),300) })
@@ -701,10 +908,10 @@ async function loadConversations() {
   const generation=++libraryGeneration
   loadingConversations.value=true
   try {
-    const scopes:ConversationScope[]=['general','article']
+    const scopes:ConversationScope[]=['general','article','writing']
     const results=await Promise.all(scopes.map(scope=>request.get('/agent/library',{params:{scope,keyword:libraryKeyword.value,page:1,size:20}})))
     if(!mounted || generation!==libraryGeneration)return
-    conversations.value=results.flatMap(r=>r.data?.rows || [])
+    conversations.value=[...new Map(results.flatMap(r=>r.data?.rows || []).map(row=>[String(row.conversationId),row])).values()]
     scopes.forEach((scope,i)=>{libraryPages[scope]=1;hasMoreByScope.value[scope]=results[i].data.total>20})
   }catch{if(generation===libraryGeneration)ElMessage.error('加载对话列表失败，请稍后重试')}
   finally{if(generation===libraryGeneration)loadingConversations.value=false}
@@ -733,7 +940,7 @@ async function editConversation(conv:any,edit:Record<string,unknown>){
     Object.assign(conv,updated)
     if(String(selectedConversation.value?.conversationId)===id)selectedConversation.value=updated
     ElMessage.success(typeof edit.pinned==='boolean'
-      ?edit.pinned?`已置顶，固定在${conv.originArticleId?'文章问答':'普通聊天'}顶部`:'已取消置顶，恢复按最近更新排序'
+      ?edit.pinned?`已置顶，固定在${conversationCategory(conv)}顶部`:'已取消置顶，恢复按最近更新排序'
       :'对话标题已更新')
     await loadConversations()
   }catch(e){ElMessage.error(e instanceof Error?e.message:'修改失败');await loadConversations()}
@@ -793,7 +1000,10 @@ async function switchConversation(conv: any) {
   selectedConversation.value = conv
   session.originArticleId = conv.originArticleId ? String(conv.originArticleId) : null
   session.originArticleTitle = conv.originArticleTitle || (props.embedded ? props.originArticleTitle : '')
-  if (session.originArticleId && !props.embedded) articleGroupOpen.value = true
+  session.isWriting = conversationScope(conv) === 'writing'
+  session.writingArticleId = conv.writingArticleId ? String(conv.writingArticleId) : null
+  session.writingArticleTitle = conv.writingArticleTitle || ''
+  session.writingArticleAvailable = !!conv.writingArticleAvailable
   persistSelection(id)
   loadingMessages.value = false
   if (window.innerWidth <= 768) showSidebar.value = false
@@ -822,13 +1032,17 @@ function conversationStatus(id: string): string {
   const session = sessions.get(String(id))
   if (session?.loading) return '正在生成'
   if (session?.messages.at(-1)?.interrupted) return '等待确认'
-  if (session?.unread) return session.messages.at(-1)?.interrupted ? '等待确认' : '有新回复'
+  if (session?.unread && !isAiRunRead(String(id), session.messages.at(-1)?.runId)) return session.messages.at(-1)?.interrupted ? '等待确认' : '有新回复'
   return aiConversationStatus(String(id))
 }
 function finishSession(session: Session, operation: number) {
   if (!finishChatOperation(session, operation)) return
-  if (mounted && activeSession.value !== session) session.unread = true
+  // Local completion can beat the next overview poll. Its hint must still defer
+  // to an exact/pending read receipt, including one received from another tab.
+  if (mounted && activeSession.value !== session
+      && !isAiRunRead(session.conversationId || '', session.messages.at(-1)?.runId)) session.unread = true
   if (mounted && activeSession.value === session) scrollToBottom()
+  if (mounted) void nextTick(syncViewedConversation)
   if (mounted) { void refreshAiRuns(); void loadQuestionIndex(session) }
   session.liveMessages = []
 }
@@ -970,15 +1184,32 @@ async function sendMessage() {
   if (!content && session.selectedImages.length === 0) return
   if (session.loading || session.cancelling || uploadingImage.value || loadingMessages.value || session.historyLoadFailed || session.historyBusy) return
   if (!localStorage.getItem('token')) { requestLogin(); return }
-  
+
   if (session.historyWindow.hasNewer) {
     try { if (!await loadHistoryWindow(session) || activeSession.value !== session) return }
     catch { ElMessage.warning('加载最新消息失败，本次输入已保留'); return }
   }
+  const submittedReferences = [...(writingReferences.get(session.key) || [])]
+  let submittedMessage = content
+  try { if (referencesEnabled.value) submittedMessage = writingMessage(content, submittedReferences) }
+  catch (error) { ElMessage.warning((error as Error).message); return }
   // 添加用户消息（含图片预览）
+  let editorContext: EditorSnapshot | null = null
+  try { editorContext = props.writing ? props.getEditorContext?.() || null : null }
+  catch { ElMessage.warning('无法读取编辑器，请稍后重试'); return }
+  const selectedReferences = submittedReferences.filter(ref => ref.kind === 'selection')
+  if (editorContext && selectedReferences.length > 1) {
+    // Separate noncontiguous quotes must never authorize replacing just the last selection.
+    editorContext = { ...editorContext, selection: '' }
+  } else if (editorContext && selectedReferences.length === 1 && editorContext.selection !== selectedReferences[0]!.text) {
+    // A frozen quote must never authorize replacing a different, newer selection.
+    editorContext = { ...editorContext, selection: '' }
+    ElMessage.info('选区已变化，本次引用仅供讨论；如需应用修改，请重新选择并引用')
+  }
   const userMsg: ChatMessage = {
     role: 'user', itemId: crypto.randomUUID(),
     content: content,
+    writingReferences: submittedReferences.length ? submittedReferences : undefined,
     image: session.selectedImages.length > 0 ? session.selectedImages[0].preview : null  // 显示第一张预览
   }
   session.messages.push(userMsg)
@@ -988,6 +1219,8 @@ async function sendMessage() {
   const submittedImages = [...session.selectedImages]
   const imagePaths = session.selectedImages.map(img => img.path)
   session.userInput = ''
+  writingReferences.delete(session.key)
+  closeReferenceMenu()
   session.selectedImages = []
   const operation = beginChatOperation(session)
   if (activeSession.value === session) scrollToBottom(true)
@@ -1007,7 +1240,7 @@ async function sendMessage() {
   const stopTimingSelection = watch(activeSession, selected => { if (selected !== session) timing.invalidate() }, { flush:'sync' })
   try {
     session.streaming = true
-    await streamChat(content, imagePaths, msg, session, timing)
+    await streamChat(submittedMessage, imagePaths, msg, session, timing, editorContext)
   } catch (error: any) {
     // 用户主动取消不算错误
     if (error.name === 'AbortError' || !mounted) return
@@ -1017,10 +1250,12 @@ async function sendMessage() {
       session.liveMessages = []
       session.userInput = content
       session.selectedImages = submittedImages
+      if (submittedReferences.length) writingReferences.set(session.key, submittedReferences)
       session.abortController = null
       try {
         await reconnectActiveRun(session)
-        ElMessage.info('已同步会话状态，本次输入已保留在输入框。')
+        if (isContinuationCommand(content)) ElMessage.warning('已同步任务状态；若未能接回运行，说明该任务当前无法从断点恢复，请重新描述要求后发送。')
+        else ElMessage.info('已同步会话状态，本次输入已保留在输入框。')
       } catch {
         session.historyLoadFailed = true
         ElMessage.warning('暂时无法核对运行状态，请重新加载会话。本次输入已保留。')
@@ -1039,7 +1274,7 @@ async function sendMessage() {
 }
 
 // SSE流式接收，标准SSE解析
-async function streamChat(message: string, imagePaths: string[], msg: ChatMessage, session: Session, timing: ReturnType<typeof createDeliveryTiming>) {
+async function streamChat(message: string, imagePaths: string[], msg: ChatMessage, session: Session, timing: ReturnType<typeof createDeliveryTiming>, editorContext?: EditorSnapshot | null) {
   const token = localStorage.getItem('token')
   session.abortController = new AbortController()
   
@@ -1048,6 +1283,9 @@ async function streamChat(message: string, imagePaths: string[], msg: ChatMessag
     message: message || '',
     conversationId: session.conversationId
   }
+  if (editorContext) body.editorContext = editorContext
+  const submittedWritingId = writingArticleId()
+  if (props.writing) { body.writingContext = { article_id: submittedWritingId }; submittedWritingIds.set(session, submittedWritingId) }
   if (session.originArticleId) body.originArticleId = session.originArticleId
   if (imagePaths.length > 0) {
     body.imagePaths = imagePaths
@@ -1095,6 +1333,9 @@ async function consumeAgentStream(response: Response, msg: ChatMessage, session:
           Object.assign(error, { terminal: true })
           throw error
         }
+        if (data.startsWith('__RECOVERED_RUN__:')) {
+          runId = JSON.parse(data.substring('__RECOVERED_RUN__:'.length)).runId
+        }
         if (data.startsWith('__RUN_ID__:')) {
           runId = data.substring('__RUN_ID__:'.length).trim()
           if (session.conversationId) trackAiRun(runId, session.conversationId)
@@ -1103,6 +1344,14 @@ async function consumeAgentStream(response: Response, msg: ChatMessage, session:
           const id = data.substring('__CONV_ID__:'.length).trim()
           const isNew = !session.conversationId
           bindConversationId(sessions, session, id)
+          if (props.writing) {
+            session.isWriting = true
+            if (isNew) {
+              const sourceId = submittedWritingIds.get(session) ?? null
+              writingBindings.set(id, sourceId); session.writingArticleId = sourceId
+            }
+            syncWritingLater(session)
+          }
           if (runId) trackAiRun(runId, id)
           if (activeSession.value === session) persistSelection(id)
           if (isNew && !props.embedded) loadConversations()
@@ -1178,8 +1427,8 @@ async function reconnectActiveRun(session: Session = activeSession.value) {
     const recovered = approvalRecovery(run)
     preview.interrupted = recovered.interrupted
     preview.approvalNotice = recovered.notice
-    preview.agent ||= createAgentState()
-    setRunStatus(preview.agent, recovered.status)
+    preview.agent ||= restoreAgentState({ runStatus: run.status })!
+    if (preview.agent.status !== recovered.status) setRunStatus(preview.agent, recovered.status)
     if (recovered.articleId) preview.draftArticleId = recovered.articleId
     if (recovered.payload) {
       preview.interruptPayload = recovered.payload
@@ -1196,37 +1445,43 @@ async function reconnectActiveRun(session: Session = activeSession.value) {
     return
   }
   if (run.status !== 'running') {
-    if (run.status === 'succeeded' && run.result?.reply && (preview || failedMessage || session.messages.at(-1)?.role === 'user')) {
-      const reply = preview || failedMessage || { role: 'assistant' as const, content: '', runId: rid }
-      Object.assign(reply, { content: run.result.reply, interrupted: false, isDraft: false,
-        articles: run.result.articles || [], citations: run.result.citations || [], draftArticleId: run.draftArticleId || undefined })
-      setRunStatus(ensureAgent(reply), run.result.delivery_status === 'incomplete' ? 'error' : 'complete')
-      if (!preview && !failedMessage) session.messages.push(reply)
-    }
-    if (run.status === 'cancelled' && failedMessage) {
-      failedMessage.interrupted = false
-      failedMessage.recoverable = false
-      if (!failedMessage.content || failedMessage.provisional) failedMessage.content = '已停止处理。'
-      failedMessage.provisional = false
-      setRunStatus(ensureAgent(failedMessage), 'cancelled')
-    }
-    if (['failed', 'expired', 'cancelled'].includes(run.status) && session.messages.at(-1)?.role === 'user') {
-      // The run may terminate between the history read and this status read.
-      // Re-read its durable projection instead of losing activities in a generic notice.
+    if (['succeeded', 'failed', 'expired', 'cancelled'].includes(run.status) && session.messages.at(-1)?.role === 'user') {
+      // Settlement can race the first history read. Restore the durable reply
+      // and its activities before falling back to the run's reply text.
       try {
         const history = await request.get(`/agent/conversations/${cid}/messages`, { params: { limit: 20 } })
         if (!mounted || session.conversationId !== cid || session.abortController || session.cancelling) return
         const page = historyPage(history.data)
-        if (!session.historyWindow.hasNewer && history.code === 200 && page.items.some((msg: any) => msg.runId === rid)) {
+        if (!session.historyWindow.hasNewer && history.code === 200 && page.items.some((msg: any) => msg.role === 'assistant' && msg.runId === rid)) {
           session.messages = page.items.map(toChatMessage)
           const { items: _, ...window } = page
           session.historyWindow = window
-          const restored = session.messages.find(msg => msg.runId === rid)
+          const restored = session.messages.find(msg => msg.role === 'assistant' && msg.runId === rid)
           if (restored) restored.recoverable = !!run.recoverable
           return
         }
       } catch { /* Preserve the terminal outcome even if history cannot be reloaded. */ }
       if (!mounted || session.conversationId !== cid || session.abortController || session.cancelling) return
+    }
+    if (run.status === 'succeeded' && run.result?.reply && (preview || failedMessage || session.messages.at(-1)?.role === 'user')) {
+      const reply = preview || failedMessage || { role: 'assistant' as const, content: '', runId: rid }
+      Object.assign(reply, { content: run.result.reply, interrupted: false, isDraft: false,
+        articles: run.result.articles || [], citations: run.result.citations || [],
+        editorEdits: parseEditorProposals(run.result.editor_edits), draftArticleId: run.draftArticleId || undefined })
+      reply.agent ||= restoreAgentState({ runStatus: run.status, deliveryStatus: run.result.delivery_status })!
+      const status = run.result.delivery_status === 'incomplete' ? 'error' : 'complete'
+      if (reply.agent.status !== status) setRunStatus(reply.agent, status)
+      if (!preview && !failedMessage) session.messages.push(reply)
+    }
+    if (run.status === 'cancelled' && failedMessage) {
+      failedMessage.interrupted = false
+      failedMessage.recoverable = !!run.recoverable
+      if (!failedMessage.content || failedMessage.provisional) failedMessage.content = '已停止处理。'
+      failedMessage.provisional = false
+      failedMessage.agent ||= restoreAgentState({ runStatus: run.status })!
+      if (failedMessage.agent.status !== 'cancelled') setRunStatus(failedMessage.agent, 'cancelled')
+    }
+    if (['failed', 'expired', 'cancelled'].includes(run.status) && session.messages.at(-1)?.role === 'user') {
       session.messages.push({ role: 'assistant', runId: rid, recoverable: !!run.recoverable,
         content: run.status === 'cancelled' ? '上次生成已停止，可以重新发送请求。' : '上次生成已中断或超时，已释放运行，可以重新发送请求。' })
     }
@@ -1256,7 +1511,7 @@ async function reconnectActiveRun(session: Session = activeSession.value) {
   } finally { finishSession(session, operation) }
 }
 
-async function recoverReadOnlyRun(msg: ChatMessage) {
+async function recoverCheckpointRun(msg: ChatMessage) {
   const session = activeSession.value
   if (!msg.runId || session.loading || session.resuming || session.cancelling) return
   const index = session.messages.indexOf(msg)
@@ -1275,7 +1530,6 @@ async function recoverReadOnlyRun(msg: ChatMessage) {
     }
     msg.content = ''
     msg.recoverable = false
-    msg.agent = createAgentState()
     await consumeAgentStream(response, msg, session)
   } catch (error: any) {
     if (error.name !== 'AbortError') ElMessage.warning(error.message || '任务恢复失败')
@@ -1296,9 +1550,21 @@ function handleProgress(msg: ChatMessage, progress: string, session: Session) {
 
 // 发送快捷问题
 function sendQuickQuestion(question: string) {
+  if (props.writing) { insertPrompt(question); return }
   userInput.value = question
   sendMessage()
 }
+
+function focusInput() { inputRef.value?.focus({ preventScroll: true }) }
+function insertPrompt(text: string) {
+  if (loading.value || uploadingImage.value || loadingMessages.value || historyLoadFailed.value) return false
+  const combined = userInput.value.trim() ? `${userInput.value}\n\n${text}` : text
+  if (combined.length > 16000) { ElMessage.warning('内容较长，请先精简输入框中的文字，再引用草稿'); return false }
+  userInput.value = combined
+  nextTick(focusInput)
+  return true
+}
+defineExpose({ insertPrompt, focusInput, attachReference, canAttachReference })
 
 // 暂停生成
 async function handleCancel() {
@@ -1349,6 +1615,10 @@ async function handleCancel() {
   }
   session.cancelling = false
   finishSession(session, operation)
+  // Cancellation fences graph writes before it returns. Check whether the last
+  // durable read-only checkpoint can be continued, without waiting for reload.
+  try { await reconnectActiveRun(session) }
+  catch { /* The next history refresh will recheck checkpoint availability. */ }
 }
 
 // Human-in-the-loop 恢复（确认/拒绝）
@@ -1480,13 +1750,26 @@ async function streamResume(action: string, msg: ChatMessage, session: Session) 
 
 function handleResultEvent(data: string, msg: ChatMessage, session: Session): boolean {
   const json = (prefix: string) => JSON.parse(data.substring(prefix.length))
-  if (data.startsWith('__INPUT_ID__:')) {
+  if (data.startsWith('__RECOVERED_RUN__:')) {
+    const recovery = json('__RECOVERED_RUN__:')
+    msg.runGeneration = recovery.generation || 0
+    if (session.conversationId) trackAiRun(recovery.runId, session.conversationId, 'running', recovery.generation || 0)
+    session.messages = adoptCheckpointTurn(session.messages, msg, session.liveMessages, recovery)
+    session.liveMessages = [msg]
+    msg.articles = []
+    msg.citations = []
+    msg.editorEdits = []
+  } else if (data.startsWith('__INPUT_ID__:')) {
     const id = data.substring('__INPUT_ID__:'.length).trim()
     const user = session.liveMessages.find(item => item.role === 'user')
     if (user) { user.messageId = id; user.turnId = id }
     msg.turnId = id
   } else if (data.startsWith('__AGENT_EVENT__:')) {
-    applyAgentEvent(ensureAgent(msg), json('__AGENT_EVENT__:'))
+    const event = json('__AGENT_EVENT__:')
+    if (event.kind === 'context_usage') {
+      const usage = parseContextUsage(event.usage)
+      if (usage) session.contextUsage = usage
+    } else applyAgentEvent(ensureAgent(msg), event)
   } else if (data.startsWith('__PREVIEW__:')) {
     // Old persisted runs may replay provisional tokens. Wait for the settled
     // answer or the verified approval draft rather than displaying a candidate.
@@ -1508,6 +1791,8 @@ function handleResultEvent(data: string, msg: ChatMessage, session: Session): bo
     ensureAgent(msg).answerReceiving = false
   } else if (data.startsWith('__CITATIONS__:')) {
     msg.citations = json('__CITATIONS__:')
+  } else if (data.startsWith('__EDITOR_EDITS__:')) {
+    msg.editorEdits = parseEditorProposals(json('__EDITOR_EDITS__:'))
   } else if (data.startsWith('__ARTICLES__:')) {
     msg.articles = json('__ARTICLES__:')
   } else if (data.startsWith('__INTERRUPTED__:')) {
@@ -1565,6 +1850,7 @@ function scrollToBottom(force = false) {
     if (messageListRef.value) {
       messageListRef.value.scrollTop = messageListRef.value.scrollHeight
     }
+    syncViewedConversation()
   })
 }
 
@@ -1574,6 +1860,7 @@ function handleMessageScroll() {
   if (!el) return
   const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight
   autoScrollToBottom.value = !activeSession.value.historyWindow.hasNewer && distanceToBottom < SCROLL_BOTTOM_THRESHOLD
+  syncViewedConversation()
 }
 
 function handleHistoryWheel(event: WheelEvent) {
@@ -1724,6 +2011,7 @@ function handleResize() {
   if (window.innerWidth > 768) {
     showSidebar.value = true
   }
+  syncViewedConversation()
 }
 
 // 登录弹窗状态
@@ -1739,7 +2027,8 @@ function handleAuthExpired() {
   historyLoadVersion += 1
   currentConversationId.value = null
   messages.value = []
-  persistSelection(null)
+  // Expiry must not forget a draft's existing server conversation.
+  if (!props.writing) persistSelection(null)
   requestLogin()
 }
 
@@ -1754,6 +2043,36 @@ async function initializeConversation() {
   loadingMessages.value = true
   historyLoadFailed.value = false
   try {
+    if (props.embedded && props.writing) {
+      // Private writing conversations use their own per-account, per-draft association.
+      // They never read public article context or the full AI page's selected chat.
+      currentOriginArticleId.value = null
+      currentOriginArticleTitle.value = ''
+      if (writingOwner !== localStorage.getItem('userId')) return
+      const localId = readWritingConversation(localStorage, writingOwner, props.writingScope || '')
+      let conversation: any = null
+      if (localId) {
+        const res = await request.get(`/agent/conversations/${encodeURIComponent(localId)}`)
+        if (!mounted || version !== historyLoadVersion || writingOwner !== localStorage.getItem('userId')) return
+        if (res.code !== 200 || !res.data || String(res.data.conversationId) !== localId || res.data.originArticleId) throw new Error('无法加载写作会话')
+        conversation = res.data
+      } else if (writingArticleId() && !hasNewWritingTopic(localStorage, writingOwner, props.writingScope || '')) {
+        const res = await request.get('/agent/conversations', { params: { scope: 'writing', writingArticleId: writingArticleId(), limit: 1 } })
+        if (!mounted || version !== historyLoadVersion || writingOwner !== localStorage.getItem('userId')) return
+        if (res.code !== 200 || !Array.isArray(res.data)) throw new Error('无法加载写作会话')
+        conversation = res.data[0] || null
+      }
+      if (conversation) {
+        const id = String(conversation.conversationId), articleId = writingArticleId()
+        if (conversation.originArticleId || (conversation.writingArticleId && String(conversation.writingArticleId) !== articleId)) throw new Error('草稿与会话不匹配')
+        if (conversationScope(conversation) !== 'writing' || (conversation.writingArticleId || null) !== articleId) {
+          Object.assign(conversation, await bindWritingConversation(id, articleId))
+        } else writingBindings.set(id, articleId)
+        if (!mounted || version !== historyLoadVersion) return
+        await switchConversation(conversation)
+      }
+      return
+    }
     if (props.embedded) {
       // Merely opening the drawer only reads the latest chat. The stream request
       // creates a conversation when the user actually sends their first question.
@@ -1778,7 +2097,6 @@ async function initializeConversation() {
         currentOriginArticleId.value = queryArticleId
         currentOriginArticleTitle.value = '当前文章'
         messages.value = []
-        articleGroupOpen.value = true
       }
     }
   } catch {
@@ -1794,6 +2112,10 @@ async function initializeConversation() {
 
 function expandInAssistant() {
   if (!currentConversationId.value) return
+  if (props.writing) {
+    window.open(router.resolve({ path: '/ai-chat', query: { conversationId: currentConversationId.value } }).href, '_blank', 'noopener')
+    return
+  }
   router.push({ path: '/ai-chat', query: { conversationId: currentConversationId.value } })
 }
 
@@ -1818,18 +2140,44 @@ function switchToLogin() {
 }
 
 onMounted(async () => {
+  watch(composerBusy, busy => { if (!busy && referencesEnabled.value) emit('referenceReady') }, { flush: 'post' })
   mounted = true
   eventBus.on(EVENT_AUTH_EXPIRED, handleAuthExpired)
   window.addEventListener('resize', handleResize)
+  document.addEventListener('visibilitychange', syncViewedConversation)
   if (!localStorage.getItem('token')) {
     requestLogin()
     return
   }
   
-  await Promise.all([loadConversations(), initializeConversation()])
+  if (!props.embedded) await migrateKnownWritingConversations()
+  if (mounted) await Promise.all([loadConversations(), initializeConversation()])
 })
 
-watch(currentConversationId, id => { if (mounted) setViewedAiConversation(id) })
+function syncViewedConversation() {
+  const session = activeSession.value
+  const latest = session.messages.at(-1)
+  const list = messageListRef.value
+  let visible = false
+  if (mounted && document.visibilityState === 'visible' && session.historyLoaded && !loadingMessages.value
+      && !session.historyLoadFailed && !session.historyWindow.hasNewer && latest?.role === 'assistant' && list) {
+    const key = latest.itemId || latest.messageId || `live:${session.messages.length - 1}`
+    const node = list.querySelector<HTMLElement>(`[data-virtual-key="${CSS.escape(key)}"]`)
+    const bounds = node?.getBoundingClientRect(), viewport = list.getBoundingClientRect()
+    visible = !!bounds && bounds.height > 0 && bounds.bottom > Math.max(viewport.top, 0)
+      && bounds.top < Math.min(viewport.bottom, window.innerHeight)
+  }
+  setViewedAiConversation(visible ? session.conversationId : null, latest?.runId, latest?.runGeneration)
+  if (visible && session.conversationId && latest) {
+    session.unread = false
+    if (latest.runId && latest.content && latest.agent && ['complete', 'error', 'cancelled'].includes(latest.agent.status)) {
+      markAiRunRead(session.conversationId, latest.runId, latest.runGeneration)
+    }
+  }
+}
+watch([currentConversationId, loadingMessages, () => activeSession.value.historyLoaded,
+  () => activeSession.value.historyWindow.hasNewer, () => messages.value.at(-1)?.content,
+  () => messages.value.at(-1)?.agent?.status], () => { if (mounted) void nextTick(syncViewedConversation) }, { flush: 'post' })
 
 watch(() => route.query.conversationId, (id) => {
   if (mounted && !props.embedded && typeof id === 'string' && id !== currentConversationId.value) initializeConversation()
@@ -1847,18 +2195,30 @@ watch(() => props.originArticleTitle, title => {
   if (props.embedded) currentOriginArticleTitle.value = title
 })
 
+watch(() => props.writingScope, (scope, previous) => {
+  if (!props.writing || !scope || previous !== 'new' || scope === previous || writingOwner !== localStorage.getItem('userId')) return
+  // The first save gives this same document an ID, including while its first reply is running.
+  writingStorageResult(migrateWritingConversation(localStorage, writingOwner, previous, scope, currentConversationId.value))
+  syncWritingLater(activeSession.value)
+})
+
 onUnmounted(() => {
   mounted = false
   libraryGeneration++;clearTimeout(librarySearchTimer)
   historyLoadVersion += 1
   releaseChatSessions(sessions.values())
   setViewedAiConversation(null)
+  document.removeEventListener('visibilitychange', syncViewedConversation)
   eventBus.off(EVENT_AUTH_EXPIRED, handleAuthExpired)
   window.removeEventListener('resize', handleResize)
 })
 </script>
 
 <style scoped>
+.copy-answer-btn { margin-top: 12px; color: var(--ej-muted); }
+.article-context-strip > a { color:var(--ej-ink); font-size:12px; text-underline-offset:3px; overflow-wrap:anywhere; }
+.load-earlier-btn { margin: 10px 0; }
+.history-window-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .sidebar-heading p { margin: 6px 0 0; color: var(--ej-muted); font-size: 12px; }
 .conversation-search-wrap { display: flex; align-items: center; gap: 8px; margin: 4px 16px 12px; padding: 0 10px; min-height: 40px; border: 1px solid var(--ej-line); border-radius: 10px; background: var(--ej-surface); }
 .conversation-search-wrap:focus-within { outline: 2px solid var(--ej-accent); outline-offset: 2px; }
@@ -3564,6 +3924,8 @@ onUnmounted(() => {
 .conversation-group-toggle { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 8px 12px; border: 0; background: transparent; color: var(--ej-muted); font-size: 12px; font-weight: 650; cursor: pointer; }
 .conversation-group-toggle svg { width: 12px; height: 12px; transition: transform 160ms; }
 .conversation-group-toggle svg.expanded { transform: rotate(90deg); }
+.conversation-group-title { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.conversation-group-updates { padding: 2px 7px; border: 1px solid var(--ej-line); border-radius: 999px; background: var(--studio-lime-soft); color: var(--ej-ink); font-size: 10px; font-weight: 600; line-height: 1.5; }
 .conv-article-title { color: var(--ej-muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 4px; }
 .conversation-load-more { width: 100%; padding: 10px; background: transparent; border: 0; color: var(--ej-muted); cursor: pointer; font-size: 12px; }
 .article-context-strip { display: flex; align-items: center; gap: 10px; padding: 12px 24px; border-bottom: 1px solid #11110f18; flex-shrink: 0; font-size: 12px; min-width: 0; }
@@ -3586,31 +3948,39 @@ onUnmounted(() => {
 .reader-unread-dot { width: 6px; height: 6px; border-radius: 50%; background: #e66d55; }
 .expand-assistant-link { display: block; margin: 12px auto 0; padding: 0; border: 0; background: transparent; font-size: 11px; color: var(--ej-muted); cursor: pointer; }
 .expand-assistant-link:disabled { cursor: default; opacity: .4; }
-:global(#app .ai-chat-page.embedded-chat) { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--ej-surface); overflow: hidden; border-radius: inherit; }
-:global(#app .ai-chat-page.embedded-chat::before) { display: none; }
-:global(#app .embedded-chat .chat-container) { padding: 0; height: auto; min-height: 0; flex: 1; width: 100%; max-width: none; margin: 0; }
-:global(#app .embedded-chat .chat-main) { width: 100%; min-width: 0; min-height: 0; background: transparent; }
-:global(#app .embedded-chat .article-context-strip) { padding: 10px 18px; background: #11110f03; }
-:global(#app .embedded-chat .welcome-area) { min-height: 0; padding: 28px 20px; }
-:global(#app .embedded-chat .welcome-title) { font-size: 21px; line-height: 1.5; letter-spacing: -.02em; }
-:global(#app .embedded-chat .welcome-desc) { font-size: 13px; line-height: 1.7; margin-bottom: 20px; }
-:global(#app .embedded-chat .welcome-eyebrow) { font-size: 11px; }
-:global(#app .embedded-chat .quick-questions) { max-width: none; gap: 8px; }
-:global(#app .embedded-chat .quick-question-item) { padding: 10px 0; font-size: 13px; }
-:global(#app .embedded-chat .message-list) { padding: 20px 16px; flex: 1; min-height: 0; overflow-y: auto; }
-:global(#app .embedded-chat .message-item) { gap: 9px; margin-bottom: 22px; }
-:global(#app .embedded-chat .message-avatar) { width: 28px; height: 28px; flex-shrink: 0; }
-:global(#app .embedded-chat .message-content) { max-width: calc(100% - 37px); min-width: 0; font-size: 13px; }
-:global(#app .embedded-chat .message-bubble) { font-size: 13px; line-height: 1.85; overflow-wrap: anywhere; }
-:global(#app .ai-chat-page.embedded-chat .article-card) { padding: 12px; min-height: 0; border-radius: 12px; }
-:global(#app .embedded-chat .article-cards) { gap: 8px; margin-top: 10px; }
-:global(#app .embedded-chat .card-title) { font-size: 12px; }
-:global(#app .embedded-chat .card-cover) { width: 58px; height: 52px; }
-:global(#app .embedded-chat .input-area) { flex-shrink: 0; padding: 14px 16px; }
-:global(#app .embedded-chat .input-wrapper) { padding: 10px; gap: 8px; border-radius: 15px; }
-:global(#app .embedded-chat .input-wrapper textarea) { font-size: 13px; min-height: 24px; padding: 0; }
-:global(#app .embedded-chat .input-wrapper .send-btn) { width: 31px; height: 31px; }
-:global(#app .embedded-chat .input-tips) { font-size: 10px; margin-top: 8px; }
-:global(#app .embedded-chat .tip-note) { display: none; }
+:global(:is(#app, .article-rich-editor) .ai-chat-page.embedded-chat) { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--ej-surface); overflow: hidden; border-radius: inherit; }
+:global(:is(#app, .article-rich-editor) .ai-chat-page.embedded-chat::before) { display: none; }
+:global(:is(#app, .article-rich-editor) .embedded-chat .chat-container) { padding: 0; height: auto; min-height: 0; flex: 1; width: 100%; max-width: none; margin: 0; }
+:global(:is(#app, .article-rich-editor) .embedded-chat .chat-main) { width: 100%; min-width: 0; min-height: 0; background: transparent; }
+:global(:is(#app, .article-rich-editor) .embedded-chat .article-context-strip) { padding: 10px 18px; background: #11110f03; }
+:global(:is(#app, .article-rich-editor) .embedded-chat .welcome-area) { min-height: 0; padding: 28px 20px; overflow-y: auto; align-items: safe center; }
+:global(:is(#app, .article-rich-editor) .embedded-chat .welcome-title) { font-size: 21px; line-height: 1.5; letter-spacing: -.02em; }
+:global(:is(#app, .article-rich-editor) .embedded-chat .welcome-desc) { font-size: 13px; line-height: 1.7; margin-bottom: 20px; }
+:global(:is(#app, .article-rich-editor) .embedded-chat .welcome-eyebrow) { font-size: 11px; }
+:global(:is(#app, .article-rich-editor) .embedded-chat .quick-questions) { max-width: none; gap: 8px; }
+:global(:is(#app, .article-rich-editor) .embedded-chat .quick-question-item) { padding: 10px 0; font-size: 13px; }
+:global(:is(#app, .article-rich-editor) .embedded-chat .message-list) { padding: 20px 16px; flex: 1; min-height: 0; overflow-y: auto; }
+:global(:is(#app, .article-rich-editor) .embedded-chat .message-item) { gap: 9px; margin-bottom: 22px; }
+:global(:is(#app, .article-rich-editor) .embedded-chat .message-avatar) { width: 28px; height: 28px; flex-shrink: 0; }
+:global(:is(#app, .article-rich-editor) .embedded-chat .message-content) { max-width: calc(100% - 37px); min-width: 0; font-size: 13px; }
+:global(:is(#app, .article-rich-editor) .embedded-chat .message-bubble) { font-size: 13px; line-height: 1.85; overflow-wrap: anywhere; }
+:global(:is(#app, .article-rich-editor) .ai-chat-page.embedded-chat .article-card) { padding: 12px; min-height: 0; border-radius: 12px; }
+:global(:is(#app, .article-rich-editor) .embedded-chat .article-cards) { gap: 8px; margin-top: 10px; }
+:global(:is(#app, .article-rich-editor) .embedded-chat .card-title) { font-size: 12px; }
+:global(:is(#app, .article-rich-editor) .embedded-chat .card-cover) { width: 58px; height: 52px; }
+:global(:is(#app, .article-rich-editor) .embedded-chat .input-area) { flex-shrink: 0; padding: 14px 16px; }
+:global(:is(#app, .article-rich-editor) .embedded-chat .input-wrapper) { padding: 10px; gap: 8px; border-radius: 15px; }
+:global(:is(#app, .article-rich-editor) .embedded-chat .input-wrapper textarea) { font-size: 13px; min-height: 24px; padding: 0; }
+:global(:is(#app, .article-rich-editor) .embedded-chat .input-wrapper .send-btn) { width: 31px; height: 31px; }
+:global(:is(#app, .article-rich-editor) .embedded-chat .input-tips) { font-size: 10px; margin-top: 8px; }
+:global(:is(#app, .article-rich-editor) .embedded-chat .tip-note) { display: none; }
 @media (max-width: 768px) { .article-context-strip small { display: none; } }
+.writing-reference-picker{position:relative;margin-bottom:10px;min-width:0}
+.writing-reference-actions{display:flex;align-items:center;gap:9px;min-width:0;font-size:10px;color:var(--ej-muted);line-height:1.5}
+.writing-reference-trigger{display:inline-flex;align-items:center;gap:4px;flex-shrink:0;border:1px solid var(--ej-line);border-radius:9px;background:var(--ej-surface);color:var(--ej-ink);padding:5px 9px;font:inherit;font-size:12px;cursor:pointer}
+.writing-reference-trigger>span{font-weight:750;font-size:15px}.writing-reference-trigger:hover:not(:disabled),.writing-reference-trigger[aria-expanded="true"]{border-color:var(--ej-ink);background:var(--ej-canvas)}.writing-reference-trigger:disabled{opacity:.45;cursor:default}
+.writing-reference-menu{position:absolute;bottom:calc(100% + 8px);left:0;z-index:20;width:min(100%,340px);padding:7px;border:1px solid var(--ej-ink);border-radius:14px;background:var(--ej-surface);color:var(--ej-ink);box-shadow:0 5px 0 #11110f12;font-size:12px;line-height:1.5}
+.reference-menu-heading{display:block;padding:5px 8px 7px;color:var(--ej-muted);font-size:10px}.writing-reference-menu button{display:flex;align-items:center;gap:10px;width:100%;padding:9px 8px;border:0;border-radius:8px;background:transparent;color:inherit;text-align:left;font:inherit;cursor:pointer}.writing-reference-menu button.active,.writing-reference-menu button:hover{background:var(--ej-canvas)}
+.reference-option-icon{display:grid;place-items:center;flex-shrink:0;width:29px;height:29px;border:1px solid var(--ej-line);border-radius:7px;background:var(--ej-surface);font-size:19px}.writing-reference-menu strong,.writing-reference-menu small{display:block}.writing-reference-menu strong{font-size:12px;font-weight:650}.writing-reference-menu small{margin-top:2px;font-size:10px;color:var(--ej-muted)}.reference-menu-empty{margin:6px 8px 10px;color:var(--ej-muted);font-size:11px}
+.pending-writing-references{max-height:min(220px,25dvh);overflow-y:auto;margin-top:8px;display:grid;gap:6px;scrollbar-width:thin}.sent-writing-references{max-height:260px;overflow-y:auto;display:grid;gap:6px;margin-bottom:7px;width:min(100%,380px)}.reference-scope-hint{margin:6px 0 0;font-size:10px;line-height:1.5;color:var(--ej-muted)}
 </style>

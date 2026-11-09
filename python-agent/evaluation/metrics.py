@@ -53,11 +53,11 @@ def validate_cases(cases):
             for route in case.get("acceptable_routes", []):
                 if not isinstance(route, dict) or set(route) - {"action", "target", "allow_web"}:
                     raise ValueError(f"{cid}: 非法路由标签字段")
-                if route.get("action") not in ("answer", "retrieve", "delegate", "write_draft"):
+                if route.get("action") not in ("answer", "call_tool", "delegate", "write_draft"):
                     raise ValueError(f"{cid}: 非法期望动作")
-                if "target" in route and (route["action"] != "retrieve" or route["target"] not in ("knowledge", "memory")):
+                if "target" in route and (route["action"] != "call_tool" or route["target"] not in ("knowledge", "memory")):
                     raise ValueError(f"{cid}: 非法检索目标")
-                if "allow_web" in route and (route["action"] != "retrieve" or not isinstance(route["allow_web"], bool)
+                if "allow_web" in route and (route["action"] != "call_tool" or not isinstance(route["allow_web"], bool)
                         or (route.get("target") == "memory" and route["allow_web"])):
                     raise ValueError(f"{cid}: 非法联网许可标签")
 

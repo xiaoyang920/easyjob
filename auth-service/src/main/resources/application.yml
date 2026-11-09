@@ -1,0 +1,62 @@
+server:
+  address: ${AUTH_BIND:127.0.0.1}
+  port: ${AUTH_PORT:8081}
+spring:
+  application:
+    name: easyjob-auth
+  rabbitmq:
+    host: ${RABBITMQ_HOST:127.0.0.1}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+    publisher-confirm-type: correlated
+    connection-timeout: 3s
+  datasource:
+    url: ${MYSQL_URL}
+    username: ${MYSQL_USER}
+    password: ${MYSQL_PASSWORD}
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
+      database: ${REDIS_DB:3}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2s
+  mail:
+    host: ${MAIL_HOST:smtp.qq.com}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME}
+    password: ${MAIL_PASSWORD}
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true
+      mail.smtp.starttls.required: true
+      mail.smtp.connectiontimeout: 10000
+      mail.smtp.timeout: 10000
+      mail.smtp.writetimeout: 10000
+  cloud:
+    consul:
+      host: ${CONSUL_HOST:127.0.0.1}
+      port: ${CONSUL_PORT:8500}
+      discovery:
+        instance-id: ${spring.application.name}:${random.uuid}
+        prefer-ip-address: true
+        ip-address: ${SERVICE_ADVERTISE_HOST:127.0.0.1}
+        health-check-path: /actuator/health
+        health-check-critical-timeout: 5m
+        heartbeat:
+          enabled: true
+          ttl: 30s
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+auth:
+  issuer: ${AUTH_ISSUER:easyjob-auth}
+  private-key-file: ${AUTH_PRIVATE_KEY_FILE}
+  gateway-public-key-file: ${GATEWAY_PUBLIC_KEY_FILE}
+  service-key: ${AUTH_SERVICE_KEY}
+  cookie-secure: ${AUTH_COOKIE_SECURE:false}
+  access-seconds: 1800
+  idle-seconds: 604800
+  max-seconds: 2592000

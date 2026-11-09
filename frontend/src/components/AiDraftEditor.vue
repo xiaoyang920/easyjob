@@ -11,7 +11,7 @@
       <div class="editor-fields">
         <label>标题<input v-model="working.title" aria-label="草稿标题" maxlength="100" placeholder="请输入文章标题" /></label>
         <label>摘要 <small>{{ Array.from(working.summary).length }}/500</small>
-          <textarea v-model="working.summary" aria-label="草稿摘要" rows="2" placeholder="简要介绍文章内容" /></label>
+          <textarea ref="summaryInput" v-model="working.summary" aria-label="草稿摘要" rows="2" placeholder="简要介绍文章内容" /></label>
       </div>
       <ArticleRichEditor v-if="editing" v-model="editorHtml" height="var(--draft-editor-height, max(240px, calc(100dvh - 405px)))" @ready="editorReady" />
       <template #footer>
@@ -27,6 +27,7 @@ import { computed, ref } from 'vue'
 import { ElDialog, ElMessage } from 'element-plus'
 import { marked } from 'marked'
 import ArticleRichEditor from './ArticleRichEditor.vue'
+import { useAutosizeTextarea } from '@/composables/useAutosizeTextarea'
 import { safeHtml } from '@/utils/safeHtml'
 import { draftBodyHtml, type SourceLink } from '@/utils/citationLinks'
 import { draftEditError, type DraftEdit } from '@/utils/draftEdit'
@@ -35,6 +36,8 @@ const emit = defineEmits<{ 'update:modelValue': [value: DraftEdit] }>()
 const editing = ref(false)
 const draft = computed(() => props.modelValue || props.initial)
 const working = ref<DraftEdit>({ title: '', summary: '', content: '' })
+const summaryInput = ref<HTMLTextAreaElement>()
+useAutosizeTextarea(summaryInput, () => working.value.summary, () => editing.value)
 const editorHtml = ref('')
 let initialEditorHtml = ''
 function startEditing() {
@@ -59,6 +62,7 @@ function applyChanges() {
 }
 </script>
 <style scoped>
+.editor-fields textarea{overflow:hidden;resize:none;max-height:none}
 .editor-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 20px;border-bottom:1px solid var(--ej-line,#e5e3dc)}.editor-toolbar>span{font-size:12px;color:var(--ej-muted,#777)}
 .edit-trigger,.modal-apply,.modal-cancel{padding:9px 18px;border:1px solid #171717;border-radius:999px;background:transparent;color:#171717;font:inherit;font-size:13px;cursor:pointer}.edit-trigger,.modal-apply{background:var(--studio-lime,#cbff46)}button:disabled{opacity:.5;cursor:default}button:focus-visible{outline:2px solid currentColor;outline-offset:3px}
 .modal-intro{margin:0 0 16px;color:var(--ej-muted,#777);font-size:13px;line-height:1.7}.editor-fields{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:16px}.editor-fields label{display:block;font-size:12px;font-weight:600}.editor-fields small{float:right;color:#777;font-weight:400}.editor-fields input,.editor-fields textarea{box-sizing:border-box;display:block;width:100%;margin-top:8px;padding:10px 12px;border:1px solid var(--ej-line,#dedbd2);border-radius:10px;background:var(--ej-surface,#fffdf7);color:#171717;font:inherit;font-size:15px;line-height:1.6;resize:vertical}.editor-fields input{font-weight:600}.editor-fields :is(input,textarea):focus{outline:2px solid #cbff46;outline-offset:1px}.editor-note{margin-right:auto;color:#777;font-size:12px}

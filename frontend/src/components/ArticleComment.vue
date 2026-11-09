@@ -1,40 +1,41 @@
 <template>
   <div class="comment-wrapper">
-    <!-- 移动端浮动按钮 -->
-    <div v-if="isMobile" class="mobile-comment-btn" @click="openMobilePanel">
+    <button v-if="!panelOpen" type="button" class="comment-quick-open" :class="isMobile ? 'mobile-comment-btn' : 'desktop-comment-btn'" aria-label="打开文章评论" aria-keyshortcuts="Control+Alt+M" title="打开评论 · Ctrl + Alt + M" @click="openComments">
       <svg viewBox="0 0 1024 1024" width="24" height="24">
         <path fill="currentColor" d="M535.552 796.444444H739.555556q70.712889 0 120.661333-50.005333Q910.222222 696.490667 910.222222 625.777778V341.333333q0-70.712889-50.005333-120.661333Q810.268444 170.666667 739.555556 170.666667H284.444444q-70.712889 0-120.661333 50.005333Q113.777778 270.620444 113.777778 341.333333v284.444445q0 70.712889 50.005333 120.661333Q213.731556 796.444444 284.444444 796.444444h13.084445q4.266667 8.533333 9.898667 16.497778 21.219556 30.151111 55.751111 44.487111 34.531556 14.279111 70.883555 7.964445 39.310222-6.826667 68.152889-35.612445L535.552 796.444444zM739.555556 682.666667H512a56.888889 56.888889 0 0 0-40.220444 16.668444l-50.005334 50.005333q-6.485333 6.485333-15.018666 2.958223Q398.222222 748.771556 398.222222 739.555556a56.888889 56.888889 0 0 0-56.888889-56.888889H284.444444q-23.552 0-40.220444-16.668445T227.555556 625.777778V341.333333q0-23.552 16.668444-40.220444T284.444444 284.444444h455.111112q23.552 0 40.220444 16.668445T796.444444 341.333333v284.444445q0 23.552-16.668444 40.220444T739.555556 682.666667zM341.333333 540.444444a56.888889 56.888889 0 1 0 0-113.777777 56.888889 56.888889 0 0 0 0 113.777777z m170.666667 0a56.888889 56.888889 0 1 0 0-113.777777 56.888889 56.888889 0 0 0 0 113.777777z m170.666667 0a56.888889 56.888889 0 1 0 0-113.777777 56.888889 56.888889 0 0 0 0 113.777777z"/>
       </svg>
       <span class="btn-count" v-if="totalCount > 0">{{ formatCount(totalCount) }}</span>
-    </div>
+      <span v-if="!isMobile">评论</span>
+    </button>
 
     <!-- 移动端弹出面板 -->
     <Teleport to="body">
-      <div v-if="isMobile && showMobilePanel" class="mobile-comment-overlay" @click.self="closeMobilePanel">
-        <div class="mobile-comment-panel" :class="{ 'slide-up': showMobilePanel }">
+      <div v-if="isMobile && panelOpen" class="mobile-comment-overlay" @click.self="closeComments()">
+        <section ref="mobilePanel" class="mobile-comment-panel" role="dialog" aria-label="文章评论" aria-modal="true" :style="mobilePanelStyle" @keydown="panelKeydown">
           <!-- 面板头部 -->
           <div class="panel-header">
             <div class="panel-title">评论 <span>{{ totalCount }}</span></div>
-            <span class="close-panel" @click="closeMobilePanel">×</span>
+            <button type="button" class="close-panel" aria-label="关闭文章评论" @click="closeComments()">×</button>
           </div>
 
           <!-- 排序切换 -->
           <div class="panel-sort">
-            <span :class="['tab', { active: sortType === 'hot' }]" @click="changeSortType('hot')">最热</span>
+            <button type="button" :class="['tab', { active: sortType === 'hot' }]" :aria-pressed="sortType === 'hot'" @click="changeSortType('hot')">最热</button>
             <span class="divider">|</span>
-            <span :class="['tab', { active: sortType === 'new' }]" @click="changeSortType('new')">最新</span>
+            <button type="button" :class="['tab', { active: sortType === 'new' }]" :aria-pressed="sortType === 'new'" @click="changeSortType('new')">最新</button>
           </div>
 
           <!-- 评论列表 -->
           <div class="panel-content" ref="panelContentRef">
             <div class="comment-list" :class="{ 'is-loading': loading && comments.length > 0 }">
+              <p v-if="fetchError" class="comments-load-error" role="alert">{{ fetchError }} <button type="button" @click="fetchComments()">重新加载</button></p>
               <div v-if="loading && comments.length > 0" class="loading-overlay">
                 <div class="spinner"></div>
               </div>
               <div v-if="loading && comments.length === 0" class="loading-state">
                 <div class="spinner"></div>
               </div>
-              <div v-else-if="!loading && comments.length === 0" class="empty-state">
+              <div v-else-if="!loading && comments.length === 0 && !fetchError" class="empty-state">
                 <p>快来发表第一条评论吧~</p>
               </div>
               <template v-else>
@@ -47,9 +48,7 @@
                     </div>
                     <CommentQuotePreview :quote="comment.quote" @locate="emit('locateQuote', $event)" />
                     <div class="content">{{ comment.content }}</div>
-                    <div v-if="comment.imgPath" class="comment-image" @click="openImagePreview(comment.imgPath)">
-                      <img :src="comment.imgPath" />
-                    </div>
+                    <CommentImage :src="comment.imgPath" />
                     <div class="meta">
                       <span class="time">{{ formatTime(comment.createTime) }}</span>
                       <span :class="['like-btn', { active: comment.hasLiked }]" @click="toggleLike(comment)">
@@ -78,15 +77,15 @@
                     <div v-if="activeReplyId === comment.commentId && !activeReplyTarget" class="inline-reply-box">
                       <img :src="avatarUrl(myAvatar, myNickName)" alt="" class="reply-input-avatar" @error="onAvatarError($event, myNickName)" />
                       <div class="reply-input-area">
-                        <textarea v-model="replyContent" :placeholder="`回复 @${comment.userNickName}：`" class="reply-textarea" rows="1" @input="autoResize($event)"></textarea>
+                        <textarea v-model="replyContent" maxlength="500" :disabled="submitting" @paste="replyImageInput[0]?.paste($event)" :placeholder="`回复 @${comment.userNickName}：`" class="reply-textarea" rows="1" @input="autoResize($event)"></textarea>
                         <div class="reply-toolbar">
-                          <label class="tool-btn small"><input type="file" accept="image/*" @change="handleImageSelect($event, 'reply')" style="display:none" /><svg viewBox="0 0 1024 1024" width="18" height="18"><path fill="currentColor" d="M853.161077 892.549156 362.595248 892.549156l-209.432916-0.413416c-0.605797-0.001023-1.210571-0.031722-1.813299-0.092098-24.848944-2.484587-47.825238-14.060227-64.696488-32.594349-16.990976-18.665105-26.349111-42.85504-26.349111-68.112284L60.303434 264.62596c0-55.80805 45.403073-101.211123 101.211123-101.211123l691.645496 0c55.80805 0 101.2101 45.403073 101.2101 101.211123l0 225.51315c0 0.275269-0.00614 0.551562-0.01842 0.825808-0.021489 0.494257-1.971911 51.723012 15.481599 85.46244 4.716418 9.118682 1.14815 20.335141-7.970532 25.052582-9.116635 4.714372-20.335141 1.149173-25.052582-7.970532-21.300119-41.176818-19.844977-97.642854-19.618826-103.738689L917.191392 264.62596c0-35.307134-28.724205-64.031339-64.031339-64.031339L161.51558 200.594621c-35.307134 0-64.031339 28.724205-64.031339 64.031339l0 526.71105c0 32.755008 24.320918 59.957557 56.717769 63.61997l208.4311 0.412392 490.528989 0c35.307134 0 64.031339-28.725228 64.031339-64.032362l-0.382717-93.676519c-0.104377-1.749854-1.587148-19.548218-19.549242-42.499953-0.050142-0.063445-0.098237-0.125867-0.147356-0.190335L875.401614 626.481358 758.174726 471.362464c-0.415462-0.550539-38.995129-50.852178-86.271876-45.534056-38.335097 4.314259-75.954903 45.163619-108.789729 118.131491-17.615193 39.141462-34.650171 68.26885-52.082192 89.046059-17.607006 20.985964-35.679617 33.519418-55.251372 38.316677-43.422975 10.638291-81.049944-18.99461-120.886231-50.372248l-5.057179-3.980661c-46.555315-36.57808-68.750827-28.223808-158.330028 59.60247-7.330966 7.187703-19.101033 7.071046-26.288736-0.25992-7.187703-7.330966-7.071046-19.101033 0.25992-26.287713 46.658669-45.74588 77.544097-72.726372 107.085924-84.282568 33.357735-13.048177 64.274886-6.266727 100.242052 21.99392l5.092995 4.00829c33.9226 26.719548 63.219857 49.795103 89.028663 43.466977 25.618471-6.279007 53.30095-42.114167 82.279958-106.508779 39.139415-86.97591 85.837994-134.027529 138.79716-139.849118 68.454068-7.515161 117.823476 57.404408 119.891578 60.171428l117.122511 154.980747 21.599947 28.343535c26.276457 33.630958 27.333532 61.638849 27.367301 64.72514 0.001023 0.042979 0.001023 0.084934 0.001023 0.127913l0.38374 94.059236C954.371176 847.146083 908.969127 892.549156 853.161077 892.549156z"/><path fill="currentColor" d="M312.328401 446.967868c-42.324968 0-76.759221-34.434254-76.759221-76.759221s34.434254-76.759221 76.759221-76.759221 76.759221 34.434254 76.759221 76.759221S354.654392 446.967868 312.328401 446.967868zM312.328401 330.628186c-21.824051 0-39.579437 17.755386-39.579437 39.579437s17.755386 39.579437 39.579437 39.579437 39.579437-17.755386 39.579437-39.579437S334.153476 330.628186 312.328401 330.628186z"/></svg></label>
+                          <CommentImageInput :key="activeReplyId || undefined" ref="replyImageInput" v-model="replyImgPath" :disabled="submitting" @busy="replyImgUploading = $event" @login="checkLogin" />
                           <div class="reply-actions">
                             <button class="cancel-btn" @click="closeReplyInput">取消</button>
-                            <button class="send-btn" :disabled="!replyContent.trim() || submitting" @click="submitReply">发布</button>
+                            <button class="send-btn" :disabled="(!replyContent.trim() && !replyImgPath) || submitting || replyImgUploading" @click="submitReply">发布</button>
                           </div>
                         </div>
-                        <div v-if="replyImgPath" class="img-preview small"><img :src="replyImgPath" @click="openImagePreview(replyImgPath)" /><span class="remove-btn" @click="replyImgPath = ''">×</span></div>
+                        
                       </div>
                     </div>
                     <!-- 回复列表 -->
@@ -103,7 +102,7 @@
                               <span class="colon">：</span>
                             </div>
                             <span class="reply-text">{{ reply.content }}</span>
-                            <div v-if="reply.imgPath" class="reply-image" @click="openImagePreview(reply.imgPath)"><img :src="reply.imgPath" /></div>
+                            <CommentImage :src="reply.imgPath" />
                             <div class="reply-meta">
                               <span class="time">{{ formatTime(reply.createTime) }}</span>
                               <span :class="['like-btn', { active: reply.hasLiked }]" @click="toggleLike(reply)">
@@ -128,15 +127,15 @@
                             <div v-if="activeReplyId === reply.commentId" class="inline-reply-box">
                               <img :src="avatarUrl(myAvatar, myNickName)" alt="" class="reply-input-avatar" @error="onAvatarError($event, myNickName)" />
                               <div class="reply-input-area">
-                                <textarea v-model="replyContent" :placeholder="`回复 @${reply.userNickName}：`" class="reply-textarea" rows="1" @input="autoResize($event)"></textarea>
+                                <textarea v-model="replyContent" maxlength="500" :disabled="submitting" @paste="replyImageInput[0]?.paste($event)" :placeholder="`回复 @${reply.userNickName}：`" class="reply-textarea" rows="1" @input="autoResize($event)"></textarea>
                                 <div class="reply-toolbar">
-                                  <label class="tool-btn small"><input type="file" accept="image/*" @change="handleImageSelect($event, 'reply')" style="display:none" /><svg viewBox="0 0 1024 1024" width="18" height="18"><path fill="currentColor" d="M853.161077 892.549156 362.595248 892.549156l-209.432916-0.413416c-0.605797-0.001023-1.210571-0.031722-1.813299-0.092098-24.848944-2.484587-47.825238-14.060227-64.696488-32.594349-16.990976-18.665105-26.349111-42.85504-26.349111-68.112284L60.303434 264.62596c0-55.80805 45.403073-101.211123 101.211123-101.211123l691.645496 0c55.80805 0 101.2101 45.403073 101.2101 101.211123l0 225.51315c0 0.275269-0.00614 0.551562-0.01842 0.825808-0.021489 0.494257-1.971911 51.723012 15.481599 85.46244 4.716418 9.118682 1.14815 20.335141-7.970532 25.052582-9.116635 4.714372-20.335141 1.149173-25.052582-7.970532-21.300119-41.176818-19.844977-97.642854-19.618826-103.738689L917.191392 264.62596c0-35.307134-28.724205-64.031339-64.031339-64.031339L161.51558 200.594621c-35.307134 0-64.031339 28.724205-64.031339 64.031339l0 526.71105c0 32.755008 24.320918 59.957557 56.717769 63.61997l208.4311 0.412392 490.528989 0c35.307134 0 64.031339-28.725228 64.031339-64.032362l-0.382717-93.676519c-0.104377-1.749854-1.587148-19.548218-19.549242-42.499953-0.050142-0.063445-0.098237-0.125867-0.147356-0.190335L875.401614 626.481358 758.174726 471.362464c-0.415462-0.550539-38.995129-50.852178-86.271876-45.534056-38.335097 4.314259-75.954903 45.163619-108.789729 118.131491-17.615193 39.141462-34.650171 68.26885-52.082192 89.046059-17.607006 20.985964-35.679617 33.519418-55.251372 38.316677-43.422975 10.638291-81.049944-18.99461-120.886231-50.372248l-5.057179-3.980661c-46.555315-36.57808-68.750827-28.223808-158.330028 59.60247-7.330966 7.187703-19.101033 7.071046-26.288736-0.25992-7.187703-7.330966-7.071046-19.101033 0.25992-26.287713 46.658669-45.74588 77.544097-72.726372 107.085924-84.282568 33.357735-13.048177 64.274886-6.266727 100.242052 21.99392l5.092995 4.00829c33.9226 26.719548 63.219857 49.795103 89.028663 43.466977 25.618471-6.279007 53.30095-42.114167 82.279958-106.508779 39.139415-86.97591 85.837994-134.027529 138.79716-139.849118 68.454068-7.515161 117.823476 57.404408 119.891578 60.171428l117.122511 154.980747 21.599947 28.343535c26.276457 33.630958 27.333532 61.638849 27.367301 64.72514 0.001023 0.042979 0.001023 0.084934 0.001023 0.127913l0.38374 94.059236C954.371176 847.146083 908.969127 892.549156 853.161077 892.549156z"/><path fill="currentColor" d="M312.328401 446.967868c-42.324968 0-76.759221-34.434254-76.759221-76.759221s34.434254-76.759221 76.759221-76.759221 76.759221 34.434254 76.759221 76.759221S354.654392 446.967868 312.328401 446.967868zM312.328401 330.628186c-21.824051 0-39.579437 17.755386-39.579437 39.579437s17.755386 39.579437 39.579437 39.579437 39.579437-17.755386 39.579437-39.579437S334.153476 330.628186 312.328401 330.628186z"/></svg></label>
+                                  <CommentImageInput :key="activeReplyId || undefined" ref="replyImageInput" v-model="replyImgPath" :disabled="submitting" @busy="replyImgUploading = $event" @login="checkLogin" />
                                   <div class="reply-actions">
                                     <button class="cancel-btn" @click="closeReplyInput">取消</button>
-                                    <button class="send-btn" :disabled="!replyContent.trim() || submitting" @click="submitReply">发布</button>
+                                    <button class="send-btn" :disabled="(!replyContent.trim() && !replyImgPath) || submitting || replyImgUploading" @click="submitReply">发布</button>
                                   </div>
                                 </div>
-                                <div v-if="replyImgPath" class="img-preview small"><img :src="replyImgPath" @click="openImagePreview(replyImgPath)" /><span class="remove-btn" @click="replyImgPath = ''">×</span></div>
+                                
                               </div>
                             </div>
                           </div>
@@ -156,24 +155,27 @@
           <div class="panel-input">
             <img :src="avatarUrl(myAvatar, myNickName)" alt="" class="input-avatar" @error="onAvatarError($event, myNickName)" />
             <div class="input-area">
-              <textarea v-model="topCommentContent" placeholder="发一条友善的评论" class="comment-textarea" rows="1" @input="autoResize($event)"></textarea>
+              <textarea v-model="topCommentContent" maxlength="500" :disabled="submitting" @paste="topImageInput?.paste($event)" placeholder="发一条友善的评论" class="comment-textarea" rows="1" @input="autoResize($event)"></textarea>
+              <CommentImageInput ref="topImageInput" v-model="topImgPath" :disabled="submitting" @busy="topImgUploading = $event" @login="checkLogin" />
             </div>
-            <label class="tool-btn" title="上传图片"><input type="file" accept="image/*" @change="handleImageSelect($event, 'top')" style="display:none" /><svg viewBox="0 0 1024 1024" width="22" height="22"><path fill="currentColor" d="M853.161077 892.549156 362.595248 892.549156l-209.432916-0.413416c-0.605797-0.001023-1.210571-0.031722-1.813299-0.092098-24.848944-2.484587-47.825238-14.060227-64.696488-32.594349-16.990976-18.665105-26.349111-42.85504-26.349111-68.112284L60.303434 264.62596c0-55.80805 45.403073-101.211123 101.211123-101.211123l691.645496 0c55.80805 0 101.2101 45.403073 101.2101 101.211123l0 225.51315c0 0.275269-0.00614 0.551562-0.01842 0.825808-0.021489 0.494257-1.971911 51.723012 15.481599 85.46244 4.716418 9.118682 1.14815 20.335141-7.970532 25.052582-9.116635 4.714372-20.335141 1.149173-25.052582-7.970532-21.300119-41.176818-19.844977-97.642854-19.618826-103.738689L917.191392 264.62596c0-35.307134-28.724205-64.031339-64.031339-64.031339L161.51558 200.594621c-35.307134 0-64.031339 28.724205-64.031339 64.031339l0 526.71105c0 32.755008 24.320918 59.957557 56.717769 63.61997l208.4311 0.412392 490.528989 0c35.307134 0 64.031339-28.725228 64.031339-64.032362l-0.382717-93.676519c-0.104377-1.749854-1.587148-19.548218-19.549242-42.499953-0.050142-0.063445-0.098237-0.125867-0.147356-0.190335L875.401614 626.481358 758.174726 471.362464c-0.415462-0.550539-38.995129-50.852178-86.271876-45.534056-38.335097 4.314259-75.954903 45.163619-108.789729 118.131491-17.615193 39.141462-34.650171 68.26885-52.082192 89.046059-17.607006 20.985964-35.679617 33.519418-55.251372 38.316677-43.422975 10.638291-81.049944-18.99461-120.886231-50.372248l-5.057179-3.980661c-46.555315-36.57808-68.750827-28.223808-158.330028 59.60247-7.330966 7.187703-19.101033 7.071046-26.288736-0.25992-7.187703-7.330966-7.071046-19.101033 0.25992-26.287713 46.658669-45.74588 77.544097-72.726372 107.085924-84.282568 33.357735-13.048177 64.274886-6.266727 100.242052 21.99392l5.092995 4.00829c33.9226 26.719548 63.219857 49.795103 89.028663 43.466977 25.618471-6.279007 53.30095-42.114167 82.279958-106.508779 39.139415-86.97591 85.837994-134.027529 138.79716-139.849118 68.454068-7.515161 117.823476 57.404408 119.891578 60.171428l117.122511 154.980747 21.599947 28.343535c26.276457 33.630958 27.333532 61.638849 27.367301 64.72514 0.001023 0.042979 0.001023 0.084934 0.001023 0.127913l0.38374 94.059236C954.371176 847.146083 908.969127 892.549156 853.161077 892.549156z"/><path fill="currentColor" d="M312.328401 446.967868c-42.324968 0-76.759221-34.434254-76.759221-76.759221s34.434254-76.759221 76.759221-76.759221 76.759221 34.434254 76.759221 76.759221S354.654392 446.967868 312.328401 446.967868zM312.328401 330.628186c-21.824051 0-39.579437 17.755386-39.579437 39.579437s17.755386 39.579437 39.579437 39.579437 39.579437-17.755386 39.579437-39.579437S334.153476 330.628186 312.328401 330.628186z"/></svg></label>
-            <button class="submit-btn" :disabled="!topCommentContent.trim() || submitting" @click="submitTopComment">发布</button>
+            <button class="submit-btn" :disabled="(!topCommentContent.trim() && !topImgPath) || submitting || topImgUploading" @click="submitTopComment">发布</button>
           </div>
-          <div v-if="topImgPath" class="panel-img-preview"><img :src="topImgPath" /><span class="remove-btn" @click="topImgPath = ''">×</span></div>
-        </div>
+          
+        </section>
       </div>
     </Teleport>
 
-    <!-- PC端评论区 -->
-    <div v-if="!isMobile" class="comment-section">
+    <div v-if="panelOpen && !isMobile" aria-hidden="true" :style="{ height: `${inlineHeight}px` }"></div>
+    <!-- Moving the existing surface keeps the same composer and upload state. -->
+    <Teleport to="#app" :disabled="!panelOpen">
+    <section v-if="!isMobile" ref="desktopPanel" class="comment-section" :class="{ 'comments-sidebar': panelOpen }" :style="panelOpen ? desktopPanelStyle : undefined" :role="panelOpen ? 'dialog' : undefined" :aria-label="panelOpen ? '文章评论' : undefined" @keydown="panelKeydown">
+    <header v-if="panelOpen" class="comments-sidebar-header"><div><h2>文章评论 <span>{{ totalCount }}</span></h2><p>边读边聊 · Ctrl + Alt + M 快速评论</p></div><button type="button" aria-label="关闭文章评论" @click="closeComments()">×</button></header>
     <!-- 顶部评论输入框 -->
     <div class="comment-input-box top-input">
       <img :src="avatarUrl(myAvatar, myNickName)" alt="" class="input-avatar" @error="onAvatarError($event, myNickName)" />
       <div class="input-area">
         <textarea
-          v-model="topCommentContent"
+          v-model="topCommentContent" maxlength="500" :disabled="submitting" @paste="topImageInput?.paste($event)"
           placeholder="发一条友善的评论"
           class="comment-textarea"
           rows="1"
@@ -182,32 +184,16 @@
         ></textarea>
         <div class="input-toolbar" v-show="topInputFocused || topCommentContent">
           <div class="toolbar-left">
-            <label class="tool-btn" title="上传图片">
-              <input type="file" accept="image/*" @change="handleImageSelect($event, 'top')" style="display:none" />
-              <svg viewBox="0 0 1024 1024" width="22" height="22">
-                <path fill="currentColor" d="M853.161077 892.549156 362.595248 892.549156l-209.432916-0.413416c-0.605797-0.001023-1.210571-0.031722-1.813299-0.092098-24.848944-2.484587-47.825238-14.060227-64.696488-32.594349-16.990976-18.665105-26.349111-42.85504-26.349111-68.112284L60.303434 264.62596c0-55.80805 45.403073-101.211123 101.211123-101.211123l691.645496 0c55.80805 0 101.2101 45.403073 101.2101 101.211123l0 225.51315c0 0.275269-0.00614 0.551562-0.01842 0.825808-0.021489 0.494257-1.971911 51.723012 15.481599 85.46244 4.716418 9.118682 1.14815 20.335141-7.970532 25.052582-9.116635 4.714372-20.335141 1.149173-25.052582-7.970532-21.300119-41.176818-19.844977-97.642854-19.618826-103.738689L917.191392 264.62596c0-35.307134-28.724205-64.031339-64.031339-64.031339L161.51558 200.594621c-35.307134 0-64.031339 28.724205-64.031339 64.031339l0 526.71105c0 32.755008 24.320918 59.957557 56.717769 63.61997l208.4311 0.412392 490.528989 0c35.307134 0 64.031339-28.725228 64.031339-64.032362l-0.382717-93.676519c-0.104377-1.749854-1.587148-19.548218-19.549242-42.499953-0.050142-0.063445-0.098237-0.125867-0.147356-0.190335L875.401614 626.481358 758.174726 471.362464c-0.415462-0.550539-38.995129-50.852178-86.271876-45.534056-38.335097 4.314259-75.954903 45.163619-108.789729 118.131491-17.615193 39.141462-34.650171 68.26885-52.082192 89.046059-17.607006 20.985964-35.679617 33.519418-55.251372 38.316677-43.422975 10.638291-81.049944-18.99461-120.886231-50.372248l-5.057179-3.980661c-46.555315-36.57808-68.750827-28.223808-158.330028 59.60247-7.330966 7.187703-19.101033 7.071046-26.288736-0.25992-7.187703-7.330966-7.071046-19.101033 0.25992-26.287713 46.658669-45.74588 77.544097-72.726372 107.085924-84.282568 33.357735-13.048177 64.274886-6.266727 100.242052 21.99392l5.092995 4.00829c33.9226 26.719548 63.219857 49.795103 89.028663 43.466977 25.618471-6.279007 53.30095-42.114167 82.279958-106.508779 39.139415-86.97591 85.837994-134.027529 138.79716-139.849118 68.454068-7.515161 117.823476 57.404408 119.891578 60.171428l117.122511 154.980747 21.599947 28.343535c26.276457 33.630958 27.333532 61.638849 27.367301 64.72514 0.001023 0.042979 0.001023 0.084934 0.001023 0.127913l0.38374 94.059236C954.371176 847.146083 908.969127 892.549156 853.161077 892.549156z"/>
-                <path fill="currentColor" d="M312.328401 446.967868c-42.324968 0-76.759221-34.434254-76.759221-76.759221s34.434254-76.759221 76.759221-76.759221 76.759221 34.434254 76.759221 76.759221S354.654392 446.967868 312.328401 446.967868zM312.328401 330.628186c-21.824051 0-39.579437 17.755386-39.579437 39.579437s17.755386 39.579437 39.579437 39.579437 39.579437-17.755386 39.579437-39.579437S334.153476 330.628186 312.328401 330.628186z"/>
-              </svg>
-            </label>
+            <CommentImageInput ref="topImageInput" v-model="topImgPath" :disabled="submitting" @busy="topImgUploading = $event" @login="checkLogin" />
           </div>
           <div class="toolbar-right">
             <span class="char-count">{{ topCommentContent.length }}/500</span>
             <button 
               class="submit-btn" 
-              :disabled="!topCommentContent.trim() || submitting"
+              :disabled="(!topCommentContent.trim() && !topImgPath) || submitting || topImgUploading"
               @click="submitTopComment"
             >发布</button>
           </div>
-        </div>
-        <!-- 图片预览 -->
-        <div v-if="topImgPath" class="img-preview">
-          <img :src="topImgPath" @click="openImagePreview(topImgPath)" />
-          <span class="remove-btn" @click="topImgPath = ''">×</span>
-        </div>
-        <!-- 上传进度 -->
-        <div v-if="topImgUploading" class="img-upload-progress">
-          <div class="progress-bar" :style="{ width: topImgProgress + '%' }"></div>
-          <span class="progress-text">{{ topImgProgress }}%</span>
         </div>
       </div>
     </div>
@@ -216,14 +202,15 @@
     <div class="comment-header">
       <div class="comment-count">评论 <span>{{ totalCount }}</span></div>
       <div class="sort-tabs">
-        <span :class="['tab', { active: sortType === 'hot' }]" @click="changeSortType('hot')">最热</span>
+        <button type="button" :class="['tab', { active: sortType === 'hot' }]" :aria-pressed="sortType === 'hot'" @click="changeSortType('hot')">最热</button>
         <span class="divider">|</span>
-        <span :class="['tab', { active: sortType === 'new' }]" @click="changeSortType('new')">最新</span>
+        <button type="button" :class="['tab', { active: sortType === 'new' }]" :aria-pressed="sortType === 'new'" @click="changeSortType('new')">最新</button>
       </div>
     </div>
 
     <!-- 评论列表 -->
     <div class="comment-list" :class="{ 'is-loading': loading && comments.length > 0 }">
+              <p v-if="fetchError" class="comments-load-error" role="alert">{{ fetchError }} <button type="button" @click="fetchComments()">重新加载</button></p>
       <!-- 加载覆盖层（切换排序时显示） -->
       <div v-if="loading && comments.length > 0" class="loading-overlay">
         <div class="spinner"></div>
@@ -234,7 +221,7 @@
         <div class="spinner"></div>
       </div>
 
-      <div v-else-if="!loading && comments.length === 0" class="empty-state">
+      <div v-else-if="!loading && comments.length === 0 && !fetchError" class="empty-state">
         <p>快来发表第一条评论吧~</p>
       </div>
 
@@ -254,9 +241,7 @@
               <CommentQuotePreview :quote="comment.quote" @locate="emit('locateQuote', $event)" />
               <div class="content">{{ comment.content }}</div>
             <!-- 评论图片 -->
-            <div v-if="comment.imgPath" class="comment-image" @click="openImagePreview(comment.imgPath)">
-              <img :src="comment.imgPath" />
-            </div>
+            <CommentImage :src="comment.imgPath" />
             <div class="meta">
               <span class="time">{{ formatTime(comment.createTime) }}</span>
               <span :class="['like-btn', { active: comment.hasLiked }]" @click="toggleLike(comment)">
@@ -293,7 +278,7 @@
               <img :src="avatarUrl(myAvatar, myNickName)" alt="" class="reply-input-avatar" @error="onAvatarError($event, myNickName)" />
               <div class="reply-input-area">
                 <textarea
-                  v-model="replyContent"
+                  v-model="replyContent" maxlength="500" :disabled="submitting" @paste="replyImageInput[0]?.paste($event)"
                   :placeholder="`回复 @${comment.userNickName}：`"
                   class="reply-textarea"
                   rows="1"
@@ -301,26 +286,14 @@
                   @input="autoResize($event)"
                 ></textarea>
                 <div class="reply-toolbar">
-                  <label class="tool-btn small" title="上传图片">
-                    <input type="file" accept="image/*" @change="handleImageSelect($event, 'reply')" style="display:none" />
-                    <svg viewBox="0 0 1024 1024" width="18" height="18">
-                      <path fill="currentColor" d="M853.161077 892.549156 362.595248 892.549156l-209.432916-0.413416c-0.605797-0.001023-1.210571-0.031722-1.813299-0.092098-24.848944-2.484587-47.825238-14.060227-64.696488-32.594349-16.990976-18.665105-26.349111-42.85504-26.349111-68.112284L60.303434 264.62596c0-55.80805 45.403073-101.211123 101.211123-101.211123l691.645496 0c55.80805 0 101.2101 45.403073 101.2101 101.211123l0 225.51315c0 0.275269-0.00614 0.551562-0.01842 0.825808-0.021489 0.494257-1.971911 51.723012 15.481599 85.46244 4.716418 9.118682 1.14815 20.335141-7.970532 25.052582-9.116635 4.714372-20.335141 1.149173-25.052582-7.970532-21.300119-41.176818-19.844977-97.642854-19.618826-103.738689L917.191392 264.62596c0-35.307134-28.724205-64.031339-64.031339-64.031339L161.51558 200.594621c-35.307134 0-64.031339 28.724205-64.031339 64.031339l0 526.71105c0 32.755008 24.320918 59.957557 56.717769 63.61997l208.4311 0.412392 490.528989 0c35.307134 0 64.031339-28.725228 64.031339-64.032362l-0.382717-93.676519c-0.104377-1.749854-1.587148-19.548218-19.549242-42.499953-0.050142-0.063445-0.098237-0.125867-0.147356-0.190335L875.401614 626.481358 758.174726 471.362464c-0.415462-0.550539-38.995129-50.852178-86.271876-45.534056-38.335097 4.314259-75.954903 45.163619-108.789729 118.131491-17.615193 39.141462-34.650171 68.26885-52.082192 89.046059-17.607006 20.985964-35.679617 33.519418-55.251372 38.316677-43.422975 10.638291-81.049944-18.99461-120.886231-50.372248l-5.057179-3.980661c-46.555315-36.57808-68.750827-28.223808-158.330028 59.60247-7.330966 7.187703-19.101033 7.071046-26.288736-0.25992-7.187703-7.330966-7.071046-19.101033 0.25992-26.287713 46.658669-45.74588 77.544097-72.726372 107.085924-84.282568 33.357735-13.048177 64.274886-6.266727 100.242052 21.99392l5.092995 4.00829c33.9226 26.719548 63.219857 49.795103 89.028663 43.466977 25.618471-6.279007 53.30095-42.114167 82.279958-106.508779 39.139415-86.97591 85.837994-134.027529 138.79716-139.849118 68.454068-7.515161 117.823476 57.404408 119.891578 60.171428l117.122511 154.980747 21.599947 28.343535c26.276457 33.630958 27.333532 61.638849 27.367301 64.72514 0.001023 0.042979 0.001023 0.084934 0.001023 0.127913l0.38374 94.059236C954.371176 847.146083 908.969127 892.549156 853.161077 892.549156z"/>
-                      <path fill="currentColor" d="M312.328401 446.967868c-42.324968 0-76.759221-34.434254-76.759221-76.759221s34.434254-76.759221 76.759221-76.759221 76.759221 34.434254 76.759221 76.759221S354.654392 446.967868 312.328401 446.967868zM312.328401 330.628186c-21.824051 0-39.579437 17.755386-39.579437 39.579437s17.755386 39.579437 39.579437 39.579437 39.579437-17.755386 39.579437-39.579437S334.153476 330.628186 312.328401 330.628186z"/>
-                    </svg>
-                  </label>
+                  <CommentImageInput :key="activeReplyId || undefined" ref="replyImageInput" v-model="replyImgPath" :disabled="submitting" @busy="replyImgUploading = $event" @login="checkLogin" />
                   <div class="reply-actions">
                     <button class="cancel-btn" @click="closeReplyInput">取消</button>
-                    <button class="send-btn" :disabled="!replyContent.trim() || submitting" @click="submitReply">发布</button>
+                    <button class="send-btn" :disabled="(!replyContent.trim() && !replyImgPath) || submitting || replyImgUploading" @click="submitReply">发布</button>
                   </div>
                 </div>
-                <div v-if="replyImgPath" class="img-preview small">
-                  <img :src="replyImgPath" @click="openImagePreview(replyImgPath)" />
-                  <span class="remove-btn" @click="replyImgPath = ''">×</span>
-                </div>
-                <div v-if="replyImgUploading" class="img-upload-progress small">
-                  <div class="progress-bar" :style="{ width: replyImgProgress + '%' }"></div>
-                  <span class="progress-text">{{ replyImgProgress }}%</span>
-                </div>
+                
+                
               </div>
             </div>
 
@@ -352,9 +325,7 @@
                       <span class="colon">：</span>
                     </div>
                     <span class="reply-text">{{ reply.content }}</span>
-                    <div v-if="reply.imgPath" class="reply-image" @click="openImagePreview(reply.imgPath)">
-                      <img :src="reply.imgPath" />
-                    </div>
+                    <CommentImage :src="reply.imgPath" />
                     <div class="reply-meta">
                       <span class="time">{{ formatTime(reply.createTime) }}</span>
                       <span :class="['like-btn', { active: reply.hasLiked }]" @click="toggleLike(reply)">
@@ -391,7 +362,7 @@
                       <img :src="avatarUrl(myAvatar, myNickName)" alt="" class="reply-input-avatar" @error="onAvatarError($event, myNickName)" />
                       <div class="reply-input-area">
                         <textarea
-                          v-model="replyContent"
+                          v-model="replyContent" maxlength="500" :disabled="submitting" @paste="replyImageInput[0]?.paste($event)"
                           :placeholder="`回复 @${reply.userNickName}：`"
                           class="reply-textarea"
                           rows="1"
@@ -399,22 +370,13 @@
                           @input="autoResize($event)"
                         ></textarea>
                         <div class="reply-toolbar">
-                          <label class="tool-btn small">
-                            <input type="file" accept="image/*" @change="handleImageSelect($event, 'reply')" style="display:none" />
-                            <svg viewBox="0 0 1024 1024" width="18" height="18">
-                              <path fill="currentColor" d="M853.161077 892.549156 362.595248 892.549156l-209.432916-0.413416c-0.605797-0.001023-1.210571-0.031722-1.813299-0.092098-24.848944-2.484587-47.825238-14.060227-64.696488-32.594349-16.990976-18.665105-26.349111-42.85504-26.349111-68.112284L60.303434 264.62596c0-55.80805 45.403073-101.211123 101.211123-101.211123l691.645496 0c55.80805 0 101.2101 45.403073 101.2101 101.211123l0 225.51315c0 0.275269-0.00614 0.551562-0.01842 0.825808-0.021489 0.494257-1.971911 51.723012 15.481599 85.46244 4.716418 9.118682 1.14815 20.335141-7.970532 25.052582-9.116635 4.714372-20.335141 1.149173-25.052582-7.970532-21.300119-41.176818-19.844977-97.642854-19.618826-103.738689L917.191392 264.62596c0-35.307134-28.724205-64.031339-64.031339-64.031339L161.51558 200.594621c-35.307134 0-64.031339 28.724205-64.031339 64.031339l0 526.71105c0 32.755008 24.320918 59.957557 56.717769 63.61997l208.4311 0.412392 490.528989 0c35.307134 0 64.031339-28.725228 64.031339-64.032362l-0.382717-93.676519c-0.104377-1.749854-1.587148-19.548218-19.549242-42.499953-0.050142-0.063445-0.098237-0.125867-0.147356-0.190335L875.401614 626.481358 758.174726 471.362464c-0.415462-0.550539-38.995129-50.852178-86.271876-45.534056-38.335097 4.314259-75.954903 45.163619-108.789729 118.131491-17.615193 39.141462-34.650171 68.26885-52.082192 89.046059-17.607006 20.985964-35.679617 33.519418-55.251372 38.316677-43.422975 10.638291-81.049944-18.99461-120.886231-50.372248l-5.057179-3.980661c-46.555315-36.57808-68.750827-28.223808-158.330028 59.60247-7.330966 7.187703-19.101033 7.071046-26.288736-0.25992-7.187703-7.330966-7.071046-19.101033 0.25992-26.287713 46.658669-45.74588 77.544097-72.726372 107.085924-84.282568 33.357735-13.048177 64.274886-6.266727 100.242052 21.99392l5.092995 4.00829c33.9226 26.719548 63.219857 49.795103 89.028663 43.466977 25.618471-6.279007 53.30095-42.114167 82.279958-106.508779 39.139415-86.97591 85.837994-134.027529 138.79716-139.849118 68.454068-7.515161 117.823476 57.404408 119.891578 60.171428l117.122511 154.980747 21.599947 28.343535c26.276457 33.630958 27.333532 61.638849 27.367301 64.72514 0.001023 0.042979 0.001023 0.084934 0.001023 0.127913l0.38374 94.059236C954.371176 847.146083 908.969127 892.549156 853.161077 892.549156z"/>
-                              <path fill="currentColor" d="M312.328401 446.967868c-42.324968 0-76.759221-34.434254-76.759221-76.759221s34.434254-76.759221 76.759221-76.759221 76.759221 34.434254 76.759221 76.759221S354.654392 446.967868 312.328401 446.967868zM312.328401 330.628186c-21.824051 0-39.579437 17.755386-39.579437 39.579437s17.755386 39.579437 39.579437 39.579437 39.579437-17.755386 39.579437-39.579437S334.153476 330.628186 312.328401 330.628186z"/>
-                            </svg>
-                          </label>
+                          <CommentImageInput :key="activeReplyId || undefined" ref="replyImageInput" v-model="replyImgPath" :disabled="submitting" @busy="replyImgUploading = $event" @login="checkLogin" />
                           <div class="reply-actions">
                             <button class="cancel-btn" @click="closeReplyInput">取消</button>
-                            <button class="send-btn" :disabled="!replyContent.trim() || submitting" @click="submitReply">发布</button>
+                            <button class="send-btn" :disabled="(!replyContent.trim() && !replyImgPath) || submitting || replyImgUploading" @click="submitReply">发布</button>
                           </div>
                         </div>
-                        <div v-if="replyImgPath" class="img-preview small">
-                          <img :src="replyImgPath" @click="openImagePreview(replyImgPath)" />
-                          <span class="remove-btn" @click="replyImgPath = ''">×</span>
-                        </div>
+                        
                       </div>
                     </div>
                   </div>
@@ -441,30 +403,23 @@
       </template>
     </div>
 
-    <!-- 图片预览弹窗 -->
-    <div v-if="previewImage" class="image-preview-modal" @click="previewImage = ''">
-      <img :src="previewImage" @click.stop />
-      <span class="close-btn" @click="previewImage = ''">×</span>
-    </div>
-    </div>
-
-    <!-- 移动端图片预览弹窗（单独放在外层） -->
-    <div v-if="isMobile && previewImage" class="image-preview-modal" @click="previewImage = ''">
-      <img :src="previewImage" @click.stop />
-      <span class="close-btn" @click="previewImage = ''">×</span>
-    </div>
+    </section>
+    </Teleport>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, watch, onMounted, onUnmounted } from 'vue'
+import { computed, ref, nextTick, watch, onMounted, onUnmounted } from 'vue'
 import request from '../utils/request'
-import { uploadFile } from '../utils/upload'
+import CommentImageInput from './CommentImageInput.vue'
+import CommentImage from './CommentImage.vue'
+import { errorMessage, notify } from '@/utils/feedback'
+import { eventBus, EVENT_AUTH_CHANGED, EVENT_AUTH_EXPIRED } from '@/utils/eventBus'
 import { avatarUrl, onAvatarError } from '../utils/avatar'
 import CommentQuotePreview from './CommentQuotePreview.vue'
 import type { CommentQuote } from '@/utils/commentAnchors'
 
-const emit = defineEmits<{ locateQuote: [quote: CommentQuote]; changed: [] }>()
+const emit = defineEmits<{ locateQuote: [quote: CommentQuote]; changed: []; opened: [] }>()
 
 const props = defineProps<{
   articleId: string
@@ -474,24 +429,60 @@ const props = defineProps<{
 
 // 移动端检测
 const isMobile = ref(false)
-const showMobilePanel = ref(false)
+const panelOpen = ref(false), desktopPanel = ref<HTMLElement>(), mobilePanel = ref<HTMLElement>()
+const inlineHeight = ref(0), panelTop = ref(88), viewportHeight = ref(innerHeight), keyboardBottom = ref(0)
+const desktopPanelStyle = computed(() => ({ top: `${panelTop.value}px`, height: `${Math.max(180, viewportHeight.value - panelTop.value - 12)}px`, padding: '0' }))
+const mobilePanelStyle = computed(() => ({ maxHeight: `${Math.max(180, viewportHeight.value * .82)}px`, bottom: `${keyboardBottom.value}px` }))
+let previousFocus: HTMLElement | undefined, previousOverflow: string | undefined
 const panelContentRef = ref<HTMLElement | null>(null)
 
 function checkMobile() {
   isMobile.value = window.innerWidth <= 768
+  panelTop.value = Math.max(12, (document.querySelector('.app-header')?.getBoundingClientRect().bottom || 64) + 12)
+  viewportHeight.value = window.visualViewport?.height || innerHeight
+  keyboardBottom.value = Math.max(0, innerHeight - viewportHeight.value - (window.visualViewport?.offsetTop || 0))
 }
 
-function openMobilePanel() {
-  showMobilePanel.value = true
-  document.body.style.overflow = 'hidden' // 禁止背景滚动
-  if (comments.value.length === 0) {
-    fetchComments()
+async function openComments() {
+  if (!panelOpen.value) {
+    previousFocus = document.activeElement as HTMLElement
+    inlineHeight.value = desktopPanel.value?.getBoundingClientRect().height || 0
+    panelOpen.value = true; emit('opened'); checkMobile()
   }
+  if (!loading.value && comments.value.length === 0) void fetchComments()
+  await nextTick()
+  ;(isMobile.value ? mobilePanel.value : desktopPanel.value)?.querySelector<HTMLTextAreaElement>('.comment-textarea')?.focus({ preventScroll: true })
 }
 
-function closeMobilePanel() {
-  showMobilePanel.value = false
-  document.body.style.overflow = '' // 恢复滚动
+function closeComments(restoreFocus = true) {
+  if (!panelOpen.value) return
+  panelOpen.value = false
+  if (restoreFocus) void nextTick(() => {
+    const target = previousFocus?.isConnected ? previousFocus : document.querySelector<HTMLElement>('.comment-quick-open')
+    target?.focus({ preventScroll: true })
+  })
+}
+watch([panelOpen, isMobile], ([open, mobile]) => {
+  if (open && mobile) {
+    if (previousOverflow === undefined) previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+  } else if (previousOverflow !== undefined) { document.body.style.overflow = previousOverflow; previousOverflow = undefined }
+})
+function commentShortcut(event: KeyboardEvent) {
+  if (event.defaultPrevented || event.isComposing || event.repeat || event.getModifierState('AltGraph')) return
+  const target = event.target instanceof Element ? event.target : undefined
+  if (target?.closest('.el-image-viewer__wrapper,.el-dialog')) return
+  if (event.key === 'Escape' && panelOpen.value) { event.preventDefault(); closeComments(); return }
+  if (event.code !== 'KeyM' || !event.ctrlKey || !event.altKey || event.metaKey || event.shiftKey) return
+  if (target?.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="dialog"]')) return
+  event.preventDefault(); void openComments()
+}
+function panelKeydown(event: KeyboardEvent) {
+  if (event.key !== 'Tab' || !panelOpen.value || !isMobile.value) return
+  const elements = Array.from(mobilePanel.value?.querySelectorAll<HTMLElement>('button:not(:disabled),a[href],textarea:not(:disabled),input:not([hidden]):not(:disabled)') || []).filter(element => element.getClientRects().length)
+  const first = elements[0], last = elements.at(-1)
+  if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
+  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
 }
 
 function formatCount(count: number): string {
@@ -506,6 +497,10 @@ function formatCount(count: number): string {
 onMounted(() => {
   checkMobile()
   window.addEventListener('resize', checkMobile)
+  window.visualViewport?.addEventListener('resize', checkMobile)
+  window.addEventListener('keydown', commentShortcut)
+  eventBus.on(EVENT_AUTH_CHANGED, authChanged)
+  eventBus.on(EVENT_AUTH_EXPIRED, authChanged)
   // PC端自动加载评论
   if (!isMobile.value) {
     fetchComments()
@@ -514,11 +509,16 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('resize', checkMobile)
-  document.body.style.overflow = ''
+  window.visualViewport?.removeEventListener('resize', checkMobile)
+  window.removeEventListener('keydown', commentShortcut)
+  eventBus.off(EVENT_AUTH_CHANGED, authChanged)
+  eventBus.off(EVENT_AUTH_EXPIRED, authChanged)
+  if (previousOverflow !== undefined) document.body.style.overflow = previousOverflow
 })
 
 // 评论数据
 const comments = ref<any[]>([])
+const fetchError = ref('')
 const totalCount = ref(0)
 const loading = ref(false)
 const loadingMore = ref(false)
@@ -532,7 +532,7 @@ const topCommentContent = ref('')
 const topInputFocused = ref(false)
 const topImgPath = ref('')
 const topImgUploading = ref(false)
-const topImgProgress = ref(0)
+const topImageInput = ref<InstanceType<typeof CommentImageInput>>()
 const submitting = ref(false)
 
 // 回复输入框
@@ -542,15 +542,22 @@ const activeRootComment = ref<any>(null)  // 所属顶级评论
 const replyContent = ref('')
 const replyImgPath = ref('')
 const replyImgUploading = ref(false)
-const replyImgProgress = ref(0)
+const replyImageInput = ref<InstanceType<typeof CommentImageInput>[]>([])
 
-// 图片预览
-const previewImage = ref('')
+
 
 // 用户信息
 const myAvatar = ref(localStorage.getItem('avatar') || '')
 const myNickName = ref(localStorage.getItem('nickName') || '')
 const myUserId = ref(localStorage.getItem('userId') || '')
+function authChanged() {
+  const user = localStorage.getItem('userId') || ''
+  if (user !== myUserId.value || !user) {
+    topCommentContent.value = ''; topImgPath.value = ''; topImgUploading.value = false
+    replyContent.value = ''; replyImgPath.value = ''; replyImgUploading.value = false; activeReplyId.value = null
+  }
+  myUserId.value = user
+}
 
 // 判断是否是自己的评论
 function isMyComment(comment: any): boolean {
@@ -559,6 +566,7 @@ function isMyComment(comment: any): boolean {
 
 // 获取评论列表
 async function fetchComments(isLoadMore = false) {
+  fetchError.value = ''
   if (!isLoadMore) {
     loading.value = true
     page.value = 1
@@ -591,6 +599,8 @@ async function fetchComments(isLoadMore = false) {
         scrollToTargetComment()
       }
     }
+  } catch (err) {
+    fetchError.value = errorMessage(err, '评论暂时无法读取，请重试')
   } finally {
     loading.value = false
     loadingMore.value = false
@@ -681,7 +691,7 @@ function changeSortType(type: 'hot' | 'new') {
 
 // 发布顶级评论
 async function submitTopComment() {
-  if (!topCommentContent.value.trim() || submitting.value) return
+  if ((!topCommentContent.value.trim() && !topImgPath.value) || submitting.value || topImgUploading.value) return
   if (!checkLogin()) return
 
   submitting.value = true
@@ -699,6 +709,8 @@ async function submitTopComment() {
       fetchComments()
       emit('changed')
     }
+  } catch {
+    notify.error('评论发布失败，内容已保留，请重试')
   } finally {
     submitting.value = false
   }
@@ -708,6 +720,8 @@ async function submitTopComment() {
 function openReplyInput(target: any, root: any) {
   if (!checkLogin()) return
   
+  if (submitting.value) return
+  replyImgUploading.value = false
   activeReplyId.value = target.commentId
   activeReplyTarget.value = target.commentId === root.commentId ? null : target
   activeRootComment.value = root
@@ -721,6 +735,8 @@ function openReplyInput(target: any, root: any) {
 }
 
 function closeReplyInput() {
+  if (submitting.value) return
+  replyImgUploading.value = false
   activeReplyId.value = null
   activeReplyTarget.value = null
   activeRootComment.value = null
@@ -730,7 +746,7 @@ function closeReplyInput() {
 
 // 发布回复
 async function submitReply() {
-  if (!replyContent.value.trim() || submitting.value) return
+  if ((!replyContent.value.trim() && !replyImgPath.value) || submitting.value || replyImgUploading.value) return
   if (!activeRootComment.value) return
 
   // 先保存引用，因为 closeReplyInput 会清空
@@ -753,6 +769,7 @@ async function submitReply() {
 
     const res = await request.post('/comment/create', data)
     if (res.code === 200) {
+      submitting.value = false
       closeReplyInput()
       // 刷新该评论的回复列表
       await loadReplies(rootComment)
@@ -760,6 +777,8 @@ async function submitReply() {
       rootComment.replyCount = (rootComment.replyCount || 0) + 1
       emit('changed')
     }
+  } catch {
+    notify.error('回复发布失败，内容已保留，请重试')
   } finally {
     submitting.value = false
   }
@@ -909,67 +928,10 @@ function showShareToast(message: string) {
   }, 2000)
 }
 
-// 图片上传
-async function handleImageSelect(event: Event, type: 'top' | 'reply') {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  if (!file) return
-  if (file.size > 5 * 1024 * 1024) {
-    alert('图片不能超过5MB')
-    input.value = ''
-    return
-  }
-
-  if (type === 'top') {
-    topImgUploading.value = true
-    topImgProgress.value = 0
-  } else {
-    replyImgUploading.value = true
-    replyImgProgress.value = 0
-  }
-
-  try {
-    const res = await uploadFile({
-      url: '/file/upload-comment-image',
-      file,
-      onProgress: (percent) => {
-        if (type === 'top') {
-          topImgProgress.value = percent
-        } else {
-          replyImgProgress.value = percent
-        }
-      }
-    })
-    if (res.code === 200) {
-      if (type === 'top') {
-        topImgPath.value = res.data!.url
-      } else {
-        replyImgPath.value = res.data!.url
-      }
-    }
-  } catch (e: any) {
-    alert(e.message || '上传失败')
-  } finally {
-    if (type === 'top') {
-      topImgUploading.value = false
-      topImgProgress.value = 0
-    } else {
-      replyImgUploading.value = false
-      replyImgProgress.value = 0
-    }
-    input.value = ''
-  }
-}
-
-// 图片预览
-function openImagePreview(url: string) {
-  previewImage.value = url
-}
-
 // 工具函数
 function checkLogin(): boolean {
   if (!localStorage.getItem('token')) {
-    alert('请先登录')
+    notify.warning('请先登录后发表评论')
     return false
   }
   return true
@@ -1004,7 +966,7 @@ function autoResize(e: Event) {
 watch(() => props.articleId, () => {
   if (props.articleId && !isMobile.value) fetchComments()
 })
-defineExpose({ refresh: () => fetchComments() })
+defineExpose({ refresh: () => fetchComments(), open: openComments, close: closeComments, total: totalCount })
 </script>
 
 <style scoped>
@@ -1919,7 +1881,7 @@ defineExpose({ refresh: () => fetchComments() })
 .mobile-comment-btn {
   position: fixed;
   right: 16px;
-  bottom: 100px;
+  bottom: calc(160px + env(safe-area-inset-bottom, 0px));
   width: 50px;
   height: 50px;
   background: var(--ej-ink);
@@ -2262,4 +2224,39 @@ defineExpose({ refresh: () => fetchComments() })
     display: none;
   }
 }
+
+/* Shared entry and desktop reading sidebar. The inline view keeps the same state. */
+.comment-quick-open { border:1px solid var(--ej-ink); padding:0; font:inherit; }
+.desktop-comment-btn { position:fixed; right:24px; bottom:24px; z-index:990; display:flex; align-items:center; gap:7px; padding:11px 16px; border-radius:99px; background:var(--studio-lime,#caff4d); color:var(--ej-ink); box-shadow:3px 3px 0 #11110f22; cursor:pointer; }
+.desktop-comment-btn svg { width:20px; height:20px; }
+.desktop-comment-btn .btn-count { order:3; font-size:12px; }
+.comment-quick-open:focus-visible { outline:2px solid var(--ej-ink); outline-offset:3px; }
+.comment-section.comments-sidebar { position:fixed; right:20px; bottom:auto; z-index:2200; width:410px; max-width:calc(100vw - 24px); display:flex; flex-direction:column; overflow:hidden; box-sizing:border-box; }
+.comments-sidebar-header { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; padding:20px; flex-shrink:0; border-bottom:1px solid var(--ej-line); }
+.comments-sidebar-header h2 { margin:0; font-size:18px; }
+.comments-sidebar-header h2 span { display:inline-block; padding:1px 7px; margin-left:5px; border:1px solid var(--ej-ink); border-radius:99px; background:var(--studio-lime); font-size:12px; }
+.comments-sidebar-header p { margin:7px 0 0; font-size:12px; color:var(--ej-muted); }
+.comments-sidebar-header > button,.mobile-comment-panel .close-panel { border:0; background:none; font:inherit; font-size:26px; line-height:1; color:var(--ej-ink); cursor:pointer; }
+.comments-sidebar .comment-header { flex-shrink:0; padding:12px 18px; border-bottom:1px solid var(--ej-line); }
+.comments-sidebar .comment-list { flex:1; min-height:0; overflow-y:auto; overscroll-behavior:contain; padding:0 18px; }
+.comments-sidebar .comment-input-box { order:3; flex-shrink:0; gap:10px; padding:16px; border-top:1px solid var(--ej-line); border-bottom:0; max-height:45%; overflow-y:auto; }
+.comments-sidebar .input-avatar { width:32px; height:32px; flex-shrink:0; }
+.comments-sidebar .input-area { min-width:0; }
+.comments-sidebar .input-toolbar { flex-wrap:wrap; gap:8px; align-items:flex-end; }
+.comments-sidebar .toolbar-left { min-width:0; flex:1; }
+.comments-sidebar .toolbar-right { gap:8px; margin-left:auto; }
+.comments-sidebar .submit-btn { padding:8px 18px; }
+.comments-sidebar .comment-item { padding:18px 0; }
+.comments-sidebar .avatar { width:32px; height:32px; margin-right:10px; }
+.comments-sidebar .meta,.comments-sidebar .reply-meta { flex-wrap:wrap; row-gap:10px; }
+.comments-sidebar .reply-toolbar { flex-wrap:wrap; gap:8px; }
+.comments-sidebar .reply-actions { margin-left:auto; }
+.comment-section .tab,.panel-sort .tab { border:0; background:none; font:inherit; }
+.comment-section .tab.active,.panel-sort .tab.active { background:var(--studio-lime-soft,#eaffb0); color:var(--ej-ink); }
+.comments-load-error { margin:12px 0; padding:12px; border-radius:10px; background:#fff0c4; font-size:13px; }
+.comments-load-error button { border:1px solid var(--ej-ink); border-radius:99px; padding:4px 10px; background:var(--ej-surface); color:var(--ej-ink); cursor:pointer; }
+.mobile-comment-panel { background:var(--ej-surface,#fffdf7); color:var(--ej-ink); }
+.mobile-comment-panel .panel-header,.mobile-comment-panel .panel-input { background:var(--ej-surface,#fffdf7); border-color:var(--ej-line); }
+@media (max-width:1050px) { .comment-section.comments-sidebar { right:12px; width:380px; } }
+
 </style>

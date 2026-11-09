@@ -18,9 +18,13 @@ import java.security.MessageDigest;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.UUID;
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.Jws;
+import org.springframework.http.server.reactive.ServerHttpRequest;
 
 /** Edge admission only. Java remains authoritative for session revocation and business permissions. */
 @Component
+@org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(name="easyjob.auth.enabled",havingValue="false",matchIfMissing=true)
 public class EdgeFilter implements GlobalFilter, Ordered {
     private static final DefaultRedisScript<Long> LIMIT = new DefaultRedisScript<>("""
         local n=redis.call('INCR',KEYS[1]); if n==1 then redis.call('EXPIRE',KEYS[1],60) end
@@ -53,21 +57,21 @@ public class EdgeFilter implements GlobalFilter, Ordered {
         // Expired access tokens must not prevent refresh/logout using the refresh cookie.
         if (token!=null && !path.startsWith("/api/auth/")) {
             try {
-                var jwt=Jwts.parserBuilder().setSigningKey(key).build().parseClaimsJws(token);
+                Jws<Claims> jwt=Jwts.parserBuilder().setSigningKey(key).build().parseClaimsJws(token);
                 if (!"HS512".equals(jwt.getHeader().getAlgorithm())) throw new IllegalArgumentException();
                 long id=((Number)jwt.getBody().get("userId")).longValue();
                 if (id<=0 || jwt.getBody().getExpiration()==null) throw new IllegalArgumentException();
                 uid=Long.toString(id);
             } catch (RuntimeException error) { return reject(exchange,HttpStatus.UNAUTHORIZED,"登录已过期，请重新登录"); }
         }
-        var request=exchange.getRequest().mutate().headers(headers -> {
+        ServerHttpRequest request=exchange.getRequest().mutate().headers(headers -> {
             headers.keySet().removeIf(name -> name.toLowerCase(java.util.Locale.ROOT).startsWith("x-agent-")
                 || name.equalsIgnoreCase("X-User-Id") || name.equalsIgnoreCase("X-Service-Key")
                 || name.equalsIgnoreCase("X-Gateway-User") || name.toLowerCase(java.util.Locale.ROOT).startsWith("x-forwarded-")
                 || name.equalsIgnoreCase("Forwarded"));
             headers.set("X-Request-Id",traceId);
         }).build();
-        var clean=exchange.mutate().request(request).build();
+        ServerWebExchange clean=exchange.mutate().request(request).build();
         if (path.startsWith("/uploads/")) return chain.filter(clean);
         String ip=exchange.getRequest().getRemoteAddress()==null?"unknown":exchange.getRequest().getRemoteAddress().getAddress().getHostAddress();
         String principal=uid==null?"ip:"+ip:"user:"+uid;

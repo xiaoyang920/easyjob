@@ -19,7 +19,7 @@ from app.graph.nodes.analysis_worker import analysis_worker_node
 from app.graph.nodes.synthesizer import synthesizer_node
 from app.graph.staged_runtime import final_gate, guard_node
 from app.graph.main_agent import main_agent_node, main_dispatcher
-from app.graph.action_runtime import (main_retrieve_node, main_delegate_node,
+from app.graph.action_runtime import (execute_tool_node, main_delegate_node,
     prepare_draft, draft_dispatcher, collect_draft)
 
 
@@ -59,7 +59,9 @@ def _build_graph() -> StateGraph:
     from app.graph.delivery_recovery import after_retrieve, after_final_gate
     graph = StateGraph(AgentState)
     graph.add_node("main_agent", guard_node("main_agent", main_agent_node))
-    graph.add_node("main_retrieve", guard_node("main_retrieve", main_retrieve_node))
+    graph.add_node("execute_tool", guard_node("execute_tool", execute_tool_node))
+    # Resume compatibility only: new Main decisions route to execute_tool.
+    graph.add_node("main_retrieve", guard_node("execute_tool", execute_tool_node))
     graph.add_node("main_delegate", guard_node("main_delegate", main_delegate_node))
     graph.add_node("prepare_draft", guard_node("prepare_draft", prepare_draft))
     graph.add_node("writing_worker", build_writing_graph(staged=True))
@@ -67,6 +69,7 @@ def _build_graph() -> StateGraph:
     graph.add_node("final_gate", guard_node("final_gate", final_gate))
     graph.add_edge(START, "main_agent")
     graph.add_conditional_edges("main_agent", main_dispatcher)
+    graph.add_conditional_edges("execute_tool", after_retrieve, ['main_agent', 'final_gate'])
     graph.add_conditional_edges("main_retrieve", after_retrieve, ['main_agent', 'final_gate'])
     graph.add_edge("main_delegate", "main_agent")
     graph.add_conditional_edges("prepare_draft", draft_dispatcher)

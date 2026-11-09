@@ -12,6 +12,7 @@ import java.util.List;
 // 继承BaseMapper，获得MyBatis-Plus提供的CRUD方法
 @Mapper
 public interface UserMapper extends BaseMapper<User> {
+    User credentialById(@org.apache.ibatis.annotations.Param("id")Long id);
     void touchLogin(@Param("userId") Long userId);
     int upgradeLegacyPassword(@Param("userId") Long userId, @Param("expected") String expected, @Param("encoded") String encoded);
     long countSearchUsers(@Param("pattern") String pattern);

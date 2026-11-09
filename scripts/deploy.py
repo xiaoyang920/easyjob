@@ -38,19 +38,22 @@ def sha(path):
 def init_env():
     target=DEPLOY/'.env'
     values={'MYSQL_ROOT_PASSWORD':secrets.token_urlsafe(32),'MYSQL_PASSWORD':secrets.token_urlsafe(32),
+            'AUTH_DB_PASSWORD':secrets.token_urlsafe(32),'BLOG_DB_PASSWORD':secrets.token_urlsafe(32),'AGENT_DB_PASSWORD':secrets.token_urlsafe(32),
             'RABBITMQ_PASSWORD':secrets.token_urlsafe(32),'AGENT_SERVICE_KEY':secrets.token_urlsafe(48),
-            'JWT_SECRET_KEY':base64.b64encode(secrets.token_bytes(64)).decode()}
+            'JWT_SECRET_KEY':base64.b64encode(secrets.token_bytes(64)).decode(),'AUTH_SERVICE_KEY':secrets.token_urlsafe(48)}
     text=(DEPLOY/'.env.example').read_text(encoding='utf-8')
     for key,value in values.items():text=text.replace(key+'=\n',key+'='+value+'\n')
     with target.open('x',encoding='utf-8') as stream:stream.write(text)
     try:target.chmod(0o600)
     except OSError:pass
     print('Created deploy/.env. Fill model keys and mail settings; secrets were not printed.')
+    import runpy
+    runpy.run_path(str(ROOT/'scripts/generate-auth-keys.py'))['generate'](DEPLOY/'secrets')
 
 def validate():
     # Validate the complete graph without loading or printing local credentials.
     env={**os.environ,**{key:'validation-placeholder-not-a-real-secret' for key in
-        ['MYSQL_ROOT_PASSWORD','MYSQL_PASSWORD','RABBITMQ_PASSWORD','JWT_SECRET_KEY','AGENT_SERVICE_KEY','DEEPSEEK_API_KEY','ZHIPUAI_API_KEY']}}
+        ['MYSQL_ROOT_PASSWORD','MYSQL_PASSWORD','AUTH_DB_PASSWORD','BLOG_DB_PASSWORD','AGENT_DB_PASSWORD','RABBITMQ_PASSWORD','JWT_SECRET_KEY','AUTH_SERVICE_KEY','AGENT_SERVICE_KEY','DEEPSEEK_API_KEY','ZHIPUAI_API_KEY']}}
     subprocess.run([docker(),'compose','--env-file',str(DEPLOY/'.env.example'),'-f',str(DEPLOY/'compose.yml'),'--profile','tools','config','--quiet'],env=env,check=True)
     print('Compose configuration is valid; no services were started.')
 
@@ -62,7 +65,7 @@ def es(project, method, path, body=None):
 def backup(project, output):
     directory=Path(output).resolve();directory.mkdir(parents=True,exist_ok=False)
     running=run(project,'ps','--status','running','--services').stdout.decode().split()
-    writers=[s for s in ('web','gateway','blog','agent') if s in running]
+    writers=[s for s in ('web','gateway','blog','agent','auth') if s in running]
     if not {'mysql','redis-stack','elasticsearch'}.issubset(running):raise RuntimeError('Backup requires healthy MySQL, Redis Stack and ES')
     locks=ROOT/'backups';locks.mkdir(exist_ok=True)
     lock=locks/('.'+project+'.backup.lock')

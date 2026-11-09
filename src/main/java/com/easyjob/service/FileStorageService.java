@@ -16,6 +16,10 @@ import java.nio.file.*;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.awt.Graphics2D;
+import java.io.InputStream;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
 
 /** Ownership is encoded by server-created category/user-id paths. Legacy URLs remain readable. */
 @Service
@@ -56,9 +60,9 @@ public class FileStorageService {
         if (extension.equals("jpg")) extension = "jpeg";
         if (!name.contains(".") || !FORMATS.contains(extension)) throw new BusinessException("只支持 jpg、jpeg、png、gif、webp 图片");
         // Inspect dimensions before allocating the raster; a MIME header does not prove the format.
-        try (var input = file.getInputStream(); ImageInputStream stream = ImageIO.createImageInputStream(input)) {
+        try (InputStream input = file.getInputStream(); ImageInputStream stream = ImageIO.createImageInputStream(input)) {
             if (stream == null) throw new BusinessException("无法解析图片文件");
-            var readers = ImageIO.getImageReaders(stream);
+            Iterator<ImageReader> readers = ImageIO.getImageReaders(stream);
             if (!readers.hasNext()) throw new BusinessException("无法解析图片文件");
             ImageReader reader = readers.next();
             try {
@@ -92,12 +96,12 @@ public class FileStorageService {
             created = true;
             if (category.equals("ai-chat")) {
                 BufferedImage rgb = new BufferedImage(image.pixels().getWidth(), image.pixels().getHeight(), BufferedImage.TYPE_INT_RGB);
-                var g = rgb.createGraphics();
+                Graphics2D g = rgb.createGraphics();
                 try { g.setColor(Color.WHITE); g.fillRect(0, 0, rgb.getWidth(), rgb.getHeight()); g.drawImage(image.pixels(), 0, 0, null); }
                 finally { g.dispose(); }
                 Thumbnails.of(rgb).size(1920, 1920).outputQuality(quality).outputFormat("jpeg").toFile(target.toFile());
             } else file.transferTo(target);
-            var result = new LinkedHashMap<String,String>();
+            LinkedHashMap<String, String> result = new LinkedHashMap<String,String>();
             result.put("url", prefix + relative); result.put("path", relative);
             result.put("fileName", file.getOriginalFilename());
             String thumb = thumbnail(target, relative, category);
@@ -161,5 +165,22 @@ public class FileStorageService {
                 if (Files.isSymbolicLink(part)) return;
             Files.deleteIfExists(thumb);
         } catch (IOException ex) { throw new BusinessException("文件删除失败，请稍后重试", ex); }
+    }
+
+    /** Only server-issued uploads owned by the commenter can become new attachments. */
+    public void requireCommentImage(String url, Long uid) {
+        if (uid == null || uid <= 0) throw new BusinessException(401, "请先登录");
+        String start = prefix + "comments/" + uid + "/";
+        if (url == null || !url.startsWith(start)
+                || !url.substring(start.length()).matches("[0-9]{4}/[0-9]{2}/[0-9]{2}/[a-f0-9]{32}\\.(jpg|jpeg|png|gif|webp)"))
+            throw new BusinessException(400, "请选择自己上传的评论图片");
+        Path target = root.resolve(url.substring(prefix.length())).normalize();
+        try {
+            for (Path part = target; part != null && part.startsWith(root); part = part.getParent())
+                if (Files.isSymbolicLink(part)) throw new BusinessException(400, "评论图片地址无效");
+            if (!target.startsWith(root) || !Files.isRegularFile(target, LinkOption.NOFOLLOW_LINKS)
+                    || !target.toRealPath().startsWith(root.toRealPath()))
+                throw new BusinessException(400, "评论图片不存在，请重新上传");
+        } catch (IOException ex) { throw new BusinessException("无法读取评论图片，请重新上传", ex); }
     }
 }

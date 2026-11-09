@@ -18,9 +18,6 @@ public class RedisConstants {
     public static final String REDIS_KEY_VIEW = REDIS_KEY_PREFIX+"articleView:";
     public static final String REDIS_KEY_CATEGORIES = REDIS_KEY_PREFIX+"categories:";
     public static final String REDIS_KEY_HOT_TAGS = REDIS_KEY_PREFIX+"hotTags:";
-    public static final String REDIS_KEY_AI_CONV = REDIS_KEY_PREFIX + "aiConv:";
-    // RedisConstants.java
-    public static final String REDIS_KEY_AI_ARTICLE_CARDS = REDIS_KEY_PREFIX + "aiArticleCards:";
 
 
     public static final String REDIS_KEY_ARTICLE_VIEW = REDIS_KEY_PREFIX+"viewHistory";

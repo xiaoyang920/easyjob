@@ -23,6 +23,8 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
+import com.easyjob.service.UserActionService.InteractionResult;
+import org.mockito.InOrder;
 
 @SuppressWarnings("unchecked")
 class ArticleInteractionTests {
@@ -35,7 +37,7 @@ class ArticleInteractionTests {
     Article article;
 
     @BeforeEach void setup() {
-        var configuration = new Configuration(); configuration.setMapUnderscoreToCamelCase(true);
+        Configuration configuration = new Configuration(); configuration.setMapUnderscoreToCamelCase(true);
         TableInfoHelper.initTableInfo(new MapperBuilderAssistant(configuration, "test"), UserAction.class);
         ReflectionTestUtils.setField(service, "articleMapper", articles);
         ReflectionTestUtils.setField(service, "userActionMapper", actions);
@@ -59,9 +61,9 @@ class ArticleInteractionTests {
 
     @ParameterizedTest @ValueSource(booleans = {true, false})
     void activateLocksArticleThenPersistsRelationshipCounterAndOneDelivery(boolean like) {
-        var result = change(like, true);
+        InteractionResult result = change(like, true);
         assertTrue(result.active()); assertEquals(like ? 6 : 4, result.count());
-        var order = inOrder(articles, actions, publisher, notifications);
+        InOrder order = inOrder(articles, actions, publisher, notifications);
         order.verify(articles).lockForInteraction(42L);
         order.verify(actions).selectOne(argThat(w -> w.getSqlSegment().contains("comment_id")
                 && w.getSqlSegment().contains("user_id") && w.getSqlSegment().contains("action_type")));

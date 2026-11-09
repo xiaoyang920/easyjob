@@ -39,13 +39,7 @@
             <button class="action-btn" @click="openEditModal">编辑资料</button>
           </template>
           <template v-else>
-            <button 
-              :class="['action-btn', isFollowing ? '' : 'primary']" 
-              :disabled="followBusy"
-              @click="toggleFollow"
-            >
-              {{ isFollowing ? '已关注' : '关注' }}
-            </button>
+            <FollowButton :user-id="userId" @changed="followRelationshipChanged" />
             <button class="action-btn chat-btn" :disabled="chatBusy" @click="startChat">
               <svg width="16" height="16" viewBox="0 0 1024 1024" fill="currentColor">
                 <path d="M535.552 796.444444H739.555556q70.712889 0 120.661333-50.005333Q910.222222 696.490667 910.222222 625.777778V341.333333q0-70.712889-50.005333-120.661333Q810.268444 170.666667 739.555556 170.666667H284.444444q-70.712889 0-120.661333 50.005333Q113.777778 270.620444 113.777778 341.333333v284.444445q0 70.712889 50.005333 120.661333Q213.731556 796.444444 284.444444 796.444444h13.084445q4.266667 8.533333 9.898667 16.497778 21.219556 30.151111 55.751111 44.487111 34.531556 14.279111 70.883555 7.964445 39.310222-6.826667 68.152889-35.612445L535.552 796.444444zM739.555556 682.666667H512a56.888889 56.888889 0 0 0-40.220444 16.668444l-50.005334 50.005333q-6.485333 6.485333-15.018666 2.958223Q398.222222 748.771556 398.222222 739.555556a56.888889 56.888889 0 0 0-56.888889-56.888889H284.444444q-23.552 0-40.220444-16.668445T227.555556 625.777778V341.333333q0-23.552 16.668444-40.220444T284.444444 284.444444h455.111112q23.552 0 40.220444 16.668445T796.444444 341.333333v284.444445q0 23.552-16.668444 40.220444T739.555556 682.666667zM341.333333 540.444444a56.888889 56.888889 0 1 0 0-113.777777 56.888889 56.888889 0 0 0 0 113.777777z m170.666667 0a56.888889 56.888889 0 1 0 0-113.777777 56.888889 56.888889 0 0 0 0 113.777777z m170.666667 0a56.888889 56.888889 0 1 0 0-113.777777 56.888889 56.888889 0 0 0 0 113.777777z"/>
@@ -336,6 +330,7 @@
 </template>
 
 <script setup lang="ts">
+import FollowButton from '@/components/FollowButton.vue'
 import { signOutSession } from '@/utils/authSession'
 import ContentState from '@/components/ContentState.vue'
 import CoverPlaceholder from '@/components/CoverPlaceholder.vue'
@@ -439,6 +434,7 @@ async function fetchUserInfo() {
   }
 }
 
+function followRelationshipChanged(value:any){if(String(value.userId)!==String(userId.value))return;const before=isFollowing.value;isFollowing.value=!!value.isFollowing;if(before!==isFollowing.value)userInfo.value.followerCount=Math.max(0,(userInfo.value.followerCount||0)+(isFollowing.value?1:-1))}
 // 获取关注状态
 async function fetchFollowStatus() {
   isFollowing.value = false

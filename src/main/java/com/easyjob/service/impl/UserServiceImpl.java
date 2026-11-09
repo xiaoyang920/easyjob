@@ -23,6 +23,7 @@ import java.util.List;
 
 @Service
 public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements UserService {
+    @Autowired private com.easyjob.service.SocialService social;
     @Autowired
     private UserMapper userMapper;
     @Autowired
@@ -31,8 +32,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     private NotificationServiceImpl notificationService;
     @Override
     public void updateUserSpaceInfo(UserUpdateDTO userUpdateDTO) {
-        User user = BeanUtil.copyProperties(userUpdateDTO, User.class);
-        int update =userMapper.update(user, new LambdaQueryWrapper<User>().eq(User::getUserId, UserContext.getUserId()));
+        UserUpdateDTO dto=userUpdateDTO;
+        int update=userMapper.update(null,new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<User>()
+            .eq(User::getUserId,UserContext.getUserId()).set(dto.getNickName()!=null,User::getNickName,dto.getNickName())
+            .set(dto.getAvatar()!=null,User::getAvatar,dto.getAvatar()).set(dto.getSex()!=null,User::getSex,dto.getSex()).set(dto.getBirthday()!=null,User::getBirthday,dto.getBirthday())
+            .set(dto.getPersonIntroduction()!=null,User::getPersonIntroduction,dto.getPersonIntroduction()).set(dto.getSchool()!=null,User::getSchool,dto.getSchool())
+            .set(dto.getNoticeInfo()!=null,User::getNoticeInfo,dto.getNoticeInfo()).set(dto.getTheme()!=null,User::getTheme,dto.getTheme()));
         if(update==0){
             throw new BusinessException("修改失败");
         }
@@ -43,57 +48,15 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
      * @return
      */
 
-    @Transactional
+    @Transactional(isolation=org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
     @Override
     public void follow(Long userId) {
-        User user = userMapper.selectById(userId);
-        if (user== null){
-            throw new BusinessException("用户不存在");
-        }
-        if(userId.equals(UserContext.getUserId())){
-            throw new BusinessException("不能关注自己");
-        }
-        if(userFocusMapper.exists(new LambdaQueryWrapper<UserFocus>().eq(UserFocus::getFocusUserId,userId)
-                .eq(UserFocus::getUserId,UserContext.getUserId()))){
-            throw new BusinessException("已关注,不能重复关注");
-        }
-        UserFocus userFocus = new UserFocus();
-        userFocus.setUserId(UserContext.getUserId());
-        userFocus.setFocusUserId(userId);
-        userFocus.setFocusTime(LocalDateTime.now());
-        userFocusMapper.insert(userFocus);
-        
-        // 更新当前用户的关注数 +1
-        userMapper.changeFollowingCount(UserContext.getUserId(), 1);
-        // 更新目标用户的粉丝数 +1
-        userMapper.changeFollowerCount(userId, 1);
-
-        // 发送关注通知给被关注者
-        User follower = userMapper.selectById(UserContext.getUserId());
-        notificationService.send(NotificationMessage.builder()
-                .userId(userId)
-                .senderId(UserContext.getUserId())
-                .senderNickname(follower != null ? follower.getNickName() : null)
-                .senderAvatar(follower != null ? follower.getAvatar() : null)
-                .type(NotificationTypeEnum.FOLLOW.getCode())
-                .targetId(UserContext.getUserId())
-                .content("关注了你")
-                .build()
-        );
+        social.follow(UserContext.getUserId(),userId,true);
     }
-    @Transactional
+    @Transactional(isolation=org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
     @Override
     public void unfollow(Long userId) {
-        int delete = userFocusMapper.delete(new LambdaQueryWrapper<UserFocus>().eq(UserFocus::getFocusUserId,userId)
-                .eq(UserFocus::getUserId,UserContext.getUserId()));
-        if(delete==0){
-            throw new BusinessException("取消关注失败,您未关注该用户");
-        }
-        
-        // 更新当前用户的关注数 -1
-        userMapper.changeFollowingCount(UserContext.getUserId(), -1);
-        // 更新目标用户的粉丝数 -1
-        userMapper.changeFollowerCount(userId, -1);
+        social.follow(UserContext.getUserId(),userId,false);
     }
     
     @Override

@@ -3,13 +3,23 @@ from app.config import settings
 
 
 def task_capabilities(task) -> frozenset[str]:
+    if task.actor == 'main' and task.kind == 'tool':
+        if task.tool_name in ('search_conversation_history', 'read_conversation_messages'):
+            return frozenset({'conversation_read'})
+        if task.tool_name in ('read_task_result', 'read_task_results'):
+            allowed = {'platform_read'}
+            if (task.tool_args or {}).get('allow_web') and settings.AGENT_WEB_SEARCH_ENABLED:
+                allowed.add('web_search')
+            return frozenset(allowed)
+    if task.kind == 'search' and task.retrieval_target == 'editor':
+        return frozenset({'editor_read'})
     # Role names choose an executor, not a permission. Both Main and delegated
     # retrieval use the same policy; analysis has no tool capabilities.
     if task.kind == "search" and task.retrieval_target == "memory":
         return frozenset({"memory_read"})
     if task.kind == "search" and task.retrieval_target == "drafts":
         return frozenset({"own_draft_read"})
-    allowed = {"search": {"platform_read"}, "analysis": set(), "writing": {"draft_generate"}}[task.kind]
+    allowed = {"search": {"platform_read"}, "tool": {"platform_read"}, "analysis": set(), "writing": {"draft_generate"}}[task.kind]
     if task.allow_web and task.kind != "search":
         raise PermissionError("当前任务不能请求联网能力")
     if task.kind == "search" and task.allow_web and settings.AGENT_WEB_SEARCH_ENABLED:

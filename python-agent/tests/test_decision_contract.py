@@ -1,3 +1,4 @@
+from tool_fakes import retrieval_call, raw_retrieval_call
 """Production Main repair: bad fields, rejected controls, irrelevant hits and cancellation."""
 import os
 os.environ['DEEPSEEK_API_KEY'] = 'offline-test'
@@ -35,7 +36,7 @@ class DecisionContractTests(unittest.IsolatedAsyncioTestCase):
     def test_optional_lists_stay_strict_and_do_not_normalize_null(self):
         for field in ('artifacts', 'answer_dependencies', 'reuse_previous_results', 'memory_changes', 'constraint_overrides'):
             with self.subTest(field=field), self.assertRaises(ValidationError):
-                agent.MainDecision.model_validate({'action': 'retrieve', 'retrieval': {'instruction': '查证'}, field: None})
+                agent.MainDecision.model_validate({'action': 'call_tool', 'tool_call': raw_retrieval_call({'instruction': '查证'}), field: None})
 
     async def test_real_live_failure_pattern_is_rejected_and_exact_control_relation_is_retained(self):
         # Actual disputed controls from the approved three-call diagnosis.
@@ -47,8 +48,8 @@ class DecisionContractTests(unittest.IsolatedAsyncioTestCase):
             'evidence_assessment': {'selected_ids': ['lookup:web1'], 'adequacy': 'sufficient', 'reason': '冻结资料'}}
         with self.assertRaises(ValidationError) as caught:
             agent.MainDecision.model_validate(first)
-        second = agent.MainDecision(action='retrieve', artifacts=[], reuse_previous_results=[tid],
-            retrieval=agent.RetrievalRequest(instruction='继续检索'),
+        second = agent.MainDecision(action='call_tool', artifacts=[], reuse_previous_results=[tid],
+            tool_call=retrieval_call(agent.RetrievalRequest(instruction='继续检索')),
             evidence_assessment=agent.EvidenceAssessment(selected_ids=['lookup:web1'], adequacy='sufficient', reason='冻结资料'))
         result, control = await self.decide([envelope(first, error=caught.exception), envelope(second.model_dump(), second)], state)
         self.assertEqual(control.ainvoke.await_count, 2)
@@ -63,7 +64,7 @@ class DecisionContractTests(unittest.IsolatedAsyncioTestCase):
     async def test_observed_two_error_categories_recover_into_writing_in_two_calls(self):
         # The production log retained list_type, not its rejected raw value.
         # Use an explicitly invalid scalar fixture; do not claim it was null.
-        bad = {'action': 'retrieve', 'retrieval': {'instruction': '补资料'}, 'artifacts': 17}
+        bad = {'action': 'call_tool', 'tool_call': raw_retrieval_call({'instruction': '补资料'}), 'artifacts': 17}
         with self.assertRaises(ValidationError) as caught:
             agent.MainDecision.model_validate(bad)
         good = agent.MainDecision(action='write_draft', reuse_previous_results=[],
@@ -80,11 +81,11 @@ class DecisionContractTests(unittest.IsolatedAsyncioTestCase):
 
     def test_single_artifact_requires_a_list_and_invalid_values_are_not_discarded(self):
         artifact = {'task_id': 'notes', 'instruction': '观察', 'result': '保留这段完整观察'}
-        parsed = agent.MainDecision.model_validate({'action': 'retrieve', 'retrieval': {'instruction': '查证'}, 'artifacts': [artifact]})
+        parsed = agent.MainDecision.model_validate({'action': 'call_tool', 'tool_call': raw_retrieval_call({'instruction': '查证'}), 'artifacts': [artifact]})
         self.assertEqual(parsed.artifacts[0].result, artifact['result'])
         for invalid in ('not a list', False, {}, artifact, [{'task_id': 'notes', 'result': '缺少必填字段'}]):
             with self.subTest(value=invalid), self.assertRaises(ValidationError):
-                agent.MainDecision.model_validate({'action': 'retrieve', 'retrieval': {'instruction': '查证'}, 'artifacts': invalid})
+                agent.MainDecision.model_validate({'action': 'call_tool', 'tool_call': raw_retrieval_call({'instruction': '查证'}), 'artifacts': invalid})
 
     def test_reuse_cannot_import_unknown_failed_duplicate_or_conflicting_results(self):
         state = self.state()
@@ -206,20 +207,20 @@ class DecisionContractTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValidationError) as caught:
             agent.MainDecision.model_validate(bad)
         self.assertEqual(caught.exception.errors(include_input=False)[0]['loc'], ('evidence_assessment', 'selected_ids'))
-        good = agent.MainDecision(action='retrieve', evidence_assessment=agent.EvidenceAssessment(
+        good = agent.MainDecision(action='call_tool', evidence_assessment=agent.EvidenceAssessment(
             selected_ids=['lookup:web1', 'lookup:web2'], adequacy='partial', reason='需要核对统计口径',
             missing_aspects=['确认现行统计口径'], conflicts=[conflict]),
-            retrieval=agent.RetrievalRequest(task_id='verify_data', instruction='核实学校最新官方统计口径',
-                search_query='学校 官网 最新简介 统计口径', filters={}, allow_web=True))
+            tool_call=retrieval_call(agent.RetrievalRequest(task_id='verify_data', instruction='核实学校最新官方统计口径',
+                search_query='学校 官网 最新简介 统计口径', filters={}, allow_web=True)))
         result, control = await self.decide([envelope(bad, error=caught.exception), envelope(good.model_dump(), good)], state)
         repair = control.ainvoke.await_args_list[1].args[0][-1].content
         self.assertIn('evidence_assessment_contract', repair)
         self.assertIn('selected_ids_required_for_every_action', repair)
         self.assertIn('不要把格式修复默认变成answer拒答', repair)
         self.assertEqual(control.ainvoke.await_count, 2)
-        self.assertEqual(result['main_action'], 'retrieve')
+        self.assertEqual(result['main_action'], 'call_tool')
         self.assertFalse(result.get('stop_reason'))
-        self.assertEqual(result['plan']['tasks'][0]['search_query'], good.retrieval.search_query)
+        self.assertEqual(result['plan']['tasks'][0]['search_query'], good.tool_call.args.search_query)
         self.assertEqual(state['task_results']['lookup']['status'], 'succeeded')
         issue = result['decision_contract_audit']['failures'][0]['issues'][0]
         self.assertEqual(issue, {'path': 'evidence_assessment.selected_ids', 'type': 'missing'})
@@ -299,6 +300,19 @@ class DecisionContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('private', json.dumps(controls))
         self.assertLess(len(json.dumps(controls)), 16000)
         self.assertEqual(controls['artifacts'][0]['depends_on'], ['lookup'])
+
+    def test_root_action_errors_retain_field_shapes_without_private_content(self):
+        candidate = {'action': 'answer', 'user_reply': 'private-summary', 'artifacts': [
+            {'task_id': 'summary', 'result': 'private-body', 'instruction': 'private-instruction'}],
+            'editor_edits': [], 'tool_call': None}
+        with self.assertRaises(ValidationError) as caught:
+            agent.MainDecision.model_validate(candidate)
+        audit = rejection_snapshot({}, envelope(candidate), contract_issues(caught.exception, 'parse'))
+        self.assertEqual(audit['action']['value'], 'answer')
+        self.assertEqual(audit['artifacts']['length'], 1)
+        self.assertEqual(audit['user_reply']['length'], len('private-summary'))
+        self.assertEqual(audit['tool_call']['value'], None)
+        self.assertNotIn('private', json.dumps(audit))
 
 
 if __name__ == '__main__':

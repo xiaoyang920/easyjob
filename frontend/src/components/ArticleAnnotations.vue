@@ -1,31 +1,34 @@
 <template>
   <Teleport to="body">
-    <button v-if="selectionQuote" type="button" class="quote-selection-action" :style="actionStyle" @pointerdown.prevent @click="startComment">
-      <span aria-hidden="true">＋</span> 评论所选内容
-    </button>
+    <div v-if="selectionQuote || selectionReference" class="quote-selection-action" :style="actionStyle" @pointerdown.prevent>
+      <button v-if="selectionQuote" type="button" @click="startComment"><span aria-hidden="true">＋</span> 评论所选内容</button>
+      <button v-if="selectionReference" type="button" @click="referenceSelection"><span aria-hidden="true">@</span> 引用给 AI</button>
+    </div>
     <div v-if="openPanel && narrow" class="annotation-backdrop" @click="close" @wheel.prevent @touchmove.prevent></div>
     <section v-if="openPanel" ref="panel" class="annotation-panel" role="dialog" aria-label="划词评论" :aria-modal="narrow ? true : undefined" :style="panelStyle" @keydown="panelKeydown">
       <header class="annotation-header"><div><h2>划词评论 <span>{{ focusedIds ? focusedIds.length : total }}</span></h2><p>围绕原文交流，点击引用可查看位置</p></div><button ref="closeButton" type="button" aria-label="关闭划词评论" @click="close">×</button></header>
       <div v-if="focusedIds" class="annotation-scope"><span>这一处的评论 · {{ focusedIds.length }}</span><button type="button" @click="showAll">查看全部评论</button></div>
       <div class="annotation-content" :aria-busy="loading">
-        <p v-if="markerError" class="annotation-notice" role="status">{{ markerError }} <button type="button" @click="loadMarkers">重试标记</button></p>
+        <p v-if="markerError" class="annotation-notice" role="status">{{ markerError }} <AppButton size="small" variant="quiet" @click="loadMarkers">重试标记</AppButton></p>
         <p v-if="notice" class="annotation-notice" role="status">{{ notice }}</p>
-        <div v-if="error" class="annotation-empty" role="alert"><p>{{ error }}</p><button type="button" @click="refresh">重新加载</button></div>
+        <div v-if="error" class="annotation-empty" role="alert"><p>{{ error }}</p><AppButton size="small" @click="refresh">重新加载</AppButton></div>
         <p v-else-if="loading && !comments.length" class="annotation-empty">正在读取评论…</p>
         <div v-else-if="!comments.length" class="annotation-empty"><span class="empty-quote" aria-hidden="true">“</span><strong>从一句话开始讨论</strong><p>选中正文中的文字，再点击“评论所选内容”。</p></div>
         <article v-for="comment in comments" :key="comment.commentId" class="annotation-thread" :class="{ active: activeThread === comment.commentId }">
           <CommentQuotePreview :quote="comment.quote" @locate="locate" />
           <div class="annotation-author"><img :src="avatarUrl(comment.userAvatar, comment.userNickName)" alt="" @error="onAvatarError($event, comment.userNickName)" /><a :href="`/user-space/${comment.userId}`">{{ comment.userNickName }}</a><time>{{ comment.createTime }}</time></div>
-          <p class="annotation-text">{{ comment.content }}</p>
+          <p v-if="comment.content" class="annotation-text">{{ comment.content }}</p>
+          <CommentImage :src="comment.imgPath" />
           <div class="annotation-actions"><button type="button" :aria-expanded="activeThread === comment.commentId" @click="toggleThread(comment)">{{ activeThread === comment.commentId ? '收起回复' : `回复${comment.replyCount ? ` · ${comment.replyCount}` : ''}` }}</button><button v-if="String(comment.userId) === myUserId" type="button" @click="askDelete(comment)">删除</button></div>
           <div v-if="activeThread === comment.commentId" class="annotation-replies">
             <p v-if="replyLoading">正在读取回复…</p>
-            <p v-if="replyError" role="alert">{{ replyError }} <button type="button" @click="loadReplies(comment)">重试</button></p>
-            <div v-for="reply in replies" :key="reply.commentId" class="annotation-reply"><a :href="`/user-space/${reply.userId}`">{{ reply.userNickName }}</a><p>{{ reply.content }}</p></div>
+            <p v-if="replyError" role="alert">{{ replyError }} <AppButton size="small" variant="quiet" @click="loadReplies(comment)">重试</AppButton></p>
+            <div v-for="reply in replies" :key="reply.commentId" class="annotation-reply"><a :href="`/user-space/${reply.userId}`">{{ reply.userNickName }}</a><p v-if="reply.content">{{ reply.content }}</p><CommentImage :src="reply.imgPath" /></div>
             <button v-if="moreReplies" type="button" :disabled="replyLoading" @click="loadReplies(comment, true)">更多回复</button>
             <label class="sr-only" :for="`quote-reply-${comment.commentId}`">回复这条划词评论</label>
-            <textarea :id="`quote-reply-${comment.commentId}`" v-model="replyText" maxlength="500" rows="2" placeholder="围绕这段原文说说你的看法…"></textarea>
-            <div class="annotation-submit-row"><small>{{ replyText.length }}/500</small><button type="button" class="annotation-primary" :disabled="!replyText.trim() || submitting" @click="submitReply(comment)">{{ submitting ? '发布中…' : '发布回复' }}</button></div>
+            <textarea :id="`quote-reply-${comment.commentId}`" v-model="replyText" maxlength="500" rows="2" :disabled="submitting" placeholder="围绕这段原文说说你的看法…" @paste="replyImageInput[0]?.paste($event)"></textarea>
+            <CommentImageInput :key="comment.commentId" ref="replyImageInput" v-model="replyImage" :disabled="submitting" @busy="replyImageBusy = $event" @login="emit('login')" />
+            <div class="annotation-submit-row"><small>{{ replyText.length }}/500</small><button type="button" class="annotation-primary" :disabled="(!replyText.trim() && !replyImage) || submitting || replyImageBusy" @click="submitReply(comment)">{{ submitting ? '发布中…' : '发布回复' }}</button></div>
           </div>
         </article>
         <button v-if="hasMore" class="annotation-load-more" type="button" :disabled="loading" @click="load(true)">{{ loading ? '读取中…' : '更多划词评论' }}</button>
@@ -34,9 +37,10 @@
         <div class="composer-label"><strong>评论所选内容</strong><button type="button" :disabled="submitting" @click="cancelDraft">取消</button></div>
         <CommentQuotePreview :quote="pendingQuote" @locate="locate" />
         <label for="annotation-comment" class="sr-only">评论内容</label>
-        <textarea id="annotation-comment" ref="composer" v-model="text" maxlength="500" rows="3" placeholder="你的疑问、补充或想法…"></textarea>
+        <textarea id="annotation-comment" ref="composer" v-model="text" maxlength="500" rows="3" :disabled="submitting" placeholder="你的疑问、补充或想法…" @paste="imageInput?.paste($event)"></textarea>
+        <CommentImageInput ref="imageInput" v-model="image" :disabled="submitting" @busy="imageBusy = $event" @login="emit('login')" />
         <p v-if="submitError" class="annotation-error" role="alert">{{ submitError }}</p>
-        <div class="annotation-submit-row"><small>{{ text.length }}/500</small><button type="submit" class="annotation-primary" :disabled="!text.trim() || submitting">{{ submitting ? '发布中…' : '发布评论' }}</button></div>
+        <div class="annotation-submit-row"><small>{{ text.length }}/500</small><button type="submit" class="annotation-primary" :disabled="(!text.trim() && !image) || submitting || imageBusy">{{ submitting ? '发布中…' : '发布评论' }}</button></div>
       </form>
       <footer v-else class="annotation-footer">选中正文任意文字，即可发起新讨论。</footer>
     </section>
@@ -47,7 +51,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
+import { selectedArticleReference, type ArticleSelection } from '@/utils/articleReferences'
 import request from '@/utils/request'
 import { errorMessage, notify } from '@/utils/feedback'
 import { avatarUrl, onAvatarError } from '@/utils/avatar'
@@ -56,14 +61,21 @@ import { eventBus, EVENT_AUTH_CHANGED, EVENT_AUTH_EXPIRED } from '@/utils/eventB
 import { selectedQuote, quoteRange, type CommentQuote } from '@/utils/commentAnchors'
 import { groupCommentMarkers, markerBoxes, markerIdsAt, type QuoteMarker, type MarkerGroup, type MarkerBox } from '@/utils/commentMarkers'
 import CommentQuotePreview from './CommentQuotePreview.vue'
+import CommentImage from './CommentImage.vue'
+import CommentImageInput from './CommentImageInput.vue'
 
-interface Comment { commentId: string; userId: string; userNickName: string; userAvatar?: string; content: string; createTime: string; replyCount: number; quote?: CommentQuote }
-const props = defineProps<{ articleId: string; articleAuthorId: string; root?: HTMLElement }>()
-const emit = defineEmits<{ changed: []; login: []; opened: [] }>()
+interface Comment { commentId: string; userId: string; userNickName: string; userAvatar?: string; content: string; imgPath?: string; createTime: string; replyCount: number; quote?: CommentQuote }
+const props = defineProps<{ articleId: string; articleAuthorId: string; root?: HTMLElement; aiReference?: boolean }>()
+const emit = defineEmits<{ changed: []; login: []; opened: []; referenceRequested: [selection: ArticleSelection] }>()
 const openPanel = ref(false), narrow = ref(false), top = ref(88), panelHeight = ref(600), panel = ref<HTMLElement>(), closeButton = ref<HTMLButtonElement>(), composer = ref<HTMLTextAreaElement>()
 const panelStyle = computed(() => ({ top: `${top.value}px`, ...(narrow.value ? { height: `${panelHeight.value}px`, bottom: 'auto' } : {}) }))
 const selectionQuote = ref<CommentQuote>(), actionStyle = ref({ left: '0px', top: '0px' })
+const selectionReference = shallowRef<ArticleSelection>()
 const pendingQuote = ref<CommentQuote>(), text = ref(''), submitError = ref(''), notice = ref('')
+const image = ref(''), imageBusy = ref(false), imageInput = ref<InstanceType<typeof CommentImageInput>>()
+const replyImage = ref(''), replyImageBusy = ref(false)
+// A template ref inside v-for is an array even though only the active thread mounts it.
+const replyImageInput = ref<InstanceType<typeof CommentImageInput>[]>([])
 const comments = ref<Comment[]>([]), total = ref(0), page = ref(1), hasMore = ref(false), loading = ref(false), error = ref(''), submitting = ref(false)
 const focusedIds = ref<string[]>(), markers = ref<QuoteMarker[]>([]), markerError = ref('')
 const lineStyles = ref<Record<string,string>[]>([])
@@ -141,11 +153,19 @@ function selectionChanged() {
   selectionFrame = requestAnimationFrame(() => {
     const selection = window.getSelection(), root = props.root
     selectionQuote.value = root ? selectedQuote(root, selection) : undefined
-    if (!selectionQuote.value || !selection?.rangeCount) return
+    selectionReference.value = root && props.aiReference ? selectedArticleReference(root, selection) : undefined
+    if ((!selectionQuote.value && !selectionReference.value) || !selection?.rangeCount) return
     const rect = selection.getRangeAt(0).getBoundingClientRect()
-    if (rect.bottom < top.value || rect.top > innerHeight) { selectionQuote.value = undefined; return }
-    actionStyle.value = { left: `${Math.max(12, Math.min(innerWidth - 170, rect.left + rect.width / 2 - 80))}px`, top: `${Math.max(top.value, Math.min(innerHeight - 48, rect.top - 44))}px` }
+    if (rect.bottom < top.value || rect.top > innerHeight) { selectionQuote.value = undefined; selectionReference.value = undefined; return }
+    const width = selectionQuote.value && selectionReference.value ? 280 : 170
+    actionStyle.value = { left: `${Math.max(12, Math.min(innerWidth - width - 12, rect.left + rect.width / 2 - width / 2))}px`, top: `${Math.max(top.value, Math.min(innerHeight - 48, rect.top - 44))}px` }
   })
+}
+function referenceSelection() {
+  if (!selectionReference.value) return
+  emit('referenceRequested', selectionReference.value)
+  selectionQuote.value = undefined; selectionReference.value = undefined
+  window.getSelection()?.removeAllRanges()
 }
 async function open() {
   focusedIds.value = undefined
@@ -165,11 +185,11 @@ async function openForMarkers(ids: string[]) {
   await load()
 }
 async function showAll() { focusedIds.value = undefined; await load() }
-function close() { openPanel.value = false; selectionQuote.value = undefined; clearHighlight(); previousFocus?.focus({ preventScroll: true }) }
-function cancelDraft() { pendingQuote.value = undefined; text.value = ''; submitError.value = ''; clearHighlight() }
+function close(restoreFocus = true) { openPanel.value = false; selectionQuote.value = undefined; clearHighlight(); if (restoreFocus) previousFocus?.focus({ preventScroll: true }) }
+function cancelDraft() { pendingQuote.value = undefined; text.value = ''; image.value = ''; imageBusy.value = false; submitError.value = ''; clearHighlight() }
 async function startComment() {
   if (!selectionQuote.value) return
-  if (pendingQuote.value && text.value.trim()) { notify.warning('请先发布或取消正在编辑的评论'); return }
+  if (pendingQuote.value && (text.value.trim() || image.value || imageBusy.value)) { notify.warning('请先发布或取消正在编辑的评论'); return }
   pendingQuote.value = { ...selectionQuote.value }; submitError.value = ''; notice.value = ''
   const range = props.root && quoteRange(props.root, pendingQuote.value)
   if (range) paint(range)
@@ -228,20 +248,21 @@ async function loadMarkers() {
 }
 async function refresh() { await loadMarkers(); if (!disposed) await load() }
 async function submit() {
-  if (!pendingQuote.value || !text.value.trim() || submitting.value) return
+  if (!pendingQuote.value || (!text.value.trim() && !image.value) || submitting.value || imageBusy.value) return
   if (!localStorage.getItem('token')) { emit('login'); return }
   myUserId.value = localStorage.getItem('userId') || ''
   submitting.value = true; submitError.value = ''
   try {
-    await request.post('/comment/create', { articleId: props.articleId, articleUserId: props.articleAuthorId, content: text.value.trim(), quote: pendingQuote.value })
+    await request.post('/comment/create', { articleId: props.articleId, articleUserId: props.articleAuthorId, content: text.value.trim(), imgPath: image.value || null, quote: pendingQuote.value })
     if (disposed) return
     cancelDraft(); emit('changed'); await refresh(); notify.success('划词评论已发布')
   } catch (err) { if (!disposed) submitError.value = errorMessage(err, '发布失败，评论内容已保留，请重试') }
   finally { submitting.value = false }
 }
 async function toggleThread(comment: Comment) {
-  if (activeThread.value === comment.commentId) { activeThread.value = ''; replyReads.cancel(); return }
-  activeThread.value = comment.commentId; replies.value = []; replyText.value = ''; await loadReplies(comment)
+  if (submitting.value) return
+  if (activeThread.value === comment.commentId) { activeThread.value = ''; replyImageBusy.value = false; replyReads.cancel(); return }
+  activeThread.value = comment.commentId; replies.value = []; replyText.value = ''; replyImage.value = ''; replyImageBusy.value = false; await loadReplies(comment)
 }
 async function loadReplies(comment: Comment, more = false) {
   const ticket = replyReads.begin(), nextPage = more ? replyPage.value + 1 : 1
@@ -255,13 +276,13 @@ async function loadReplies(comment: Comment, more = false) {
   finally { if (ticket.isCurrent()) replyLoading.value = false }
 }
 async function submitReply(comment: Comment) {
-  if (!replyText.value.trim() || submitting.value) return
+  if ((!replyText.value.trim() && !replyImage.value) || submitting.value || replyImageBusy.value) return
   if (!localStorage.getItem('token')) { emit('login'); return }
   submitting.value = true; replyError.value = ''
   try {
-    await request.post('/comment/create', { articleId: props.articleId, articleUserId: props.articleAuthorId, parentId: comment.commentId, replyUserId: comment.userId, content: replyText.value.trim() })
+    await request.post('/comment/create', { articleId: props.articleId, articleUserId: props.articleAuthorId, parentId: comment.commentId, replyUserId: comment.userId, content: replyText.value.trim(), imgPath: replyImage.value || null })
     if (disposed) return
-    if (activeThread.value === comment.commentId) { replyText.value = ''; await loadReplies(comment) }
+    if (activeThread.value === comment.commentId) { replyText.value = ''; replyImage.value = ''; await loadReplies(comment) }
     comment.replyCount++; emit('changed')
   } catch (err) { if (!disposed) replyError.value = errorMessage(err, '回复发布失败，输入已保留') }
   finally { submitting.value = false }
@@ -285,15 +306,15 @@ function panelKeydown(event: KeyboardEvent) {
   if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
   else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
 }
-watch(() => props.root, root => { selectionQuote.value = undefined; clearHighlight(); bindRoot(root) })
+watch(() => props.root, root => { selectionQuote.value = undefined; selectionReference.value = undefined; clearHighlight(); bindRoot(root) })
 function authChanged() {
   const previous = myUserId.value
   myUserId.value = localStorage.getItem('userId') || ''
-  if (!myUserId.value || (previous && previous !== myUserId.value)) { close(); cancelDraft(); replyText.value = ''; activeThread.value = '' }
+  if (!myUserId.value || (previous && previous !== myUserId.value)) { close(); cancelDraft(); replyText.value = ''; replyImage.value = ''; replyImageBusy.value = false; activeThread.value = '' }
 }
 onMounted(() => { bindRoot(props.root); layout(); void refresh(); document.addEventListener('selectionchange', selectionChanged); window.addEventListener('resize', layout); window.addEventListener('scroll', articleScrolled, true); visualViewport?.addEventListener('resize', layout); eventBus.on(EVENT_AUTH_CHANGED, authChanged); eventBus.on(EVENT_AUTH_EXPIRED, authChanged) })
 onUnmounted(() => { disposed = true; reads.cancel(); replyReads.cancel(); markerReads.cancel(); cancelAnimationFrame(selectionFrame); cancelAnimationFrame(markerFrame); bindRoot(undefined); clearHighlight(); document.removeEventListener('selectionchange', selectionChanged); window.removeEventListener('resize', layout); window.removeEventListener('scroll', articleScrolled, true); visualViewport?.removeEventListener('resize', layout); eventBus.off(EVENT_AUTH_CHANGED, authChanged); eventBus.off(EVENT_AUTH_EXPIRED, authChanged) })
-defineExpose({ open, locate, refresh, total })
+defineExpose({ open, close, locate, refresh, total })
 </script>
 
 <style>
@@ -344,7 +365,8 @@ defineExpose({ open, locate, refresh, total })
 .annotation-notice,.annotation-error { padding:10px 12px; background:#fff0c4; border-radius:8px; font-size:12px; line-height:1.7; }
 .annotation-error { background:#fff0e9; }
 .annotation-load-more { width:100%; border:1px solid var(--ej-line); border-radius:99px; padding:10px; background:transparent; }
-.quote-selection-action { position:fixed; z-index:2300; display:flex; align-items:center; gap:6px; padding:9px 14px; border:1px solid var(--ej-ink); border-radius:99px; background:var(--studio-lime,#baff32); color:var(--ej-ink); box-shadow:3px 3px 0 #0002; font-size:12px; white-space:nowrap; }
+.quote-selection-action { position:fixed; z-index:2300; display:flex; align-items:center; gap:0; padding:3px; max-width:calc(100vw - 24px); border:1px solid var(--ej-ink); border-radius:99px; background:var(--studio-lime,#baff32); color:var(--ej-ink); box-shadow:3px 3px 0 #0002; font-size:12px; white-space:nowrap; }
+.quote-selection-action button{display:flex;align-items:center;gap:6px;padding:6px 10px;border:0;border-radius:99px;background:transparent;font:inherit;color:inherit;cursor:pointer}.quote-selection-action button+button{border-left:1px solid #11110f26;border-radius:0 99px 99px 0}.quote-selection-action button:focus-visible{outline:2px solid var(--ej-ink);outline-offset:1px}
 .quote-selection-action span { font-size:16px; line-height:1; }
 .annotation-backdrop { position:fixed; inset:0; background:#0005; z-index:2199; }
 .annotation-highlight-fallback span { position:fixed; background:#ffc94d55; pointer-events:none; z-index:1; }

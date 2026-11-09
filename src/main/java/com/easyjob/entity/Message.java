@@ -34,7 +34,7 @@ public class Message {
     private Long senderId;
     
     /**
-     * 消息类型：1=文本，2=图片，3=语音，4=视频，5=文件
+     * 消息类型：1=文本，2=图片，3=文章卡片
      */
     private Integer messageType;
     

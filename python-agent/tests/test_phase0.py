@@ -327,6 +327,8 @@ class FailureTests(unittest.IsolatedAsyncioTestCase):
 
 class EntryTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
+        context = patch('app.services.run_service.run_history.task_context', AsyncMock(return_value={}))
+        context.start(); self.addCleanup(context.stop)
         history = patch('app.services.run_service.run_history.previous', AsyncMock(return_value=({}, {})))
         history.start()
         self.addCleanup(history.stop)

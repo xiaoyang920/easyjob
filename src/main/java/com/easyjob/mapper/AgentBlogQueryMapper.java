@@ -7,6 +7,7 @@ import java.util.*;
 @Mapper
 public interface AgentBlogQueryMapper {
     List<Map<String,Object>> published(@Param("ids") List<Long> ids);
+    List<Map<String,Object>> writingMetadata(@Param("uid") long uid, @Param("ids") List<Long> ids);
     List<Map<String,Object>> userSources(@Param("ids") List<Long> ids);
     List<Map<String,Object>> tags(@Param("names") List<String> names);
     List<Map<String,Object>> categories(@Param("names") List<String> names);

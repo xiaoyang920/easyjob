@@ -86,6 +86,9 @@ def task_context(state, task):
         "conversation_id": state.get("conversation_id"),
         "origin_article_id": state.get("origin_article_id"),
         "article_context": state.get("article_context", {}),
+        "editor_context": state.get('editor_context', {}) if task.retrieval_target == 'editor' else {},
+        "known_page_urls": [c['url'] for result in results.values() if result.get('status') == 'succeeded'
+                            for c in result.get('citations', []) if c.get('url')] if task.urls else [],
         "task_id": task.task_id, "current_task": task.model_dump(),
         "user_message": task.instruction, "task_descriptions": {task.kind: task.instruction},
         "request_goal": state["user_message"] if task.actor == "main" else task.instruction,
@@ -97,6 +100,10 @@ def task_context(state, task):
         "citations": list(evidence.values()), "evidence_contents": evidence_contents, "allow_web": task.allow_web,
         "dependency_cards": [card for dep in dependencies.values() for card in dep.get("article_cards", [])],
         "execution_mode": "delegate" if task.actor == "subagent" else "direct",
+        "private_context": task.tool_name in ('search_conversation_history', 'read_conversation_messages') or
+            task.retrieval_target in ('memory', 'drafts', 'editor') or
+            any(r.get('private_context') or r.get('retrieval_target') in ('memory', 'drafts', 'editor')
+                for r in dependencies.values()),
         "capabilities": sorted(task_capabilities(task)),
         "cancelled": False, "reflection_feedback": "", "worker_results": [],
     }
@@ -148,7 +155,7 @@ def task_result(state, update, *, raw_retrieval=False):
     citations = update.get("citations", state.get("citations", []))
     cards = update.get("article_cards", state.get("dependency_cards", []))
     memory_lookup = task.retrieval_target == "memory"
-    private_lookup = task.retrieval_target in ("memory", "drafts")
+    private_lookup = task.retrieval_target in ("memory", "drafts", "editor")
     if private_lookup and (citations or cards):
         raise ValueError("私有检索结果不能携带公共文章引用或卡片")
     result = workers[0]
@@ -164,13 +171,20 @@ def task_result(state, update, *, raw_retrieval=False):
     # not a freshly generated answer with public article evidence.
     # Original documents can quote footnotes and old chat references. They are
     # data, not newly authored citations; generated outputs still use this gate.
-    if status == "succeeded" and not private_lookup and not raw_retrieval and invalid_references(result["result"], citations):
+    if task.kind == 'tool' and task.tool_name not in ('read_task_result', 'read_task_results') and (citations or cards):
+        raise ValueError('普通工具资料不能自行授予正文引用或文章卡片')
+    if status == "succeeded" and task.kind != 'tool' and not private_lookup and not raw_retrieval and invalid_references(result["result"], citations):
         status = "invalid_citation"
     if status == "succeeded" and task.requires_evidence and not citations:
         status = "insufficient_evidence"
     return {"task_id": task.task_id, "kind": task.kind, "actor": task.actor, "status": status,
+            'private_context': bool(state.get('private_context')),
             "retrieval_target": task.retrieval_target, "result": result["result"], "citations": citations,
             "article_cards": cards,
+            **({'result_reads': update['result_reads'], 'tool_name': task.tool_name} if 'result_reads' in update else {}),
+            **({'result_access_metrics': update['result_access_metrics']} if 'result_access_metrics' in update else {}),
+            **({'evidence_scope': update['evidence_scope']} if 'evidence_scope' in update else {}),
+            **({k: update[k] for k in ('editor_snapshot_id', 'editor_part') if k in update} if task.retrieval_target == 'editor' else {}),
             **({'draft_document': update['draft_document']} if task.retrieval_target == 'drafts' and update.get('draft_document') else {}),
             **({"retrieval_report": update["retrieval_report"]} if update.get("retrieval_report") else {}),
             **({'citation_contents': {str(c['id']): update['citation_contents'][str(c['id'])]
@@ -193,14 +207,18 @@ def executor_token(state):
     # Resume uses the existing checkpoint and a newly claimed executor token.
     # Run configuration is issued by RunService, never model-generated state.
     try:
-        return get_config()["configurable"].get("execution_token", state["execution_token"])
+        return get_config()["configurable"].get("execution_token") or state.get("execution_token")
     except RuntimeError:
-        return state["execution_token"]
+        return state.get("execution_token")
 
 
 def guard_node(name, function):
     async def guarded(state):
         await assert_run(state)
+        # Checkpoints contain the previous generation's token. Every node-local
+        # side effect (including memory enqueue) must use the newly claimed one.
+        if state.get('run_id') or executor_token(state):
+            state = {**state, 'execution_token': executor_token(state)}
         run_id = state.get("run_id")
         started = time.perf_counter()
         round_number = state.get("main_round", 0) + (name == "main_agent")
@@ -320,5 +338,16 @@ async def final_gate(state):
     if invalid_references(text, citations):
         raise ValueError('依据修正包含不存在的引用')
     await verify_public_evidence(citations)
-    return {'final_reply': text, 'grounding_audit': audit, 'delivery_evidence': evidence,
+    edits = state.get('editor_edits') or []
+    if edits:
+        # Review the actual proposed replacement, not just the surrounding reply.
+        replacement = edits[0]['after']
+        reviewed, edit_audit = await verify_delivery(state, replacement, citations, allow_retrieval=False)
+        if reviewed != replacement or edit_audit.get('status') not in ('verified', 'not_required'):
+            edits = []
+            text += '\n\n修改建议未通过内容核验，请调整要求后重试。'
+        else:
+            await assert_run(state)
+            edits = [{**edit, 'citations': citations} for edit in edits]
+    return {'final_reply': text, 'grounding_audit': audit, 'delivery_evidence': evidence, 'editor_edits': edits,
             'delivery_review': {'phase': 'complete', 'lookup_count': audit.get('lookup_count', 0)}}

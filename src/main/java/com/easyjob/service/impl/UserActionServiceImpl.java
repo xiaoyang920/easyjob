@@ -75,7 +75,7 @@ public class UserActionServiceImpl extends ServiceImpl<UserActionMapper, UserAct
             throw new BusinessException(404, "文章不存在或未公开");
         }
         int actionType = like ? ActionTypeEnum.ARTICLE_LIKE.getCode() : ActionTypeEnum.ARTICLE_COLLECT.getCode();
-        var relationship = new LambdaQueryWrapper<UserAction>()
+        LambdaQueryWrapper<UserAction> relationship = new LambdaQueryWrapper<UserAction>()
                 .eq(UserAction::getArticleId, articleId)
                 .eq(UserAction::getCommentId, 0L)
                 .eq(UserAction::getUserId, userId)
@@ -88,7 +88,7 @@ public class UserActionServiceImpl extends ServiceImpl<UserActionMapper, UserAct
         if (active == wasActive) return new InteractionResult(active, count);
 
         if (active) {
-            var action = new UserAction();
+            UserAction action = new UserAction();
             action.setArticleId(articleId);
             action.setCommentId(0L);
             action.setUserId(userId);

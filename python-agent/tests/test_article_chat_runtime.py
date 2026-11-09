@@ -1,3 +1,4 @@
+from tool_fakes import retrieval_call, raw_retrieval_call
 from rpc_fakes import public_reader
 """Article origin is context, while each action owns its retrieval scope."""
 import os
@@ -17,6 +18,7 @@ from fastapi import HTTPException
 from langgraph.checkpoint.memory import InMemorySaver
 
 from app import main
+from app.services import main_tools
 from app.graph import builder, main_agent as agent, action_runtime as actions, staged_runtime as runtime
 from app.graph.main_agent import MainDecision, RetrievalRequest
 from app.graph.staged_plan import ExecutionTask, DelegatedTask
@@ -71,6 +73,8 @@ async def execute(state):
 
 class ArticleRunTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
+        context = patch('app.services.run_service.run_history.task_context', AsyncMock(return_value={}))
+        context.start(); self.addCleanup(context.stop)
         history = patch('app.services.run_service.run_history.previous', AsyncMock(return_value=({}, {})))
         history.start()
         self.addCleanup(history.stop)
@@ -152,7 +156,7 @@ class ArticleGraphTests(unittest.IsolatedAsyncioTestCase):
         state = await article_state()
         llm, control = model([MainDecision(action="answer", reply="根据条件创建 Bean。[article_context:1]")])
         with patch.object(agent, "get_llm", return_value=llm), \
-             patch.object(actions, "retrieve_evidence", AsyncMock()) as retrieval, \
+             patch.object(main_tools, "retrieve_evidence", AsyncMock()) as retrieval, \
              patch.object(evidence_verifier, "public_read", AsyncMock(return_value=[
                  {"article_id": 42, "content": "<p>自动配置根据条件创建 Bean。</p>"}])):
             result, nodes = await execute(state)
@@ -164,13 +168,13 @@ class ArticleGraphTests(unittest.IsolatedAsyncioTestCase):
     async def test_comparison_retrieves_other_articles_in_same_conversation_without_origin_filter(self):
         state = await article_state()
         state["user_message"] = "和另一篇条件装配文章对比"
-        llm, control = model([MainDecision(action="retrieve", retrieval=RetrievalRequest(instruction="找另一篇条件装配文章")),
+        llm, control = model([MainDecision(action='call_tool', tool_call=retrieval_call(RetrievalRequest(instruction="找另一篇条件装配文章"))),
             MainDecision(action="answer", reply="当前文章解释条件，另一篇提供示例。[article_context:1][retrieve_1:1]")])
         other = {"status": "succeeded", "rag_context": "[retrieve_1:1] 另一篇条件装配示例",
                  "citations": [{"id": "retrieve_1:1", "articleId": "43", "title": "条件装配示例", "excerpt": "示例"}],
                  "article_cards": [{"articleId": "43", "title": "条件装配示例"}]}
         with patch.object(agent, "get_llm", return_value=llm), \
-             patch.object(actions, "retrieve_evidence", AsyncMock(return_value=other)) as retrieval, \
+             patch.object(main_tools, "retrieve_evidence", AsyncMock(return_value=other)) as retrieval, \
              patch.object(evidence_verifier, "verify_public_evidence", AsyncMock()), \
              patch.object(runtime, "verify_public_evidence", AsyncMock()):
             result, nodes = await execute(state)
@@ -178,11 +182,11 @@ class ArticleGraphTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual({c["articleId"] for c in result["citations"]}, {"42", "43"})
         self.assertEqual(retrieval.await_args.args[0]["current_task"]["article_ids"], [])
         self.assertEqual(control.ainvoke.await_count, 2)
-        self.assertIn("main_retrieve", nodes)
+        self.assertIn("execute_tool", nodes)
 
     async def test_source_preparation_does_not_consume_action_task_budget(self):
         state = await article_state()
-        decision = MainDecision(action="retrieve", retrieval=RetrievalRequest(instruction="找其他文章"))
+        decision = MainDecision(action='call_tool', tool_call=retrieval_call(RetrievalRequest(instruction="找其他文章")))
         with patch.object(agent.settings, "MAIN_MAX_TASKS", 1):
             self.assertNotIn("stop_reason", agent.validate_action(state, decision, 1))
             self.assertEqual(json.loads(agent.decision_context(state))["remaining_tasks"], 1)

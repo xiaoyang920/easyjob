@@ -10,6 +10,8 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.easyjob.service.ArticleAccessService.Reader;
 @Slf4j
 @Service
 public class RecommendServiceImpl implements RecommendService {
@@ -37,9 +39,9 @@ public class RecommendServiceImpl implements RecommendService {
         List<Long> tags = tagIds == null ? List.of() : tagIds.stream().filter(id -> id != null && id > 0).distinct().limit(8).toList();
         List<Long> interests = userId == null ? List.of() : userTagPreferenceMapper.selectTopTagIds(userId, 8);
         if (interests == null) interests = List.of();
-        var reader = access.reader(userId);
-        var topics = profile.topics(userId);
-        var result = articleMapper.listRecommendedArticles(new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(page, size),
+        Reader reader = access.reader(userId);
+        List<String> topics = profile.topics(userId);
+        IPage<ArticleListVO> result = articleMapper.listRecommendedArticles(new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(page, size),
                 userId, interests, categoryId, tags, topics, topics.stream().map(com.easyjob.service.ArticlePreferenceService::titlePattern).toList(), reader.level(), reader.admin(), readableOnly);
         result.setRecords(com.easyjob.service.RecommendationDiversity.reorder(result.getRecords()));
         return com.easyjob.vo.PageVO.fromIPage(result);

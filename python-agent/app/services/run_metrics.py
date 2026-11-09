@@ -22,6 +22,10 @@ class RunMetrics(AsyncCallbackHandler):
         self.models = set(self.previous.get('models') or [])
         self.errors = set()
         self.reservations = {}
+        self.context_views = list(self.previous.get('context_views') or [])[-63:]
+        self.context_builds = list(self.previous.get('context_builds') or [])[-63:]
+        self.estimates = {}
+        self.calibration = []
         self.persist = persist
         self.persist_lock = asyncio.Lock()
         self.charged = int(self.previous.get('budget_charged_tokens') or
@@ -51,10 +55,36 @@ class RunMetrics(AsyncCallbackHandler):
         input_tokens = sum(request_tokens(batch, schemas) for batch in messages)
         self.reserve(str(run_id), input_tokens, kwargs)
         self.calls.add(str(run_id))
+        metadata = kwargs.get('metadata') or {}
+        params = kwargs.get('invocation_params') or {}
+        self.estimates[str(run_id)] = {'call_id': str(run_id), 'estimated_input_tokens': input_tokens,
+            'estimator': 'cl100k_base:v1', 'model': params.get('model') or params.get('model_name') or settings.DEEPSEEK_MODEL,
+            'image_count': sum(isinstance(part, dict) and part.get('type') == 'image_url'
+                for batch in messages for message in batch for part in
+                (message.content if isinstance(message.content, list) else [])), 'schema_count': len(schemas)}
+        if isinstance(metadata.get('context_build'), dict):
+            allowed = ('token_requests', 'token_encodes', 'token_cache_hits', 'result_hashes', 'prepare_ms', 'cache_entries')
+            self.context_builds = [*self.context_builds, {'round': metadata.get('context_round'),
+                **{k: v for k, v in metadata['context_build'].items() if k in allowed and type(v) in (int, float)}}][-64:]
+        if isinstance(metadata.get('context_usage'), dict):
+            usage = {key: value for key, value in metadata['context_usage'].items()
+                     if key in ('system', 'history', 'tool_results', 'memory', 'task_state',
+                        'current_and_images', 'other_and_schemas', 'total_tokens',
+                        'omitted_tool_results', 'omitted_messages', 'unloaded_history')
+                     and isinstance(value, int)}
+            from app.services.context_usage import context_usage
+            window = context_usage({**usage, 'window': metadata.get('context_window')})
+            self.context_views = [*self.context_views, {'round': metadata.get('context_round'), **usage,
+                                                       'window': window}][-64:]
         await self.checkpoint()
 
     async def on_llm_start(self, serialized, prompts, *, run_id, **kwargs):
-        self.reserve(str(run_id), count_tokens('\n'.join(prompts)), kwargs)
+        estimated = count_tokens('\n'.join(prompts))
+        self.reserve(str(run_id), estimated, kwargs)
+        params = kwargs.get('invocation_params') or {}
+        self.estimates[str(run_id)] = {'call_id': str(run_id), 'estimated_input_tokens': estimated,
+            'estimator': 'cl100k_base:v1', 'model': params.get('model') or settings.DEEPSEEK_MODEL,
+            'image_count': 0, 'schema_count': 0}
         self.calls.add(str(run_id))
         await self.checkpoint()
 
@@ -75,6 +105,12 @@ class RunMetrics(AsyncCallbackHandler):
                         break
         input_tokens = usage.get('input_tokens', usage.get('prompt_tokens'))
         output_tokens = usage.get('output_tokens', usage.get('completion_tokens'))
+        estimate = self.estimates.pop(key, None)
+        if estimate:
+            self.calibration.append({**estimate, 'actual_input_tokens': input_tokens if type(input_tokens) is int else None,
+                'status': 'measured' if type(input_tokens) is int else 'missing',
+                'model': (response.llm_output or {}).get('model_name') or estimate['model']})
+            self.calibration = self.calibration[-128:]
         if isinstance(input_tokens, int) and isinstance(output_tokens, int):
             self.usage[key] = (input_tokens, output_tokens)
             self.charged += input_tokens + output_tokens
@@ -90,6 +126,9 @@ class RunMetrics(AsyncCallbackHandler):
         self.calls.add(key)
         self.errors.add(key)
         self.finished.add(key)
+        if estimate := self.estimates.pop(key, None):
+            self.calibration.append({**estimate, 'actual_input_tokens': None, 'status': 'failed'})
+            self.calibration = self.calibration[-128:]
         self.charged += self.reservations.pop(key, 0)
         await self.checkpoint()
 
@@ -101,6 +140,9 @@ class RunMetrics(AsyncCallbackHandler):
         input_measured = previous.get('measured_input_tokens', 0) + sum(v[0] for v in self.usage.values())
         output_measured = previous.get('measured_output_tokens', 0) + sum(v[1] for v in self.usage.values())
         return {'llm_calls': calls, 'models': sorted(self.models), 'measured_llm_calls': measured, 'token_usage_complete': complete,
+                'context_views': self.context_views,
+                'context_builds': self.context_builds,
+                'token_calibration': [*(previous.get('token_calibration') or []), *self.calibration][-128:],
                 'failed_llm_calls': previous.get('failed_llm_calls', 0) + len(self.errors),
                 'budget_charged_tokens': self.charged + sum(self.reservations.values()),
                 'budget_limit_tokens': settings.RUN_TOTAL_TOKEN_BUDGET,

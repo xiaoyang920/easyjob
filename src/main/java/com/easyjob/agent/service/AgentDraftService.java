@@ -10,9 +10,13 @@ import java.util.HexFormat;
 import java.util.Map;
 import com.easyjob.service.ArticleRevisionService;
 import com.easyjob.mapper.AgentDraftMapper;
+import com.easyjob.dto.ArticleCreateDTO;
+import java.util.List;
 
 @Service
 public class AgentDraftService {
+    @org.springframework.beans.factory.annotation.Autowired(required=false)private com.easyjob.security.AuthStateClient authStates;
+    @org.springframework.beans.factory.annotation.Autowired(required=false)private com.easyjob.mapper.AgentRunMapper mapper;
     public static final int SUMMARY_MAX_LENGTH = 500;
     private final AgentDraftMapper store;
     private final ArticleRevisionService revisions;
@@ -35,7 +39,7 @@ public class AgentDraftService {
     }
     public static String contentHash(DraftRequest draft) {
         try {
-            var hasher = MessageDigest.getInstance("SHA-256");
+            MessageDigest hasher = MessageDigest.getInstance("SHA-256");
             for (String field : new String[]{draft.title(), draft.summary(), draft.markdown(), draft.html()}) {
                 byte[] value = field.getBytes(StandardCharsets.UTF_8);
                 hasher.update(java.nio.ByteBuffer.allocate(4).putInt(value.length).array());
@@ -48,11 +52,16 @@ public class AgentDraftService {
         return com.easyjob.utils.HtmlContentSanitizer.clean(html, true);
     }
     public Map<String,String> receipt(long uid,String runId) {
-        var found=store.receipt(runId,uid);
+        Map<String, Object> found=store.receipt(runId,uid);
         return found==null || found.isEmpty()?null:Map.of("articleId",found.get("article_id").toString(),"draftHash",found.get("draft_hash").toString());
     }
     @Transactional(timeout=20)
     public Map<String, String> save(long userId, DraftRequest draft) {
+        if(authStates!=null){
+            List<Map<String, Object>> rows=mapper.findExecutingRun(draft.runId(), userId, draft.executionToken());
+            if(rows.isEmpty())throw new ResponseStatusException(HttpStatus.FORBIDDEN);
+            Map<String, Object> row=rows.getFirst();authStates.require(new com.easyjob.security.IdentityTokens.Principal(Long.toString(userId),(String)row.get("auth_sid"),row.get("auth_version")==null?0:((Number)row.get("auth_version")).longValue(),java.util.List.of()));
+        }
         if (draft.runId() == null || draft.executionToken() == null || draft.articleId() == null || draft.articleId() <= 0
                 || draft.title() == null || draft.title().isBlank() || draft.title().codePointCount(0, draft.title().length()) > 50
                 || draft.summary() == null || draft.summary().codePointCount(0, draft.summary().length()) > SUMMARY_MAX_LENGTH || draft.markdown() == null
@@ -61,7 +70,7 @@ public class AgentDraftService {
                 || !contentHash(draft).equals(draft.draftHash())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Draft contract failed");
         }
-        var previous=receipt(userId,draft.runId());
+        Map<String, String> previous=receipt(userId,draft.runId());
         if(previous!=null) {
             if(!previous.get("draftHash").equals(draft.draftHash()) || !previous.get("articleId").equals(draft.articleId().toString()))
                 throw new ResponseStatusException(HttpStatus.CONFLICT,"Save identity changed");
@@ -69,7 +78,7 @@ public class AgentDraftService {
         }
         permits.verify(userId,draft);
         store.reserve(draft.runId(),userId,draft.articleId(),draft.draftHash());
-        var reserved=store.lockReceipt(draft.runId());
+        Map<String, Object> reserved=store.lockReceipt(draft.runId());
         if(((Number)reserved.get("user_id")).longValue()!=userId || !draft.draftHash().equals(reserved.get("draft_hash"))
             || ((Number)reserved.get("article_id")).longValue()!=draft.articleId()) throw new ResponseStatusException(HttpStatus.CONFLICT);
         if(((Number)reserved.get("completed")).intValue()==1) return Map.of("articleId",draft.articleId().toString());
@@ -78,7 +87,7 @@ public class AgentDraftService {
             revisions.updateAgentDraft(userId,draft.articleId(),draft.expectedRevisionId(),draft.expectedLockVersion(),draft.title(),draft.summary(),cleanHtml(draft.html()));
         } else {
             if(revisions==null)throw new IllegalStateException("Missing revision service");
-            var request=new com.easyjob.dto.ArticleCreateDTO();
+            ArticleCreateDTO request=new com.easyjob.dto.ArticleCreateDTO();
             request.setTitle(draft.title());request.setSummary(draft.summary());
             request.setContent(cleanHtml(draft.html()));request.setContentType(1);request.setStatus(0);
             revisions.create(userId,draft.articleId(),request);

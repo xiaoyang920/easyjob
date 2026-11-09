@@ -1,10 +1,12 @@
 """Same-run read-only artifacts; all mutations are fenced by the live executor."""
 import json
+from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException
 from app.clients.mysql_client import db
 from app.services.run_repository import digest
 from app.services.evidence_verifier import verify_public_evidence
 from app.skills.registry import skill_registry
+from app.services.run_history import instant
 
 
 def task_fingerprint(context):
@@ -21,7 +23,7 @@ class TaskArtifacts:
         self.db, self.verifier = database, verifier
 
     async def load(self, context, fingerprint):
-        row = await self.db.fetch_one('''SELECT a.input_hash,a.result_json FROM agent_task_artifact a
+        row = await self.db.fetch_one('''SELECT a.input_hash,a.result_json,a.updated_at FROM agent_task_artifact a
             JOIN agent_run r ON r.run_id=a.run_id
             WHERE a.run_id=:rid AND a.task_id=:tid AND r.user_id=:uid''',
             {'rid': context['run_id'], 'tid': context['task_id'], 'uid': context['user_id']})
@@ -33,6 +35,12 @@ class TaskArtifacts:
         if (result.get('status') != 'succeeded' or result.get('task_id') != task['task_id']
                 or result.get('actor') != 'subagent' or result.get('kind') != task['kind']):
             return None
+        if any(citation.get('articleId') and not citation.get('sourceHash') for citation in result.get('citations', [])):
+            return None
+        if any(not citation.get('articleId') for citation in result.get('citations', [])):
+            source_time = result.get('source_run_updated_at') or row._mapping.get('updated_at')
+            if not source_time or instant(source_time) < datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=1):
+                return None  # Re-run this child; do not invalidate other finished tasks.
         try:
             await self.verifier(result.get('citations', []))
         except ValueError:

@@ -49,6 +49,14 @@ def messages_tokens(messages):
 
 
 def request_tokens(messages, schemas=()):
+    calculations = getattr(messages, 'calculations', None)
+    if calculations is not None:
+        with calculations.activate():
+            return _request_tokens(messages, schemas)
+    return _request_tokens(messages, schemas)
+
+
+def _request_tokens(messages, schemas):
     tools = [convert_to_openai_tool(schema) for schema in schemas]
     return messages_tokens(messages) + (count_tokens(json_text(tools)) + 16 if tools else 0)
 

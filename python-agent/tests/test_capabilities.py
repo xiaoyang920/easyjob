@@ -1,3 +1,4 @@
+from tool_fakes import retrieval_call, raw_retrieval_call
 from rpc_fakes import public_reader
 """Execution capabilities come from current server policy, never model labels."""
 import os
@@ -123,7 +124,7 @@ class CapabilityPolicyTests(unittest.TestCase):
             MainDecision.model_validate({"action": "write_draft", "draft_request": legacy})
 
     def test_changing_actor_cannot_repeat_the_same_retrieval_strategy(self):
-        direct = MainDecision(action="retrieve", retrieval=RetrievalRequest(task_id="direct", instruction="find"))
+        direct = MainDecision(action='call_tool', tool_call=retrieval_call(RetrievalRequest(task_id="direct", instruction="find")))
         delegated = MainDecision(action="delegate", delegation_reason="independent research",
             plan=DependencyPlan(tasks=[DelegatedTask(task_id="delegated", subagent="search", instruction="find")]))
         for first, second in ((direct, delegated), (delegated, direct)):

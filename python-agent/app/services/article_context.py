@@ -87,7 +87,7 @@ class ArticleContextService:
         article = rows[0]
         raw = article.get("content") or ""
         text = article_text(raw, int(article.get("content_type") or 1))
-        budget = max_tokens if max_tokens is not None else getattr(settings, "ARTICLE_CONTEXT_MAX_TOKENS", 8192)
+        budget = max_tokens if max_tokens is not None else settings.ARTICLE_CONTEXT_MAX_TOKENS
         if budget < 1:
             raise ValueError("文章上下文预算必须为正数")
         total_tokens = count_tokens(text)

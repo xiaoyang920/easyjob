@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.easyjob.mapper.AdminUserMapper">
+    <update id="updatePublicProfile">UPDATE user_info SET nick_name=#{nickName},person_introduction=#{introduction} WHERE user_id=#{userId}</update>
     <select id="findArticleIds" resultType="Long">
         SELECT article_id FROM article_info WHERE user_id=#{userId}
     </select>
@@ -14,7 +15,7 @@
         UPDATE user_reading_progress SET total_millis=#{millis},earned_level=#{level},active_session=NULL,updated_at=NOW(3) WHERE user_id=#{userId}
     </update>
     <select id="lockProgress" resultType="map">
-        SELECT total_millis,earned_level FROM user_reading_progress WHERE user_id=#{userId} FOR UPDATE
+        SELECT total_millis,purchased_millis,earned_level FROM user_reading_progress WHERE user_id=#{userId} FOR UPDATE
     </select>
     <insert id="ensureProgress">
         INSERT INTO user_reading_progress(user_id) VALUES (#{userId}) ON DUPLICATE KEY UPDATE user_id=user_id
@@ -23,7 +24,7 @@
         SELECT CAST(user_id AS CHAR) AS userId,nick_name AS nickName,person_introduction AS personIntroduction,role,CAST(status AS UNSIGNED) AS status FROM user_info WHERE user_id IN (#{actorId},#{userId}) ORDER BY user_id FOR UPDATE
     </select>
     <select id="findProgress" resultType="map">
-        SELECT total_millis,earned_level FROM user_reading_progress WHERE user_id=#{userId}
+        SELECT total_millis,purchased_millis,earned_level FROM user_reading_progress WHERE user_id=#{userId}
     </select>
     <select id="findProfile" resultType="map">
         SELECT CAST(user_id AS CHAR) AS userId,nick_name AS nickName,person_introduction AS personIntroduction,role,CAST(status AS UNSIGNED) AS status FROM user_info WHERE user_id=#{userId}

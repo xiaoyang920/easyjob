@@ -17,6 +17,8 @@ class AgentState(TypedDict):
     conversation_id: int
     origin_article_id: int | None
     article_context: dict
+    editor_context: dict
+    editor_edits: list[dict]
     memory_context: str
     user_profile: dict
     active_constraints: list[dict]
@@ -42,6 +44,7 @@ class AgentState(TypedDict):
     previous_run: dict
     grounding_audit: dict
     delivery_evidence: dict
+    answer_source_scope: dict
     delivery_review: dict
     backend_boundary: dict
     correction_count: int
@@ -71,6 +74,9 @@ class AgentState(TypedDict):
     # 历史消息 (多轮对话)
     history_messages: list[dict]
     context_compaction: dict
+    result_prefetch_metrics: dict
+    task_context: dict
+    user_message_id: str | None
     
     # Planner 输出：需要执行的 Worker 列表
     active_workers: list[str]

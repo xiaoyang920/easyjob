@@ -1,4 +1,5 @@
 export type ReadingProgress = {
+  naturalSeconds?: number; purchasedSeconds?: number;
   level: number; totalSeconds: number; nextLevel: number | null; secondsToNext: number;
   rules: { level: number; minSeconds: number }[];
 }

@@ -12,6 +12,7 @@ import java.time.Duration;
 import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
+import com.easyjob.service.AuthSessionService.Session;
 
 class AuthSessionTests {
     private final StringRedisTemplate redis = mock(StringRedisTemplate.class);
@@ -30,7 +31,7 @@ class AuthSessionTests {
     }
     @Test void opaqueCredentialsAreHashedAndIdleExpiryIsBounded() {
         when(redis.opsForValue()).thenReturn(values);
-        var session = service.create(user());
+        Session session = service.create(user());
         assertEquals(43, session.credential().length());
         assertEquals(AuthSessionService.digest(session.credential()), session.id());
         verify(values).set(eq("auth:session:" + session.id()), anyString(), eq(Duration.ofDays(7)));
@@ -39,10 +40,19 @@ class AuthSessionTests {
     @Test void refreshCannotExtendAbsoluteDeadline() {
         session(System.currentTimeMillis() + 120000);
         when(redis.execute(any(RedisScript.class), anyList(), any(), any())).thenReturn(1L);
-        var result = service.refresh("a".repeat(43));
+        Session result = service.refresh("a".repeat(43));
         assertTrue(result.remainingSeconds() <= 120);
         assertTrue(result.remainingSeconds() > 0);
         verify(redis).execute(any(RedisScript.class), eq(List.of("auth:session:" + result.id())), any(), eq(String.valueOf(result.remainingSeconds())));
+    }
+    @Test void legacyRefreshExplicitlyLoadsCredentialsExcludedFromProfileQueries() {
+        session(System.currentTimeMillis() + 120000);
+        User profile = user(); profile.setPassword(null);
+        when(users.selectById(7L)).thenReturn(profile);
+        when(users.credentialById(7L)).thenReturn(user());
+        when(redis.execute(any(RedisScript.class), anyList(), any(), any())).thenReturn(1L);
+        assertEquals(7L, service.refresh("a".repeat(43)).user().getUserId());
+        verify(users).credentialById(7L);
     }
     @Test void logoutRacingRefreshDoesNotRecreateSession() {
         session(System.currentTimeMillis() + 120000);

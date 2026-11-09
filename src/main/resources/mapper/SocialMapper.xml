@@ -1,0 +1,242 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.easyjob.mapper.SocialMapper">
+  <sql id="person">SELECT CAST(u.user_id AS CHAR) userId,u.nick_name nickName,u.avatar,u.person_introduction personIntroduction,
+  COALESCE(cs.remark,'') remark,u.status accountStatus,
+  EXISTS(SELECT 1 FROM user_focus f WHERE f.user_id=#{me} AND f.focus_user_id=u.user_id) isFollowing,
+  EXISTS(SELECT 1 FROM user_focus f WHERE f.user_id=u.user_id AND f.focus_user_id=#{me}) isFollowedBy,
+  EXISTS(SELECT 1 FROM user_block b WHERE b.user_id=#{me} AND b.blocked_user_id=u.user_id) isBlockedByMe,
+  EXISTS(SELECT 1 FROM user_block b WHERE b.user_id=u.user_id AND b.blocked_user_id=#{me}) blockedOther,
+  COALESCE(ps.allow_message_requests,1) allowRequests
+FROM user_info u LEFT JOIN user_contact_setting cs ON cs.owner_id=#{me} AND cs.target_id=u.user_id
+LEFT JOIN user_social_setting ps ON ps.user_id=u.user_id</sql>
+  <sql id="chat">SELECT c.conversation_id conversationId,c.conversation_type conversationType,
+  CAST(u.user_id AS CHAR) otherUserId,u.nick_name otherUserName,u.avatar otherUserAvatar,
+  COALESCE(cs.remark,'') remark,u.status accountStatus,cm.unread_count unreadCount,
+  cm.is_muted isMuted,cm.is_top isTop,cm.is_deleted isDeleted,cm.last_read_message_id lastReadMessageId,
+  c.last_message_time lastMessageTime,
+  CASE WHEN m.status=1 THEN '[消息已撤回]' WHEN m.status=2 THEN '[消息已删除]'
+    WHEN m.message_type=2 THEN '[图片]' WHEN m.message_type=3 THEN '[文章]' ELSE c.last_message_content END lastMessage,
+  d.state requestState,d.initiator_id initiatorId,d.viewed_at viewedAt,
+  EXISTS(SELECT 1 FROM user_focus f WHERE f.user_id=#{me} AND f.focus_user_id=u.user_id) isFollowing,
+  EXISTS(SELECT 1 FROM user_focus f WHERE f.user_id=u.user_id AND f.focus_user_id=#{me}) isFollowedBy,
+  EXISTS(SELECT 1 FROM user_block b WHERE b.user_id=#{me} AND b.blocked_user_id=u.user_id) isBlockedByMe,
+  EXISTS(SELECT 1 FROM user_block b WHERE b.user_id=u.user_id AND b.blocked_user_id=#{me}) blockedOther,
+  COALESCE(ps.allow_message_requests,1) allowRequests
+FROM direct_chat_state d JOIN conversation c ON c.conversation_id=d.conversation_id
+JOIN conversation_member cm ON cm.conversation_id=c.conversation_id AND cm.user_id=#{me}
+JOIN user_info u ON u.user_id=IF(d.user_low_id=#{me},d.user_high_id,d.user_low_id)
+LEFT JOIN user_contact_setting cs ON cs.owner_id=#{me} AND cs.target_id=u.user_id
+LEFT JOIN user_social_setting ps ON ps.user_id=u.user_id
+LEFT JOIN message m ON m.message_id=c.last_message_id</sql>
+  <insert id="ensurePair">
+    INSERT INTO direct_chat_state(user_low_id,user_high_id) VALUES(#{lo},#{hi}) ON DUPLICATE KEY UPDATE user_low_id=#{lo}
+  </insert>
+  <select id="lockPair" resultType="map" useCache="false" flushCache="true">
+    SELECT * FROM direct_chat_state WHERE user_low_id=#{lo} AND user_high_id=#{hi} FOR UPDATE
+  </select>
+  <select id="countActiveUser" resultType="long" useCache="false" flushCache="true">
+    SELECT COUNT(*) FROM user_info WHERE user_id=#{id} AND status=1
+  </select>
+  <select id="countBlocks" resultType="long" useCache="false" flushCache="true">
+    SELECT COUNT(*) FROM user_block WHERE (user_id=#{a} AND blocked_user_id=#{b}) OR (user_id=#{b} AND blocked_user_id=#{a})
+  </select>
+  <select id="countFollows" resultType="long" useCache="false" flushCache="true">
+    SELECT COUNT(*) FROM user_focus WHERE user_id=#{a} AND focus_user_id=#{b}
+  </select>
+  <update id="acceptPair">
+    UPDATE direct_chat_state SET state='ACCEPTED',permission_source=#{source},handled_at=NOW(6) WHERE user_low_id=#{lo} AND user_high_id=#{hi}
+  </update>
+  <select id="presenceAudience" resultType="map" useCache="false" flushCache="true">
+    SELECT DISTINCT u.user_id uid FROM (
+  SELECT f.focus_user_id uid FROM user_focus f JOIN user_focus back ON back.user_id=f.focus_user_id AND back.focus_user_id=f.user_id WHERE f.user_id=#{me}
+  UNION SELECT IF(d.user_low_id=#{me},d.user_high_id,d.user_low_id) uid FROM direct_chat_state d WHERE (d.user_low_id=#{me} OR d.user_high_id=#{me}) AND d.state='ACCEPTED'
+) candidates JOIN user_info u ON u.user_id=candidates.uid WHERE u.status=1
+AND NOT EXISTS(SELECT 1 FROM user_block b WHERE (b.user_id=#{me} AND b.blocked_user_id=u.user_id) OR (b.user_id=u.user_id AND b.blocked_user_id=#{me}))
+  </select>
+  <select id="findPerson" resultType="map" useCache="false" flushCache="true">
+    SELECT CAST(u.user_id AS CHAR) userId,u.nick_name nickName,u.avatar,u.person_introduction personIntroduction,
+  COALESCE(cs.remark,'') remark,u.status accountStatus,
+  EXISTS(SELECT 1 FROM user_focus f WHERE f.user_id=#{me} AND f.focus_user_id=u.user_id) isFollowing,
+  EXISTS(SELECT 1 FROM user_focus f WHERE f.user_id=u.user_id AND f.focus_user_id=#{me}) isFollowedBy,
+  EXISTS(SELECT 1 FROM user_block b WHERE b.user_id=#{me} AND b.blocked_user_id=u.user_id) isBlockedByMe,
+  EXISTS(SELECT 1 FROM user_block b WHERE b.user_id=u.user_id AND b.blocked_user_id=#{me}) blockedOther,
+  COALESCE(ps.allow_message_requests,1) allowRequests
+FROM user_info u LEFT JOIN user_contact_setting cs ON cs.owner_id=#{me} AND cs.target_id=u.user_id
+LEFT JOIN user_social_setting ps ON ps.user_id=u.user_id
+ WHERE u.user_id=#{target}
+  </select>
+  <select id="findPeople" resultType="map" useCache="false" flushCache="true">
+    SELECT CAST(u.user_id AS CHAR) userId,u.nick_name nickName,u.avatar,u.person_introduction personIntroduction,
+  COALESCE(cs.remark,'') remark,u.status accountStatus,
+  EXISTS(SELECT 1 FROM user_focus f WHERE f.user_id=#{me} AND f.focus_user_id=u.user_id) isFollowing,
+  EXISTS(SELECT 1 FROM user_focus f WHERE f.user_id=u.user_id AND f.focus_user_id=#{me}) isFollowedBy,
+  EXISTS(SELECT 1 FROM user_block b WHERE b.user_id=#{me} AND b.blocked_user_id=u.user_id) isBlockedByMe,
+  EXISTS(SELECT 1 FROM user_block b WHERE b.user_id=u.user_id AND b.blocked_user_id=#{me}) blockedOther,
+  COALESCE(ps.allow_message_requests,1) allowRequests
+FROM user_info u LEFT JOIN user_contact_setting cs ON cs.owner_id=#{me} AND cs.target_id=u.user_id
+LEFT JOIN user_social_setting ps ON ps.user_id=u.user_id
+ WHERE u.user_id IN <choose><when test="ids != null and ids.size() > 0"><foreach collection="ids" item="item" open="(" separator="," close=")">#{item}</foreach></when><otherwise>(NULL)</otherwise></choose>
+  </select>
+  <insert id="insertFollow">
+    INSERT INTO user_focus(user_id,focus_user_id,focus_time) VALUES(#{me},#{target},NOW())
+  </insert>
+  <delete id="deleteFollow">
+    DELETE FROM user_focus WHERE user_id=#{me} AND focus_user_id=#{target}
+  </delete>
+  <select id="notificationPerson" resultType="map" useCache="false" flushCache="true">
+    SELECT nick_name,avatar FROM user_info WHERE user_id=#{id}
+  </select>
+  <update id="recountFollowers">
+    UPDATE user_info SET following_count=(SELECT COUNT(*) FROM user_focus f WHERE f.user_id=#{id}),follower_count=(SELECT COUNT(*) FROM user_focus f WHERE f.focus_user_id=#{id}) WHERE user_id=#{id}
+  </update>
+  <select id="lockUsers" resultType="map" useCache="false" flushCache="true">
+    SELECT user_id FROM user_info WHERE user_id IN (#{lo},#{hi}) ORDER BY user_id FOR UPDATE
+  </select>
+  <insert id="saveRemark">
+    INSERT INTO user_contact_setting(owner_id,target_id,remark) VALUES(#{me},#{target},#{text}) ON DUPLICATE KEY UPDATE remark=#{text}
+  </insert>
+  <insert id="insertBlock">
+    INSERT IGNORE INTO user_block(user_id,blocked_user_id) VALUES(#{me},#{target})
+  </insert>
+  <delete id="deletePairFollows">
+    DELETE FROM user_focus WHERE (user_id=#{me} AND focus_user_id=#{target}) OR (user_id=#{target} AND focus_user_id=#{me})
+  </delete>
+  <update id="declinePair">
+    UPDATE direct_chat_state SET state='DECLINED',initiator_id=#{target},handled_at=NOW(6) WHERE user_low_id=#{lo} AND user_high_id=#{hi}
+  </update>
+  <delete id="deleteBlock">
+    DELETE FROM user_block WHERE user_id=#{me} AND blocked_user_id=#{target}
+  </delete>
+  <select id="countRequestsDisabled" resultType="long" useCache="false" flushCache="true">
+    SELECT COUNT(*) FROM user_social_setting WHERE user_id=#{me} AND allow_message_requests=0
+  </select>
+  <insert id="saveSettings">
+    INSERT INTO user_social_setting(user_id,allow_message_requests) VALUES(#{me},#{allow}) ON DUPLICATE KEY UPDATE allow_message_requests=#{allow}
+  </insert>
+  <insert id="createConversation">
+    INSERT INTO conversation(conversation_id,conversation_type,creator_id) VALUES(#{cid},1,#{me})
+  </insert>
+  <insert id="addMember">
+    INSERT INTO conversation_member(id,conversation_id,user_id) VALUES(#{id},#{cid},#{uid})
+  </insert>
+  <update id="attachConversation">
+    UPDATE direct_chat_state SET conversation_id=#{cid} WHERE user_low_id=#{lo} AND user_high_id=#{hi}
+  </update>
+  <update id="restoreMember">
+    UPDATE conversation_member SET is_deleted=0 WHERE conversation_id=#{cid} AND user_id=#{me}
+  </update>
+  <select id="canonicalAliases" resultType="map" useCache="false" flushCache="true">
+    SELECT conversation_id FROM direct_chat_alias WHERE old_conversation_id=#{cid}
+  </select>
+  <select id="otherMember" resultType="map" useCache="false" flushCache="true">
+    SELECT user_id FROM conversation_member WHERE conversation_id=#{cid} AND user_id&lt;&gt;#{me}
+  </select>
+  <select id="countMembership" resultType="long" useCache="false" flushCache="true">
+    SELECT COUNT(*) FROM conversation_member WHERE conversation_id=#{cid} AND user_id=#{me}
+  </select>
+  <insert id="ensureSettings">
+    INSERT INTO user_social_setting(user_id) VALUES(#{me}) ON DUPLICATE KEY UPDATE user_id=#{me}
+  </insert>
+  <select id="lockSettings" resultType="map" useCache="false" flushCache="true">
+    SELECT user_id FROM user_social_setting WHERE user_id=#{me} FOR UPDATE
+  </select>
+  <select id="countRecentRequests" resultType="long" useCache="false" flushCache="true">
+    SELECT COUNT(*) FROM direct_chat_state WHERE requested_by=#{me} AND requested_at&gt;DATE_SUB(NOW(6),INTERVAL 24 HOUR)
+  </select>
+  <update id="requestPair">
+    UPDATE direct_chat_state SET state='PENDING',initiator_id=#{me},requested_by=#{me},requested_at=NOW(6),viewed_at=NULL WHERE user_low_id=#{lo} AND user_high_id=#{hi}
+  </update>
+  <select id="conversation" resultType="map" useCache="false" flushCache="true">
+    SELECT c.conversation_id conversationId,c.conversation_type conversationType,
+  CAST(u.user_id AS CHAR) otherUserId,u.nick_name otherUserName,u.avatar otherUserAvatar,
+  COALESCE(cs.remark,'') remark,u.status accountStatus,cm.unread_count unreadCount,
+  cm.is_muted isMuted,cm.is_top isTop,cm.is_deleted isDeleted,cm.last_read_message_id lastReadMessageId,
+  c.last_message_time lastMessageTime,
+  CASE WHEN m.status=1 THEN '[消息已撤回]' WHEN m.status=2 THEN '[消息已删除]'
+    WHEN m.message_type=2 THEN '[图片]' WHEN m.message_type=3 THEN '[文章]' ELSE c.last_message_content END lastMessage,
+  d.state requestState,d.initiator_id initiatorId,d.viewed_at viewedAt,
+  EXISTS(SELECT 1 FROM user_focus f WHERE f.user_id=#{me} AND f.focus_user_id=u.user_id) isFollowing,
+  EXISTS(SELECT 1 FROM user_focus f WHERE f.user_id=u.user_id AND f.focus_user_id=#{me}) isFollowedBy,
+  EXISTS(SELECT 1 FROM user_block b WHERE b.user_id=#{me} AND b.blocked_user_id=u.user_id) isBlockedByMe,
+  EXISTS(SELECT 1 FROM user_block b WHERE b.user_id=u.user_id AND b.blocked_user_id=#{me}) blockedOther,
+  COALESCE(ps.allow_message_requests,1) allowRequests
+FROM direct_chat_state d JOIN conversation c ON c.conversation_id=d.conversation_id
+JOIN conversation_member cm ON cm.conversation_id=c.conversation_id AND cm.user_id=#{me}
+JOIN user_info u ON u.user_id=IF(d.user_low_id=#{me},d.user_high_id,d.user_low_id)
+LEFT JOIN user_contact_setting cs ON cs.owner_id=#{me} AND cs.target_id=u.user_id
+LEFT JOIN user_social_setting ps ON ps.user_id=u.user_id
+LEFT JOIN message m ON m.message_id=c.last_message_id
+ WHERE c.conversation_id=#{cid}
+  </select>
+  <update id="markViewed">
+    UPDATE direct_chat_state SET viewed_at=COALESCE(viewed_at,NOW(6)) WHERE conversation_id=#{cid}
+  </update>
+  <update id="restoreConversation">
+    UPDATE conversation_member SET is_deleted=0 WHERE conversation_id=#{cid}
+  </update>
+  <update id="declineRequest">
+    UPDATE direct_chat_state SET state='DECLINED',viewed_at=NOW(6),handled_at=NOW(6) WHERE conversation_id=#{cid}
+  </update>
+  <update id="pinConversation">
+    UPDATE conversation_member SET is_top=#{v} WHERE conversation_id=#{cid} AND user_id=#{me}
+  </update>
+  <update id="muteConversation">
+    UPDATE conversation_member SET is_muted=#{v} WHERE conversation_id=#{cid} AND user_id=#{me}
+  </update>
+  <select id="lockConversation" resultType="map" useCache="false" flushCache="true">
+    SELECT conversation_id FROM conversation WHERE conversation_id=#{cid} FOR UPDATE
+  </select>
+  <select id="countMessage" resultType="long" useCache="false" flushCache="true">
+    SELECT COUNT(*) FROM message WHERE conversation_id=#{cid} AND message_id=#{id}
+  </select>
+  <update id="advanceReadCursor">
+    UPDATE conversation_member SET last_read_message_id=GREATEST(COALESCE(last_read_message_id,0),#{id}) WHERE conversation_id=#{cid} AND user_id=#{me}
+  </update>
+  <update id="recountUnread">
+    UPDATE conversation_member cm SET unread_count=(SELECT COUNT(*) FROM message m WHERE m.conversation_id=#{cid} AND m.sender_id&lt;&gt;#{me} AND m.message_id&gt;COALESCE(cm.last_read_message_id,0)) WHERE cm.conversation_id=#{cid} AND cm.user_id=#{me}
+  </update>
+  <select id="unreadState" resultType="map" useCache="false" flushCache="true">
+    SELECT unread_count unreadCount,CAST(COALESCE(last_read_message_id,0) AS CHAR) lastReadMessageId FROM conversation_member WHERE conversation_id=#{cid} AND user_id=#{me}
+  </select>
+  <select id="publicArticle" resultType="map" useCache="false" flushCache="true">
+    SELECT CAST(a.article_id AS CHAR) articleId,a.title,a.cover_image coverImage,u.nick_name authorName FROM article_info a JOIN user_info u ON u.user_id=a.user_id WHERE a.article_id=#{id} AND a.status=1 AND a.deleted=0 AND a.required_level=0 AND u.status=1
+  </select>
+  <select id="publicArticles" resultType="map" useCache="false" flushCache="true">
+    SELECT CAST(a.article_id AS CHAR) articleId,a.title,a.cover_image coverImage,u.nick_name authorName FROM article_info a JOIN user_info u ON u.user_id=a.user_id WHERE a.article_id IN <choose><when test="ids != null and ids.size() > 0"><foreach collection="ids" item="item" open="(" separator="," close=")">#{item}</foreach></when><otherwise>(NULL)</otherwise></choose> AND a.status=1 AND a.deleted=0 AND a.required_level=0 AND u.status=1
+  </select>
+  <select id="quotedMessages" resultType="map" useCache="false" flushCache="true">
+    SELECT CAST(m.message_id AS CHAR) id,CAST(m.conversation_id AS CHAR) cid,m.status,m.message_type,m.content,u.nick_name FROM message m LEFT JOIN user_info u ON u.user_id=m.sender_id WHERE m.message_id IN <choose><when test="ids != null and ids.size() > 0"><foreach collection="ids" item="item" open="(" separator="," close=")">#{item}</foreach></when><otherwise>(NULL)</otherwise></choose>
+  </select>
+  <sql id="contactWhere">
+    WHERE u.user_id &lt;&gt; #{me} AND u.status=1 AND
+    <choose>
+      <when test="kind == 'friends'">EXISTS(SELECT 1 FROM user_focus f WHERE f.user_id=#{me} AND f.focus_user_id=u.user_id) AND EXISTS(SELECT 1 FROM user_focus f WHERE f.user_id=u.user_id AND f.focus_user_id=#{me})</when>
+      <when test="kind == 'followers'">EXISTS(SELECT 1 FROM user_focus f WHERE f.user_id=u.user_id AND f.focus_user_id=#{me})</when>
+      <when test="kind == 'following'">EXISTS(SELECT 1 FROM user_focus f WHERE f.user_id=#{me} AND f.focus_user_id=u.user_id)</when>
+      <when test="kind == 'blocked'">EXISTS(SELECT 1 FROM user_block b WHERE b.user_id=#{me} AND b.blocked_user_id=u.user_id)</when>
+      <otherwise>1=0</otherwise>
+    </choose>
+    <if test="kind != 'blocked'">AND NOT EXISTS(SELECT 1 FROM user_block b WHERE (b.user_id=#{me} AND b.blocked_user_id=u.user_id) OR (b.user_id=u.user_id AND b.blocked_user_id=#{me}))</if>
+    AND (u.nick_name LIKE #{q} ESCAPE '!' OR COALESCE(cs.remark,'') LIKE #{q} ESCAPE '!')
+  </sql>
+  <select id="contacts" resultType="map" useCache="false" flushCache="true">
+    <include refid="person"/><include refid="contactWhere"/>
+    ORDER BY COALESCE(NULLIF(cs.remark,''),u.nick_name),u.user_id LIMIT #{size} OFFSET #{offset}
+  </select>
+  <select id="countContacts" resultType="long" useCache="false" flushCache="true">
+    SELECT COUNT(*) FROM user_info u LEFT JOIN user_contact_setting cs ON cs.owner_id=#{me} AND cs.target_id=u.user_id
+    <include refid="contactWhere"/>
+  </select>
+  <select id="conversations" resultType="map" useCache="false" flushCache="true">
+    <include refid="chat"/>
+    <choose>
+      <when test="requests">WHERE d.state='PENDING' AND d.initiator_id &lt;&gt; #{me}</when>
+      <otherwise>WHERE cm.is_deleted=0
+        AND NOT (d.state IN ('PENDING','DECLINED') AND d.initiator_id &lt;&gt; #{me} AND d.permission_source IS NULL)
+        AND NOT (d.state='NONE' AND c.creator_id &lt;&gt; #{me} AND c.last_message_id IS NULL)
+      </otherwise>
+    </choose>
+    ORDER BY cm.is_top DESC,c.last_message_time DESC,c.conversation_id DESC
+  </select>
+</mapper>

@@ -11,9 +11,9 @@ import static org.mockito.Mockito.*;
 
 class RecommendationTests {
     @Test void forwardsOwnedTopicsLevelAndFilterWhileRetainingBehaviorSignals() {
-        var mapper=mock(ArticleMapper.class); var tags=mock(UserTagPreferenceMapper.class);
-        var profile=mock(ArticlePreferenceService.class); var access=mock(ArticleAccessService.class);
-        var service=new RecommendServiceImpl();
+        ArticleMapper mapper=mock(ArticleMapper.class); UserTagPreferenceMapper tags=mock(UserTagPreferenceMapper.class);
+        ArticlePreferenceService profile=mock(ArticlePreferenceService.class); ArticleAccessService access=mock(ArticleAccessService.class);
+        RecommendServiceImpl service=new RecommendServiceImpl();
         ReflectionTestUtils.setField(service,"articleMapper",mapper);
         ReflectionTestUtils.setField(service,"userTagPreferenceMapper",tags);
         ReflectionTestUtils.setField(service,"profile",profile);

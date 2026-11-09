@@ -17,10 +17,13 @@
 !/docs/article-quote-comments.md
 !/docs/human-answer-review.md
 !/docs/checkpoint-storage.md
+!/docs/unified-auth-service-plan.md
+!/docs/unified-auth-service.md
 !python-agent/docs/tool-recovery.md
 !python-agent/app/skills/definitions/*.md
 
 # Local IDE and AI assistant state
+/deploy/secrets/
 .idea/
 **/.idea/
 .vscode/
@@ -88,3 +91,12 @@ Desktop.ini
 
 /deploy/.env
 /backups/
+
+# Local study materials and observability downloads
+/docs/academic/
+/docs/reference/
+/docs/validation/
+/docs/assets/
+/docs/learning/interviews/
+/artifacts/
+/tools/observability/*.jar

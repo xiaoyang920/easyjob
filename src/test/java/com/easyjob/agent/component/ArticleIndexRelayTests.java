@@ -14,7 +14,7 @@ class ArticleIndexRelayTests {
     private final ArticleIndexOutbox.Job job = new ArticleIndexOutbox.Job("job-id", 42L, "UPDATE", "article.update", 1, "lease-token");
 
     @Test void acceptedMessageWaitsForConsumerCompletion() {
-        var outbox = mock(ArticleIndexOutbox.class); var rabbit = mock(RabbitTemplate.class);
+        ArticleIndexOutbox outbox = mock(ArticleIndexOutbox.class); RabbitTemplate rabbit = mock(RabbitTemplate.class);
         when(outbox.claim()).thenReturn(job);
         doAnswer(call -> {
             ArticleVectorMessage message = call.getArgument(2);
@@ -29,7 +29,7 @@ class ArticleIndexRelayTests {
 
     @Test void rejectedOrUnroutedMessageIsRetried() {
         for (boolean returned : new boolean[]{false, true}) {
-            var outbox = mock(ArticleIndexOutbox.class); var rabbit = mock(RabbitTemplate.class);
+            ArticleIndexOutbox outbox = mock(ArticleIndexOutbox.class); RabbitTemplate rabbit = mock(RabbitTemplate.class);
             when(outbox.claim()).thenReturn(job);
             doAnswer(call -> {
                 CorrelationData data = call.getArgument(3);
@@ -44,7 +44,7 @@ class ArticleIndexRelayTests {
     }
 
     @Test void connectionFailureLeavesRecoverableIntent() {
-        var outbox = mock(ArticleIndexOutbox.class); var rabbit = mock(RabbitTemplate.class);
+        ArticleIndexOutbox outbox = mock(ArticleIndexOutbox.class); RabbitTemplate rabbit = mock(RabbitTemplate.class);
         when(outbox.claim()).thenReturn(job);
         doThrow(new IllegalStateException("offline")).when(rabbit).convertAndSend(anyString(), anyString(), any(ArticleVectorMessage.class), any(CorrelationData.class));
         new ArticleIndexRelay(outbox, rabbit).relayOnce();

@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.easyjob.mapper.UserMapper">
+    <select id="credentialById" resultType="com.easyjob.entity.User">
+        SELECT * FROM user_info WHERE user_id=#{id}
+    </select>
     <sql id="searchUserFilter">
         u.status = 1 AND (u.nick_name LIKE #{pattern} ESCAPE '!' OR u.person_introduction LIKE #{pattern} ESCAPE '!')
     </sql>

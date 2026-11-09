@@ -17,6 +17,15 @@ test('editor signature tracks content but excludes revision locks',()=>{
  assert.equal(draftSignature(a,'正文',[]),draftSignature({...a,lockVersion:2,revisionId:'11'},'正文',[]))
  assert.notEqual(draftSignature(a,'正文',[]),draftSignature(a,'新增正文',[]))
 })
+
+test('recovery compares equivalent API and local field types without ignoring actual edits',()=>{
+ const server={title:'Go',summary:null,categoryId:1,coverImage:null,isOriginal:1}
+ const local={title:'Go',summary:'',categoryId:'1',coverImage:'',isOriginal:true}
+ assert.equal(draftSignature(server,'<p>正文</p>',[]),draftSignature(local,'<p>正文</p>',[]))
+ assert.notEqual(draftSignature(server,'<p>正文</p>',[]),draftSignature({...local,isOriginal:false},'<p>正文</p>',[]))
+ assert.notEqual(draftSignature(server,'<p>正文</p>',[]),draftSignature(local,'<p><strong>正文</strong></p>',[]))
+ assert.notEqual(draftSignature(server,'<p>正文</p>',[]),draftSignature(local,'<p>正文</p><img src="/uploads/local.png">',[]))
+})
 test('revision comparison reconstructs both versions without losing lines',()=>{
  for(const [a,b] of [['a\nb\nc','a\nnew\nc'],['','new'],['same','same'],['line\n','line'],[Array.from({length:1000},(_,i)=>'old'+i).join('\n'),Array.from({length:1000},(_,i)=>'new'+i).join('\n')]]){
   const diff=compareLines(a,b)

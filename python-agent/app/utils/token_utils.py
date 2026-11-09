@@ -22,7 +22,10 @@ def count_tokens(text: str) -> int:
     """
     if not text:
         return 0
-    return len(_encoder.encode(text, disallowed_special=()))
+    from app.utils.context_calculations import active_calculations
+    calculation = active_calculations.get()
+    encode = lambda value: len(_encoder.encode(value, disallowed_special=()))
+    return calculation.count(text, encode) if calculation is not None else encode(text)
 
 
 def count_messages_tokens(messages: list[dict]) -> int:

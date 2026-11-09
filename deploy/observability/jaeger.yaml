@@ -1,0 +1,38 @@
+extensions:
+  jaeger_storage:
+    backends:
+      persistent:
+        badger:
+          ephemeral: false
+          consistency: true
+          directories:
+            keys: /var/lib/jaeger/keys
+            values: /var/lib/jaeger/values
+          ttl:
+            spans: 720h
+  jaeger_query:
+    storage:
+      traces: persistent
+    http:
+      endpoint: 0.0.0.0:16686
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  batch: {}
+
+exporters:
+  jaeger_storage_exporter:
+    trace_storage: persistent
+
+service:
+  extensions: [jaeger_storage, jaeger_query]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [jaeger_storage_exporter]

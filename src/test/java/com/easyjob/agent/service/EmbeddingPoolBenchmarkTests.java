@@ -19,6 +19,21 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
 import static org.junit.jupiter.api.Assertions.*;
+import com.fasterxml.jackson.databind.JsonNode;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.TreeMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledExecutorService;
 
 /** Real project executor + real loopback HTTP; no paid model, Redis, MySQL or ES calls. */
 @EnabledIfEnvironmentVariable(named = "EASYJOB_EMBEDDING_BENCHMARK", matches = "1")
@@ -46,7 +61,7 @@ class EmbeddingPoolBenchmarkTests {
             server.createContext("/embedding", exchange -> {
                 boolean acquired = false;
                 try {
-                    var request = JSON.readTree(exchange.getRequestBody());calls.incrementAndGet();
+                    JsonNode request = JSON.readTree(exchange.getRequestBody());calls.incrementAndGet();
                     acquired = slots.tryAcquire();
                     if (!acquired) {
                         limited.incrementAndGet();exchange.sendResponseHeaders(429, -1);return;
@@ -75,10 +90,10 @@ class EmbeddingPoolBenchmarkTests {
         void reset() throws Exception { awaitIdle();calls.set(0);limited.set(0);peak.set(0); }
         void request(String identity) {
             try {
-                var request=HttpRequest.newBuilder(URI.create("http://127.0.0.1:"+server.getAddress().getPort()+"/embedding"))
+                HttpRequest request=HttpRequest.newBuilder(URI.create("http://127.0.0.1:"+server.getAddress().getPort()+"/embedding"))
                         .timeout(Duration.ofSeconds(3)).header("Content-Type","application/json")
                         .POST(HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(Map.of("id",identity)))).build();
-                var response=client.send(request,HttpResponse.BodyHandlers.ofString());
+                HttpResponse<String> response=client.send(request,HttpResponse.BodyHandlers.ofString());
                 if(response.statusCode()!=200) throw new IllegalStateException("simulated_provider_"+response.statusCode());
             } catch(InterruptedException error) {
                 Thread.currentThread().interrupt();throw new IllegalStateException("interrupted",error);
@@ -110,16 +125,16 @@ class EmbeddingPoolBenchmarkTests {
     }
 
     private Measurement measure(Profile profile,Workload workload,Provider provider,int simulatedStorageMs) throws Exception {
-        var properties=new EmbeddingExecutionProperties();
+        EmbeddingExecutionProperties properties=new EmbeddingExecutionProperties();
         properties.setCorePoolSize(profile.core);properties.setMaxPoolSize(profile.max);
         properties.setQueueCapacity(profile.queue);properties.setPerArticleParallelism(profile.window);
         properties.setArticleTimeout(Duration.ofMillis(workload.deadlineMs));
-        var pool=new EmbeddingExecutionConfiguration().articleEmbeddingExecutor(properties);pool.initialize();
-        var service=new ArticleEmbeddingService(new HttpEmbedding(provider,workload.cached),pool,properties);
-        var workers=new AtomicInteger();var queued=new AtomicInteger();
-        var sampler=Executors.newSingleThreadScheduledExecutor();
-        var startGate=new CountDownLatch(1);
-        var callerPool=Executors.newFixedThreadPool(workload.consumers);
+        ThreadPoolTaskExecutor pool=new EmbeddingExecutionConfiguration().articleEmbeddingExecutor(properties);pool.initialize();
+        ArticleEmbeddingService service=new ArticleEmbeddingService(new HttpEmbedding(provider,workload.cached),pool,properties);
+        AtomicInteger workers=new AtomicInteger();AtomicInteger queued=new AtomicInteger();
+        ScheduledExecutorService sampler=Executors.newSingleThreadScheduledExecutor();
+        CountDownLatch startGate=new CountDownLatch(1);
+        ExecutorService callerPool=Executors.newFixedThreadPool(workload.consumers);
         provider.reset();
         sampler.scheduleAtFixedRate(()->{
             workers.accumulateAndGet(pool.getActiveCount(),Math::max);
@@ -128,15 +143,15 @@ class EmbeddingPoolBenchmarkTests {
         long started=System.nanoTime();
         List<Trial> results=new ArrayList<>();
         try {
-            var futures=new ArrayList<Future<Trial>>();
+            ArrayList<Future<Trial>> futures=new ArrayList<Future<Trial>>();
             for(int article=0;article<workload.chunks.length;article++) {
                 int identity=article,count=workload.chunks[article];
                 long enqueued=System.nanoTime();
                 futures.add(callerPool.submit(()->{
                     startGate.await();long begin=System.nanoTime();String outcome="success";
                     try {
-                        var texts=IntStream.range(0,count).mapToObj(chunk->"article-"+identity+"-"+chunk).toList();
-                        var vectors=service.embed(texts);assertEquals(count,vectors.size());
+                        List<String> texts=IntStream.range(0,count).mapToObj(chunk->"article-"+identity+"-"+chunk).toList();
+                        List<List<Double>> vectors=service.embed(texts);assertEquals(count,vectors.size());
                         for(int i=0;i<count;i++) assertEquals((double)i,vectors.get(i).getFirst());
                         if(simulatedStorageMs>0)Thread.sleep(simulatedStorageMs);
                     } catch(Exception error) { outcome=classify(error); }
@@ -146,7 +161,7 @@ class EmbeddingPoolBenchmarkTests {
                 }));
             }
             startGate.countDown();
-            for(var future:futures) results.add(future.get(30,TimeUnit.SECONDS));
+            for(Future<Trial> future:futures) results.add(future.get(30,TimeUnit.SECONDS));
             double elapsed=(System.nanoTime()-started)/1_000_000.0;
             int largest=pool.getThreadPoolExecutor().getLargestPoolSize();
             return new Measurement(elapsed,results,provider.calls.get(),provider.limited.get(),provider.peak.get(),
@@ -165,17 +180,17 @@ class EmbeddingPoolBenchmarkTests {
         return "unexpected_"+error.getClass().getSimpleName();
     }
     private double percentile(List<Double> values,double percentile) {
-        var ordered=values.stream().sorted().toList();
+        List<Double> ordered=values.stream().sorted().toList();
         return ordered.get(Math.min(ordered.size()-1,(int)Math.ceil(ordered.size()*percentile)-1));
     }
 
     @Test void compareBoundedPoolProfiles() throws Exception {
-        var profiles=List.of(new Profile("serial",1,1,8,1),new Profile("fixed2",2,2,8,2),
+        List<Profile> profiles=List.of(new Profile("serial",1,1,8,1),new Profile("fixed2",2,2,8,2),
                 new Profile("elastic2_4_q16",2,4,16,2),new Profile("fixed4_q8",4,4,8,2),
                 new Profile("elastic4_8",4,8,8,2),new Profile("fixed8",8,8,8,2),
                 new Profile("fixed4_q64",4,4,64,2),new Profile("fixed4_window4",4,4,8,4),
                 new Profile("fixed4_q0",4,4,0,2));
-        var workloads=List.of(
+        List<Workload> workloads=List.of(
                 new Workload("single_long",1,new int[]{256},4,false,10_000),
                 new Workload("short_backlog",4,new int[]{8,16,12,8,16,8,16,8,12,16,8,16},4,false,10_000),
                 new Workload("mixed_two_consumers",2,new int[]{8,16,32,64,128,256,64,24},4,false,10_000),
@@ -184,25 +199,25 @@ class EmbeddingPoolBenchmarkTests {
                 new Workload("provider_capacity_2",4,new int[]{64,64,128,64,128,64,32,64},2,false,10_000),
                 new Workload("provider_capacity_8",4,new int[]{64,64,128,64,128,64,32,64},8,false,10_000),
                 new Workload("overload_16_callers",16,IntStream.range(0,24).map(i->64).toArray(),4,false,350));
-        var report=new LinkedHashMap<String,Object>();
+        LinkedHashMap<String, Object> report=new LinkedHashMap<String,Object>();
         report.put("mode","real_project_executor_with_simulated_loopback_embedding_http");
         report.put("paid_model_calls",0);report.put("database_or_es_writes",0);
         report.put("provider_latency_ms","deterministic 60..100ms, synthetic; excludes real token-length/Redis/provider effects");
         report.put("normal_provider_capacity_assumption",4);
         report.put("repetitions",3);report.put("java_version",System.getProperty("java.version"));
         report.put("available_processors",Runtime.getRuntime().availableProcessors());
-        var rows=new ArrayList<Map<String,Object>>();report.put("results",rows);
+        ArrayList<Map<String, Object>> rows=new ArrayList<Map<String,Object>>();report.put("results",rows);
         Path output=Path.of(System.getProperty("embedding.benchmark.output","logs/embedding-pool-benchmark.json"));
         Files.createDirectories(output.toAbsolutePath().getParent());
-        for(var workload:workloads) try(var provider=new Provider(workload.providerCapacity)) {
+        for(Workload workload:workloads) try(Provider provider=new Provider(workload.providerCapacity)) {
             provider.request("warmup"); // Exclude first HTTP-client connection/class initialization.
-            for(var profile:profiles) {
-                var trials=new ArrayList<Measurement>();
+            for(Profile profile:profiles) {
+                ArrayList<Measurement> trials=new ArrayList<Measurement>();
                 for(int repeat=0;repeat<3;repeat++)trials.add(measure(profile,workload,provider));
-                var articles=trials.stream().flatMap(trial->trial.articles.stream()).toList();
-                var outcomes=new TreeMap<String,Long>();articles.forEach(article->outcomes.merge(article.outcome,1L,Long::sum));
+                List<Trial> articles=trials.stream().flatMap(trial->trial.articles.stream()).toList();
+                TreeMap<String, Long> outcomes=new TreeMap<String,Long>();articles.forEach(article->outcomes.merge(article.outcome,1L,Long::sum));
                 assertTrue(outcomes.keySet().stream().noneMatch(key->key.startsWith("unexpected_")),outcomes.toString());
-                var row=new LinkedHashMap<String,Object>();
+                LinkedHashMap<String, Object> row=new LinkedHashMap<String,Object>();
                 row.put("workload",workload.name);row.put("profile",profile.name);
                 row.put("core",profile.core);row.put("max",profile.max);row.put("queue",profile.queue);row.put("article_window",profile.window);
                 row.put("consumers",workload.consumers);row.put("article_chunks",workload.chunks);
@@ -223,16 +238,16 @@ class EmbeddingPoolBenchmarkTests {
             }
         }
         assertEquals(72,rows.size());
-        var selected=rows.stream().filter(row->row.get("profile").equals("fixed4_q8")
+        List<Map<String, Object>> selected=rows.stream().filter(row->row.get("profile").equals("fixed4_q8")
                 && !Set.of("provider_capacity_2","overload_16_callers").contains(row.get("workload"))).toList();
         assertTrue(selected.stream().allMatch(row->((Map<?,?>)row.get("outcomes")).keySet().equals(Set.of("success"))));
         report.put("passed",true);JSON.writerWithDefaultPrettyPrinter().writeValue(output.toFile(),report);
     }
 
     @Test void compareConsumerLimitsOnSameInputs() throws Exception {
-        var profile=new Profile("fixed4_q8",4,4,8,2);
-        var rows=new ArrayList<Map<String,Object>>();
-        var report=new LinkedHashMap<String,Object>();
+        Profile profile=new Profile("fixed4_q8",4,4,8,2);
+        ArrayList<Map<String, Object>> rows=new ArrayList<Map<String,Object>>();
+        LinkedHashMap<String, Object> report=new LinkedHashMap<String,Object>();
         report.put("mode","same_inputs_consumer_comparison_with_simulated_loopback_embedding");
         report.put("paid_model_calls",0);report.put("database_or_es_writes",0);
         report.put("provider_capacity",4);report.put("provider_latency_ms","synthetic 60..100ms");
@@ -243,16 +258,16 @@ class EmbeddingPoolBenchmarkTests {
             int[] chunks=scenario.equals("short_articles")
                     ?new int[]{8,16,12,8,16,8,16,8,12,16,8,16}:IntStream.range(0,8).map(i->64).toArray();
             int storageMs=scenario.equals("long_with_storage_wait")?200:0;
-            try(var provider=new Provider(4)) {
+            try(Provider provider=new Provider(4)) {
                 provider.request("warmup");
                 for(int consumers:List.of(1,2,4)) {
-                    var workload=new Workload(scenario,consumers,chunks,4,false,10_000);
-                    var trials=new ArrayList<Measurement>();
+                    Workload workload=new Workload(scenario,consumers,chunks,4,false,10_000);
+                    ArrayList<Measurement> trials=new ArrayList<Measurement>();
                     for(int repeat=0;repeat<3;repeat++)trials.add(measure(profile,workload,provider,storageMs));
-                    var articles=trials.stream().flatMap(trial->trial.articles.stream()).toList();
+                    List<Trial> articles=trials.stream().flatMap(trial->trial.articles.stream()).toList();
                     assertTrue(articles.stream().allMatch(article->article.outcome.equals("success")));
                     double elapsed=trials.stream().mapToDouble(Measurement::elapsedMs).average().orElseThrow();
-                    var row=new LinkedHashMap<String,Object>();row.put("scenario",scenario);row.put("consumers",consumers);
+                    LinkedHashMap<String, Object> row=new LinkedHashMap<String,Object>();row.put("scenario",scenario);row.put("consumers",consumers);
                     row.put("same_article_chunks",chunks);row.put("simulated_storage_wait_ms",storageMs);
                     row.put("mean_whole_workload_ms",elapsed);row.put("successful_article_trials",articles.size());
                     row.put("article_processing_p95_ms",percentile(articles.stream().map(Trial::milliseconds).toList(),.95));
@@ -269,27 +284,27 @@ class EmbeddingPoolBenchmarkTests {
     }
 
     @Test void compareArticleWindowsOnSameInputs() throws Exception {
-        var profiles=List.of(new Profile("window2_q8",4,4,8,2),
+        List<Profile> profiles=List.of(new Profile("window2_q8",4,4,8,2),
                 new Profile("window4_q16",4,4,16,4),new Profile("all_batches_q128",4,4,128,32));
-        var workloads=List.of(new Workload("single_512_chunks",1,new int[]{512},4,false,10_000),
+        List<Workload> workloads=List.of(new Workload("single_512_chunks",1,new int[]{512},4,false,10_000),
                 new Workload("mixed_with_short_articles",4,new int[]{512,8,16,64,128,8,32,16},4,false,10_000));
-        var report=new LinkedHashMap<String,Object>();var rows=new ArrayList<Map<String,Object>>();
+        LinkedHashMap<String, Object> report=new LinkedHashMap<String,Object>();ArrayList<Map<String, Object>> rows=new ArrayList<Map<String,Object>>();
         report.put("mode","same_inputs_article_window_comparison_with_simulated_loopback_embedding");
         report.put("paid_model_calls",0);report.put("database_or_es_writes",0);report.put("provider_capacity",4);
         report.put("provider_latency_ms","synthetic 60..100ms");report.put("repetitions",3);report.put("results",rows);
         Path output=Path.of("logs/embedding-window-benchmark.json");
         Files.createDirectories(output.toAbsolutePath().getParent());
-        for(var workload:workloads)try(var provider=new Provider(4)) {
+        for(Workload workload:workloads)try(Provider provider=new Provider(4)) {
             provider.request("warmup");
-            for(var profile:profiles) {
-                var trials=new ArrayList<Measurement>();
+            for(Profile profile:profiles) {
+                ArrayList<Measurement> trials=new ArrayList<Measurement>();
                 for(int repeat=0;repeat<3;repeat++)trials.add(measure(profile,workload,provider));
-                var articles=trials.stream().flatMap(trial->trial.articles.stream()).toList();
+                List<Trial> articles=trials.stream().flatMap(trial->trial.articles.stream()).toList();
                 assertTrue(articles.stream().allMatch(article->article.outcome.equals("success")));
-                var shortArticles=new ArrayList<Double>();
-                for(var trial:trials)for(int i=0;i<workload.chunks.length;i++)
+                ArrayList<Double> shortArticles=new ArrayList<Double>();
+                for(Measurement trial:trials)for(int i=0;i<workload.chunks.length;i++)
                     if(workload.chunks[i]<=16)shortArticles.add(trial.articles.get(i).milliseconds);
-                var row=new LinkedHashMap<String,Object>();row.put("scenario",workload.name);row.put("profile",profile.name);
+                LinkedHashMap<String, Object> row=new LinkedHashMap<String,Object>();row.put("scenario",workload.name);row.put("profile",profile.name);
                 row.put("same_article_chunks",workload.chunks);row.put("consumers",workload.consumers);
                 row.put("article_window",profile.window);row.put("queue",profile.queue);row.put("core",profile.core);row.put("max",profile.max);
                 row.put("mean_whole_workload_ms",trials.stream().mapToDouble(Measurement::elapsedMs).average().orElseThrow());
@@ -309,7 +324,7 @@ class EmbeddingPoolBenchmarkTests {
     @Test void compareConsumersAndWorkersAtCapacity100() throws Exception {
         record Candidate(Profile profile,int consumers) {}
         record Scenario(String name,int[] chunks,int storageMs,boolean single) {}
-        var candidates=new ArrayList<Candidate>();
+        ArrayList<Candidate> candidates=new ArrayList<Candidate>();
         for(int consumers:List.of(2,4,8))for(int threads:List.of(4,8,16))for(int window:List.of(2,4)) {
             // Size the queue for all consumer windows, so this test isolates useful
             // parallelism rather than accidentally comparing rejection-heavy queues.
@@ -317,20 +332,20 @@ class EmbeddingPoolBenchmarkTests {
             candidates.add(new Candidate(new Profile("c"+consumers+"_t"+threads+"_w"+window+"_q"+queue,
                     threads,threads,queue,window),consumers));
         }
-        var singleCandidates=new ArrayList<Candidate>();
+        ArrayList<Candidate> singleCandidates=new ArrayList<Candidate>();
         for(int threads:List.of(4,8,16))for(int window:List.of(2,4,8))
             singleCandidates.add(new Candidate(new Profile("c1_t"+threads+"_w"+window+"_q16",
                     threads,threads,16,window),1));
         int[] shortChunks=IntStream.range(0,24).map(i->new int[]{8,12,16}[i%3]).toArray();
         int[] longChunks=IntStream.range(0,12).map(i->new int[]{64,128,256}[i%3]).toArray();
         int[] mixedChunks=IntStream.range(0,24).map(i->new int[]{512,8,16,64,128,8,32,16}[i%8]).toArray();
-        var scenarios=List.of(new Scenario("short_backlog",shortChunks,0,false),
+        List<Scenario> scenarios=List.of(new Scenario("short_backlog",shortChunks,0,false),
                 new Scenario("long_backlog",longChunks,0,false),
                 new Scenario("long_with_storage_wait",longChunks,200,false),
                 new Scenario("mixed_with_storage_wait",mixedChunks,200,false),
                 new Scenario("single_512_chunks",new int[]{512},0,true));
         int repetitions=3;
-        var rows=new ArrayList<Map<String,Object>>();var report=new LinkedHashMap<String,Object>();
+        ArrayList<Map<String, Object>> rows=new ArrayList<Map<String,Object>>();LinkedHashMap<String, Object> report=new LinkedHashMap<String,Object>();
         report.put("mode","capacity_100_same_inputs_consumer_worker_comparison_with_simulated_loopback_http");
         report.put("paid_model_calls",0);report.put("database_or_es_writes",0);
         report.put("provider_capacity",100);report.put("provider_handler_threads",100);
@@ -346,19 +361,19 @@ class EmbeddingPoolBenchmarkTests {
         Path output=Path.of("logs/embedding-capacity100-benchmark.json");
         Files.createDirectories(output.toAbsolutePath().getParent());
         int completed=0;
-        for(var scenario:scenarios)try(var provider=new Provider(100)) {
+        for(Scenario scenario:scenarios)try(Provider provider=new Provider(100)) {
             provider.request("warmup");
             measure(new Profile("warmup",4,4,8,2),
                     new Workload("warmup",2,new int[]{32,32},100,false,20_000),provider);
-            var compared=scenario.single?singleCandidates:candidates;
-            var trialsByCandidate=new LinkedHashMap<Candidate,List<Measurement>>();
-            for(var candidate:compared)trialsByCandidate.put(candidate,new ArrayList<>());
+            ArrayList<Candidate> compared=scenario.single?singleCandidates:candidates;
+            LinkedHashMap<Candidate, List<Measurement>> trialsByCandidate=new LinkedHashMap<Candidate,List<Measurement>>();
+            for(Candidate candidate:compared)trialsByCandidate.put(candidate,new ArrayList<>());
             for(int repeat=0;repeat<repetitions;repeat++) {
-                var order=new ArrayList<>(compared);
+                ArrayList<Candidate> order=new ArrayList<>(compared);
                 Collections.shuffle(order,new Random(20261016L+repeat));
-                for(var candidate:order) {
-                    var workload=new Workload(scenario.name,candidate.consumers,scenario.chunks,100,false,20_000);
-                    var result=measure(candidate.profile,workload,provider,scenario.storageMs);
+                for(Candidate candidate:order) {
+                    Workload workload=new Workload(scenario.name,candidate.consumers,scenario.chunks,100,false,20_000);
+                    Measurement result=measure(candidate.profile,workload,provider,scenario.storageMs);
                     trialsByCandidate.get(candidate).add(result);completed++;
                     System.out.printf(Locale.ROOT,
                             "capacity100-benchmark scenario=%s repeat=%d profile=%s workload_ms=%.1f success=%d/%d%n",
@@ -366,15 +381,15 @@ class EmbeddingPoolBenchmarkTests {
                             result.articles.stream().filter(article->article.outcome.equals("success")).count(),result.articles.size());
                 }
             }
-            for(var entry:trialsByCandidate.entrySet()) {
-                var candidate=entry.getKey();var profile=candidate.profile;var trials=entry.getValue();
-                var articles=trials.stream().flatMap(trial->trial.articles.stream()).toList();
-                var outcomes=new TreeMap<String,Long>();articles.forEach(article->outcomes.merge(article.outcome,1L,Long::sum));
-                var shortArticles=new ArrayList<Double>();
-                for(var trial:trials)for(int i=0;i<scenario.chunks.length;i++)
+            for(Entry<Candidate, List<Measurement>> entry:trialsByCandidate.entrySet()) {
+                Candidate candidate=entry.getKey();Profile profile=candidate.profile;List<Measurement> trials=entry.getValue();
+                List<Trial> articles=trials.stream().flatMap(trial->trial.articles.stream()).toList();
+                TreeMap<String, Long> outcomes=new TreeMap<String,Long>();articles.forEach(article->outcomes.merge(article.outcome,1L,Long::sum));
+                ArrayList<Double> shortArticles=new ArrayList<Double>();
+                for(Measurement trial:trials)for(int i=0;i<scenario.chunks.length;i++)
                     if(scenario.chunks[i]<=16)shortArticles.add(trial.articles.get(i).endToEndMs);
                 double elapsed=trials.stream().mapToDouble(Measurement::elapsedMs).average().orElseThrow();
-                var row=new LinkedHashMap<String,Object>();
+                LinkedHashMap<String, Object> row=new LinkedHashMap<String,Object>();
                 row.put("scenario",scenario.name);row.put("profile",profile.name);
                 row.put("consumers",candidate.consumers);row.put("core",profile.core);row.put("max",profile.max);
                 row.put("queue",profile.queue);row.put("article_window",profile.window);
@@ -404,18 +419,18 @@ class EmbeddingPoolBenchmarkTests {
     }
 
     private void validateCapacity100Report(Map<String,Object> report) {
-        var tree=JSON.valueToTree(report);var rows=tree.path("results");
+        JsonNode tree=JSON.valueToTree(report);JsonNode rows=tree.path("results");
         assertEquals("capacity_100_same_inputs_consumer_worker_comparison_with_simulated_loopback_http",tree.path("mode").asText());
         assertEquals(100,tree.path("provider_capacity").asInt());
         assertEquals(3,tree.path("repetitions").asInt());
         assertEquals(81,rows.size());assertEquals(243,tree.path("completed_workload_runs").asInt());
         int articleTrials=0;
-        var identities=new HashSet<String>();var sameInputs=new HashMap<String,List<Integer>>();
-        for(var row:rows) {
+        HashSet<String> identities=new HashSet<String>();HashMap<String, List<Integer>> sameInputs=new HashMap<String,List<Integer>>();
+        for(JsonNode row:rows) {
             assertTrue(identities.add(row.path("scenario").asText()+"/"+row.path("profile").asText()));
             assertEquals(1,row.path("outcomes").size(),"Latency ranking requires all-success measurements");
-            var chunks=new ArrayList<Integer>();row.path("same_article_chunks").forEach(value->chunks.add(value.asInt()));
-            var previous=sameInputs.putIfAbsent(row.path("scenario").asText(),chunks);
+            ArrayList<Integer> chunks=new ArrayList<Integer>();row.path("same_article_chunks").forEach(value->chunks.add(value.asInt()));
+            List<Integer> previous=sameInputs.putIfAbsent(row.path("scenario").asText(),chunks);
             if(previous!=null)assertEquals(previous,chunks,"Candidates must use the same article inputs");
             int count=chunks.size()*3,expected=chunks.stream().mapToInt(value->(value+15)/16).sum()*3;
             assertEquals(count,row.path("outcomes").path("success").asInt());
@@ -430,7 +445,7 @@ class EmbeddingPoolBenchmarkTests {
             // its peak is bounded by provider capacity, not by client worker count.
             assertTrue(row.path("peak_provider_concurrency").asInt()<=tree.path("provider_capacity").asInt());
             assertTrue(row.path("mean_whole_workload_ms").asDouble()>0);
-            for(var trial:row.path("article_trials")) {
+            for(JsonNode trial:row.path("article_trials")) {
                 assertEquals("success",trial.path("outcome").asText());
                 assertTrue(trial.path("backlogWaitMs").asDouble()>=0);
                 assertEquals(trial.path("milliseconds").asDouble()+trial.path("backlogWaitMs").asDouble(),
@@ -446,15 +461,15 @@ class EmbeddingPoolBenchmarkTests {
     @EnabledIfSystemProperty(named="embedding.capacity100.validate-completed",matches="true")
     void validateCompletedCapacity100Measurements() throws Exception {
         // Fresh execution also checks the current fixture and production executor.
-        try(var provider=new Provider(100)) {
-            var measurement=measure(new Profile("validation_smoke",8,8,16,4),
+        try(Provider provider=new Provider(100)) {
+            Measurement measurement=measure(new Profile("validation_smoke",8,8,16,4),
                     new Workload("validation_smoke",4,new int[]{64,64,128,128},100,false,10_000),provider);
             assertTrue(measurement.articles.stream().allMatch(article->article.outcome.equals("success")));
             assertEquals(24,measurement.providerCalls);assertEquals(0,measurement.rateLimited);
             assertTrue(measurement.largestPool<=8);assertTrue(measurement.workerPeak<=8);
         }
         Path output=Path.of("logs/embedding-capacity100-benchmark.json");
-        var report=JSON.readValue(output.toFile(),new com.fasterxml.jackson.core.type.TypeReference<LinkedHashMap<String,Object>>() {});
+        LinkedHashMap<String, Object> report=JSON.readValue(output.toFile(),new com.fasterxml.jackson.core.type.TypeReference<LinkedHashMap<String,Object>>() {});
         validateCapacity100Report(report);
         report.put("article_trials",3915);report.put("passed",true);
         report.put("validation_replayed_from_completed_measurements",true);

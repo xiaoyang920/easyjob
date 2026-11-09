@@ -12,8 +12,9 @@ log = logging.getLogger(__name__)
 _executors = {}
 
 
-def cancel_local_run(run_id):
-    owners = {owner for (rid, _), tasks in list(_executors.items()) if rid == run_id for owner in tasks}
+def cancel_local_run(run_id, execution_token=None):
+    owners = {owner for (rid, token), tasks in list(_executors.items())
+              if rid == run_id and (execution_token is None or token == execution_token) for owner in tasks}
     current = asyncio.current_task()
     for owner in owners:
         if owner is not current and not owner.done() and not owner.cancelling():

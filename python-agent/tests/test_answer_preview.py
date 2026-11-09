@@ -38,7 +38,7 @@ class PreviewTests(unittest.TestCase):
         self.assertEqual(retry['content'], '修正后的正文')
 
     def test_routing_tools_structurization_and_reasoning_stay_private(self):
-        for node, name, args in [('main_agent', 'MainDecision', '{"action":"retrieve","reply":"private"}'),
+        for node, name, args in [('main_agent', 'MainDecision', '{"action":"call_tool","reply":"private"}'),
                                 ('search_worker', 'MainDecision', '{"action":"answer","reply":"private"}'),
                                 ('main_agent', 'CitationRepair', '{"reply":"private"}')]:
             self.assertIsNone(AnswerPreview().consume(event(args, name, node=node, content='reasoning')))

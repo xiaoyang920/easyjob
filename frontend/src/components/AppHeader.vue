@@ -24,7 +24,7 @@ const route = useRoute(), router = useRouter()
 const keyword = ref(''), toolsOpen = ref(false), actions = ref<HTMLElement>(), hasActions = ref(false)
 const mobileSearch = ref(false)
 const titles: Record<string,string> = { AiChat:'智能助手', Chat:'私信', Notifications:'消息通知', DraftBox:'草稿与审核', CreateArticle:'写文章', EditArticle:'编辑文章', EditProfile:'编辑资料', FollowersFollowing:'粉丝与关注', MemoryManagement:'长期记忆', AccountSecurity:'账号安全', PasswordReset:'找回密码', AdminConsole:'管理后台', ArticleDetail:'文章' }
-const title = computed(() => titles[String(route.name)] || '')
+const title = computed(() => route.name === 'GrowthShop' ? '硬币商城' : titles[String(route.name)] || '')
 const searchable = computed(() => ['Home','Search','UserSpace'].includes(String(route.name)))
 function search(value: string) { void router.push({ path:'/search', query:{ keyword:value } }) }
 watch(() => route.fullPath, () => { keyword.value = String(route.query.keyword || ''); toolsOpen.value = false; mobileSearch.value = false }, { immediate:true })

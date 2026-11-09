@@ -40,9 +40,9 @@ def seeded_state(case):
         'citations': citations, 'citation_contents': contents, 'article_cards': [], 'retrieval_report': report}
     return {**create_initial_state(0, case['query'], []), 'run_id': '', 'main_round': 1,
         'task_results': {'retrieve_1': result},
-        'observations': [{'round': 1, 'action': 'retrieve', 'tasks': {'retrieve_1': 'succeeded'},
+        'observations': [{'round': 1, 'action': 'call_tool', 'tasks': {'retrieve_1': 'succeeded'},
             'failures': {}, 'retrieval_report': report}],
-        'action_history': [{'round': 1, 'action': 'retrieve', 'task_ids': ['retrieve_1'], 'fingerprints': ['synthetic-seed']}]}
+        'action_history': [{'round': 1, 'action': 'call_tool', 'task_ids': ['retrieve_1'], 'fingerprints': ['synthetic-seed']}]}
 
 
 def assertions_for(case, result, blocked_calls):

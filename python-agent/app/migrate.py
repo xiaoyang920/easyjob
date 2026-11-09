@@ -535,6 +535,11 @@ async def main():
         await apply_product_features(db,'023_draft_create_request.sql')
         await apply_product_features(db,'024_feedback_review.sql')
         await apply_product_features(db,'025_article_comment_anchors.sql')
+        await apply_product_features(db,'026_writing_conversations.sql')
+        await apply_product_features(db,'028_provider_balance_monitor.sql')
+        await apply_product_features(db,'029_auth_service.sql')
+        await apply_product_features(db,'030_auth_audit_reason.sql')
+        await apply_product_features(db,'031_growth_seckill.sql')
         print("001..024: applied (legacy data preserved)")
     finally:
         await db.disconnect()
@@ -735,10 +740,10 @@ async def apply_product_features(database,migration_name='022_product_features.s
 
 async def check_product_features(database):
     columns=await database.fetch_val("""SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE()
-        AND ((table_name='ai_conversation' AND column_name IN ('is_pinned','metadata_version'))
+        AND ((table_name='ai_conversation' AND column_name IN ('is_pinned','metadata_version','is_writing','writing_article_id'))
           OR (table_name='ai_message' AND column_name='run_id'))""")
     table=await database.fetch_val("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='agent_answer_feedback'")
-    if columns!=3 or table!=1:raise RuntimeError('功能迁移未就绪，请执行 python scripts/migrate-product-features.py')
+    if columns!=5 or table!=1:raise RuntimeError('功能迁移未就绪，请执行 python scripts/migrate-product-features.py')
     review=await database.fetch_val("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='agent_answer_feedback' AND column_name IN ('review_state','review_note','review_version','handled_by','handled_at','feedback_generation')")
     log=await database.fetch_val("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='agent_feedback_review_log'")
     if review!=6 or log!=1:raise RuntimeError('反馈处理迁移未就绪，请执行 python scripts/migrate-product-features.py')

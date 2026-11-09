@@ -5,11 +5,32 @@ checkpoint ID before replay: writes from older steps are not pending work.
 Keep the registry itself until terminal cleanup, including interrupt writes.
 """
 from collections import OrderedDict
+from contextlib import asynccontextmanager
+import asyncio
+
+CHECKPOINT_WRITE_TIMEOUT_SECONDS = 5
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.redis.aio import AsyncRedisSaver
 from langgraph.checkpoint.redis.ashallow import AsyncShallowRedisSaver
 from redis.asyncio import Redis
+
+
+@asynccontextmanager
+async def checkpoint_writer(config):
+    cfg = config.get('configurable', {})
+    if cfg.get('run_id') and cfg.get('execution_token'):
+        if cfg.get('thread_id') != f"run_{cfg['run_id']}":
+            raise ValueError('Business checkpoint thread does not match run_id')
+        from app.services.run_repository import run_repository
+        async with run_repository.checkpoint_writer(cfg['run_id'], cfg['execution_token']):
+            # Bound Redis I/O while the MySQL row lock fences the generation.
+            async with asyncio.timeout(CHECKPOINT_WRITE_TIMEOUT_SECONDS):
+                yield
+    else:
+        if str(cfg.get('thread_id', '')).startswith('run_'):
+            raise ValueError('Business checkpoint writes require run_id and execution_token')
+        yield  # Legacy graph/unit-test threads have no business-ledger identity.
 
 
 class ScopedShallowRedisSaver(AsyncShallowRedisSaver):
@@ -85,10 +106,12 @@ class LatestRunRedisSaver(BaseCheckpointSaver):
         return await (await self._backend(config)).aget_tuple(config)
 
     async def aput(self, config, checkpoint, metadata, new_versions):
-        return await (await self._backend(config)).aput(config, checkpoint, metadata, new_versions)
+        async with checkpoint_writer(config):
+            return await (await self._backend(config)).aput(config, checkpoint, metadata, new_versions)
 
     async def aput_writes(self, config, writes, task_id, task_path=''):
-        await (await self._backend(config)).aput_writes(config, writes, task_id, task_path)
+        async with checkpoint_writer(config):
+            await (await self._backend(config)).aput_writes(config, writes, task_id, task_path)
 
     async def alist(self, config, *, filter=None, before=None, limit=None):
         if not config or not config.get('configurable', {}).get('thread_id'):

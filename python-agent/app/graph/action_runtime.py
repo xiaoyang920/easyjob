@@ -8,13 +8,13 @@ from langgraph.types import Send
 
 from app.config import settings
 from app.graph import staged_runtime as runtime
-from app.graph.nodes.search_worker import retrieve_evidence
-from app.graph.nodes.memory_retrieval import retrieve_memory
-from app.services.private_drafts import retrieve_drafts
 from app.graph.staged_plan import load_execution_plan, merge_task_results
 from app.services.agent_events import activity
 from app.services.task_artifacts import task_artifacts, task_fingerprint
 from app.services.tool_recovery import ToolTaskError
+from app.services.tool_registry import tool_registry
+from app.security.capabilities import require_capability
+from app.rpc.blog_client import ServiceError
 
 RECOVERABLE = (TimeoutError, ConnectionError, httpx.RequestError, APIConnectionError, EsConnectionError)
 
@@ -43,21 +43,34 @@ def current_task(state):
     return load_execution_plan(state["plan"], "main").tasks[0]
 
 
-async def main_retrieve_node(state):
+async def execute_tool_node(state):
     task = current_task(state)
-    if task.kind != "search":
-        raise PermissionError("主代理检索入口仅接受检索任务")
+    if task.kind not in ('search', 'tool'):
+        raise PermissionError('通用工具入口仅接受 Main 的只读工具任务')
+    if task.tool_name is None:
+        # Old persisted graph tasks only; new MainDecision never accepts retrieve.
+        from app.graph.main_agent import RetrievalRequest
+        from app.models.main_tool import call_from_retrieval, task_fields
+        from app.graph.staged_plan import ExecutionTask
+        request = RetrievalRequest(target=task.retrieval_target, task_id=task.task_id,
+            **task.model_dump(include={'instruction', 'allow_web', 'article_ids', 'required_skills',
+                                      'filters', 'search_query', 'editor_part', 'urls'}))
+        task = ExecutionTask(task_id=task.task_id, actor='main', **task_fields(call_from_retrieval(request)))
+    spec = tool_registry.main_tool(task.tool_name)
     context = runtime.task_context(state, task)
     # The rewrite layer chooses complete turns by Token budget; preserve the
     # separate summary here rather than removing it with a message-count slice.
     context["history_messages"] = list(state.get("history_messages", []))
+    if task.tool_name in ('read_task_result', 'read_task_results'):
+        context['readable_task_results'] = state.get('task_results') or {}
     memory_lookup = task.retrieval_target == "memory"
-    draft_lookup = task.retrieval_target == "drafts"
-    label = "读取本人草稿" if draft_lookup else "召回相关记忆" if memory_lookup else "检索资料"
+    editor_lookup = task.retrieval_target == 'editor'
+    label = spec.label
+    require_capability(context, spec.capability)
+    await runtime.assert_run(context)
     await activity(context, "task", label)
     try:
-        retriever = retrieve_drafts if draft_lookup else retrieve_memory if memory_lookup else retrieve_evidence
-        evidence = await asyncio.wait_for(retriever(context), 120)
+        evidence = await asyncio.wait_for(spec.handler(context), 120)
         update = {"worker_results": [{"worker_name": "search", "status": evidence["status"],
                     "result": evidence.get("rag_context") or evidence.get("result") or "未找到可用资料。"}],
                   "citations": evidence["citations"], "article_cards": evidence["article_cards"]}
@@ -65,18 +78,41 @@ async def main_retrieve_node(state):
             update["retrieval_report"] = evidence["retrieval_report"]
         if evidence.get('citation_contents'):
             update['citation_contents'] = evidence['citation_contents']
+        if 'result_reads' in evidence:
+            update['result_reads'] = evidence['result_reads']
+        if 'result_access_metrics' in evidence:
+            update['result_access_metrics'] = evidence['result_access_metrics']
+        if 'evidence_scope' in evidence:
+            update['evidence_scope'] = evidence['evidence_scope']
         if evidence.get('draft_document'):
             update['draft_document'] = evidence['draft_document']
+        if editor_lookup:
+            update.update({k: evidence[k] for k in ('editor_snapshot_id', 'editor_part') if k in evidence})
         if memory_lookup:
             update.update({k: evidence[k] for k in ("memory_sources", "memory_found", "memory_match_count")})
-        result = runtime.task_result(context, update, raw_retrieval=not (memory_lookup or draft_lookup))
+        result = runtime.task_result(context, update, raw_retrieval=spec.raw_evidence)
     except ToolTaskError as exc:
         result = {**failed_result(task, "tool_error", str(exc)), "tool_failure": exc.report}
+    except ServiceError as exc:
+        if exc.status in (401, 403, 409):
+            raise PermissionError('工具服务拒绝访问，不能自动扩大权限重试') from None
+        result = {**failed_result(task, 'tool_error', '工具服务暂时不可用，可调整参数后重试。'),
+                  'tool_failure': {'code': 'TOOL_UNAVAILABLE', 'tool': task.tool_name}}
     except RECOVERABLE:
-        result = failed_result(task, "tool_error", "检索服务暂时不可用，可调整查询或稍后重试。")
+        result = {**failed_result(task, 'tool_error', '工具服务暂时不可用，可调整参数或稍后重试。'),
+                  'tool_failure': {'code': 'TOOL_UNAVAILABLE', 'tool': task.tool_name}}
+    except ValueError:
+        from app.services.context_projection import CONTEXT_READ_TOOLS
+        if task.tool_name not in CONTEXT_READ_TOOLS: raise
+        result = failed_result(task, 'tool_error', '回查范围无效或资料版本已变化，请使用当前会话的真实编号或重新读取原资料。')
     await runtime.assert_run(state)
     await activity(context, "task", label, "done" if result["status"] == "succeeded" else "error")
-    return {**observe(state, {task.task_id: result}), "retrieval_status": result["status"]}
+    result['tool_name'] = task.tool_name
+    return {**observe(state, {task.task_id: result}), "retrieval_status": result["status"] if task.kind == 'search' else state.get('retrieval_status', '')}
+
+
+# Compatibility entry for checkpoints paused at the old node, never a new route.
+main_retrieve_node = execute_tool_node
 
 
 async def run_subagent(context, task):

@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import java.util.Properties;
 import static org.junit.jupiter.api.Assertions.*;
+import java.io.InputStream;
 
 class ChineseSearchSchemaTests {
     private final ObjectMapper json = new ObjectMapper();
@@ -47,7 +48,7 @@ class ChineseSearchSchemaTests {
 
     @Test void ikTemplateCanBeReadByJavaProperties() throws Exception {
         Properties properties = new Properties();
-        try (var stream = getClass().getResourceAsStream("/elasticsearch/IKAnalyzer.cfg.xml")) {
+        try (InputStream stream = getClass().getResourceAsStream("/elasticsearch/IKAnalyzer.cfg.xml")) {
             assertNotNull(stream);
             properties.loadFromXML(stream);
         }

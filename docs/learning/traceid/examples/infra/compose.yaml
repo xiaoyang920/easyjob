@@ -1,0 +1,45 @@
+name: easyjob-tracing-lab
+
+services:
+  storage-init:
+    image: alpine:3.21
+    user: "0:0"
+    command:
+      - sh
+      - -ec
+      - mkdir -p /data/keys /data/values; chown 10001:10001 /data /data/keys /data/values
+    volumes:
+      - jaeger-data:/data
+    restart: "no"
+
+  jaeger:
+    image: jaegertracing/jaeger:2.22.0
+    user: "10001:10001"
+    command: ["--config=/etc/jaeger/config.yaml"]
+    volumes:
+      - ./jaeger.yaml:/etc/jaeger/config.yaml:ro
+      - jaeger-data:/var/lib/jaeger
+    ports:
+      - "127.0.0.1:16686:16686"
+    depends_on:
+      storage-init:
+        condition: service_completed_successfully
+    mem_limit: 1g
+    stop_grace_period: 30s
+    restart: unless-stopped
+
+  collector:
+    image: otel/opentelemetry-collector-contrib:0.164.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "127.0.0.1:14317:4317"
+      - "127.0.0.1:14318:4318"
+    depends_on:
+      - jaeger
+    mem_limit: 256m
+    restart: unless-stopped
+
+volumes:
+  jaeger-data: {}

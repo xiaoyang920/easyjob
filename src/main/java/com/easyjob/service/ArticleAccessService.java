@@ -9,6 +9,8 @@ import com.easyjob.mapper.ArticleAccessMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.*;
+import java.util.List;
+import java.util.Map;
 
 @Service @RequiredArgsConstructor
 public class ArticleAccessService {
@@ -36,7 +38,7 @@ public class ArticleAccessService {
                 || ((Number)growth.summary(uid).get("level")).intValue()>=required;
     }
     public void apply(ArticleDetailVO detail,Long uid,Long author,int required) {
-        var progress=growth.summary(uid); int level=((Number)progress.get("level")).intValue();
+        Map<String, Object> progress=growth.summary(uid); int level=((Number)progress.get("level")).intValue();
         boolean admin=isAdmin(uid);
         boolean allowed=required==0 || (uid!=null && uid.equals(author)) || admin || level>=required;
         detail.setRequiredLevel(required); detail.setReaderLevel(level); detail.setViewerAdmin(admin);
@@ -50,7 +52,7 @@ public class ArticleAccessService {
         if(!isAdmin(uid) && !hasPermission(uid,"articles.manage")) throw new BusinessException(403,"没有设置文章阅读等级的权限");
         if(level==null || growth.rules().stream().noneMatch(r->((Number)r.get("level")).intValue()==level))
             throw new BusinessException(400,"阅读等级无效");
-        var rows=store.lockArticle(aid);
+        List<Map<String, Object>> rows=store.lockArticle(aid);
         if(rows.isEmpty()) throw new BusinessException(404,"文章不存在");
         store.updateRequiredLevel(level,aid);
         redis.deleteArticleDetail(aid);

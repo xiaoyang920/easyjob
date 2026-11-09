@@ -1,13 +1,17 @@
 <template>
-  <div class="article-editor-page">
+  <div class="article-editor-page" :class="{ 'with-writing-assistant': showWritingAssistant }" :style="{ '--writing-ai-width': `${writingAssistantWidth}px` }">
       <div class="editor-action-bar">
-        <span class="autosave-status" role="status">{{ autosaveMessage }}</span>
+        <button type="button" class="autosave-status save-status-button" @click="completeSaveRequirements" role="status">{{ autosaveMessage }}</button>
+        <button type="button" class="writing-ai-trigger" data-writing-ai-trigger
+          aria-controls="writing-ai-panel" :aria-expanded="showWritingAssistant" :disabled="!articleReady || isPending || publishing" @click="toggleWritingAssistant">
+          <span aria-hidden="true">✦</span> 问 AI
+        </button>
         <button class="btn btn-cancel" @click="goBack">取消</button>
         <button class="btn btn-draft" :disabled="!articleReady || saving || isPending" @click="saveDraft">{{ isPublished ? "保存修改草稿" : "保存草稿" }}</button>
         <button class="btn btn-publish" :disabled="!articleReady || saving || isPending" @click="publishArticle">{{ isPending ? '审核中' : '提交审核' }}</button>
       </div>
 
-    <div v-if="recoveryPending" class="revision-notice"><span>发现 {{ new Date(recoveryPending.updatedAt).toLocaleString() }} 的本机未保存内容。</span><button @click="restoreLocalDraft">恢复到编辑器</button><button @click="discardRecovery">舍弃本机副本</button></div>
+    <div v-if="recoveryPending" class="revision-notice"><span>本机保留着 {{ new Date(recoveryPending.updatedAt).toLocaleString() }} 的历史副本，与当前草稿不同。</span><button @click="restoreLocalDraft">恢复到编辑器</button><button @click="discardRecovery">舍弃本机副本</button></div>
     <div v-if="autosaveConflict" class="revision-notice"><span>草稿已在其他页面修改，自动保存已暂停。请先复制保留当前内容，再刷新核对。</span></div>
     <div v-if="isPending || article.reviewReason || isPublished" class="revision-notice">
       <span v-if="isPending">当前版本审核中，内容已锁定。需要修改时，请先撤回审核。</span>
@@ -15,7 +19,7 @@
       <span v-else>公开版本继续展示，修改保存为独立版本，审核通过后更新。</span>
       <button v-if="isPending" :disabled="saving" @click="withdrawReview">撤回审核</button>
     </div>
-    <div class="editor-container" :inert="isPending || publishing" :aria-disabled="isPending || publishing">
+    <div class="editor-container" :inert="!articleReady || isPending || publishing" :aria-disabled="!articleReady || isPending || publishing">
       <!-- 左侧主编辑区 -->
       <div class="editor-main">
         <!-- 标题输入 -->
@@ -23,12 +27,16 @@
           v-model="article.title"
           type="text"
           class="title-input"
+          @keydown.enter="focusBodyFromTitle"
           placeholder="请输入文章标题..."
           maxlength="100"
         >
         
+        <button type="button" class="summary-toggle" :aria-expanded="summaryOpen" @click="summaryOpen = !summaryOpen">{{ summaryOpen ? '收起摘要' : (article.summary ? '编辑摘要' : '添加摘要（选填）') }}</button>
         <!-- 摘要输入 -->
         <textarea
+          ref="summaryInput"
+          v-show="summaryOpen"
           v-model="article.summary"
           class="summary-input"
           placeholder="请输入文章摘要（选填，建议150～300字符，最多500字符）..."
@@ -37,7 +45,21 @@
         ></textarea>
         
         <!-- 富文本编辑器 -->
-        <ArticleRichEditor v-model="valueHtml" />
+        <ArticleRichEditor ref="richEditor" v-model="valueHtml" layout="document" ai-reference :side-panel-open="showWritingAssistant" :side-panel-width="writingAssistantWidth" @fullscreen-change="editorFullscreen = $event" @quote-selection="referenceEditorSelection">
+          <template #fullscreen-actions>
+            <button type="button" class="writing-ai-trigger" data-writing-ai-trigger
+              aria-controls="writing-ai-panel" :aria-expanded="showWritingAssistant" @click="toggleWritingAssistant">✦ 问 AI</button>
+          </template>
+          <template #side-panel>
+            <WritingAssistant v-if="writingAssistantMounted" :open="showWritingAssistant" :fullscreen="editorFullscreen"
+              v-model:width="writingAssistantWidth" :min-width="writingAssistantMinimum" :max-width="writingAssistantMaximum"
+              :conversation-scope="writingConversationScope"
+              :get-draft="getWritingDraft" :get-editor-context="readWritingContext" :apply-edit="applyWritingEdit" :undo-edit="undoWritingEdit"
+              :selection-request="selectionReference" @selection-attached="finishSelectionReference"
+              @reference-attached="(id, text) => richEditor?.markReference(id, text)" @references-changed="ids => richEditor?.syncReferenceMarkers(ids)"
+              @close="closeWritingAssistant" @login-required="handleAuthExpired" />
+          </template>
+        </ArticleRichEditor>
         
         <div class="editor-hint">
           <svg class="hint-icon" viewBox="0 0 24 24" fill="currentColor">
@@ -199,7 +221,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick, defineAsyncComponent } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import AdminCategoryCreator from '@/components/AdminCategoryCreator.vue'
 import { categoryOptions,type CategoryRow } from '@/utils/categories'
@@ -213,6 +235,10 @@ import { editableArticleStatus } from '../utils/articleLifecycle'
 import { uploadFile } from '../utils/upload'
 import { eventBus, EVENT_AUTH_EXPIRED } from '../utils/eventBus'
 import ArticleRichEditor from '@/components/ArticleRichEditor.vue'
+import { useAutosizeTextarea } from '@/composables/useAutosizeTextarea'
+import { createEditorProposalController } from '@/utils/editorProposals'
+import { useWritingAssistantWidth } from '@/composables/useWritingAssistantWidth'
+const WritingAssistant = defineAsyncComponent(() => import('@/components/WritingAssistant.vue'))
 import {recoveryKey,saveRecovery,readRecovery,draftSignature,type DraftSnapshot} from '@/utils/draftRecovery'
 
 const route = useRoute()
@@ -220,6 +246,40 @@ const router = useRouter()
 const coverInput = ref<HTMLInputElement | null>(null)
 const coverUploading = ref(false)
 const coverProgress = ref(0)
+const richEditor = ref<InstanceType<typeof ArticleRichEditor>>()
+const { read: readWritingContext, apply: applyWritingEdit, undo: undoWritingEdit, reset: resetWritingEdits } = createEditorProposalController({
+  getEditor: () => richEditor.value,
+  getFields: () => article.value,
+  canEdit: () => articleReady.value && !isPending.value && !publishing.value && localStorage.getItem('userId') === recoveryOwner,
+  onSummaryApplied: () => { summaryOpen.value = true },
+})
+const showWritingAssistant = ref(false), writingAssistantMounted = ref(false), editorFullscreen = ref(false)
+const { width: writingAssistantWidth, minimum: writingAssistantMinimum, maximum: writingAssistantMaximum } = useWritingAssistantWidth()
+const selectionReference = ref<{ id: string; text: string } | null>(null)
+function referenceEditorSelection(text: string) {
+  if (!articleReady.value || isPending.value || publishing.value || localStorage.getItem('userId') !== recoveryOwner) {
+    ElMessage.info('当前文章不可编辑，暂时不能引用给 AI'); return
+  }
+  selectionReference.value = { id: crypto.randomUUID(), text }
+  writingAssistantMounted.value = true
+  showWritingAssistant.value = true
+}
+function finishSelectionReference(id: string) { if (selectionReference.value?.id === id) selectionReference.value = null }
+function toggleWritingAssistant() {
+  if (showWritingAssistant.value) { closeWritingAssistant(); return }
+  writingAssistantMounted.value = true
+  showWritingAssistant.value = true
+}
+function closeWritingAssistant() {
+  showWritingAssistant.value = false
+  nextTick(() => {
+    const buttons = document.querySelectorAll<HTMLButtonElement>('[data-writing-ai-trigger]')
+    ;[...buttons].find(button => button.getClientRects().length && !button.closest('[inert]'))?.focus({ preventScroll: true })
+  })
+}
+function getWritingDraft() {
+  return { title: article.value.title, summary: article.value.summary, html: valueHtml.value, selection: richEditor.value?.readDocument().selection }
+}
 
 const article = ref({
   articleId: '',
@@ -250,11 +310,33 @@ let searchTimeout: any = null  // 防抖定时器
 
 // 分类列表
 const categories = ref<any[]>([])
+let actionBarObserver: ResizeObserver | undefined
+onMounted(() => {
+  const page = document.querySelector<HTMLElement>('.article-editor-page'), bar = page?.querySelector<HTMLElement>('.editor-action-bar')
+  if (!page || !bar) return
+  const update = () => page.style.setProperty('--document-toolbar-top', `${parseFloat(getComputedStyle(bar).top) + bar.getBoundingClientRect().height}px`)
+  actionBarObserver = new ResizeObserver(update); actionBarObserver.observe(bar); update()
+})
+onBeforeUnmount(() => actionBarObserver?.disconnect())
+const summaryOpen = ref(false)
+const summaryInput = ref<HTMLTextAreaElement>()
+useAutosizeTextarea(summaryInput, () => article.value.summary || '', () => summaryOpen.value)
+function focusBodyFromTitle(event: KeyboardEvent) {
+  if (event.isComposing || event.keyCode === 229) return
+  event.preventDefault()
+  richEditor.value?.focusStart()
+}
+function completeSaveRequirements() {
+  if (!article.value.title.trim()) document.querySelector<HTMLInputElement>('.title-input')?.focus()
+  else if (!article.value.categoryId) void focusCategorySelect()
+  else void saveDraft()
+}
 const categorySelect = ref<{focus:(options?:FocusOptions)=>void;scrollIntoView:(options?:ScrollIntoViewOptions)=>void} | null>(null)
 const categoryAdmin=ref(false),creatingCategory=ref(false)
 
 // 窄屏下设置面板排在正文之后，提示缺少分类时直接把选择框带到视野中
-function focusCategorySelect() {
+async function focusCategorySelect() {
+  await nextTick()
   categorySelect.value?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   categorySelect.value?.focus({ preventScroll: true })
 }
@@ -273,17 +355,26 @@ const saving = ref(false),publishing=ref(false)
 const isPublished = computed(() => articleReady.value && article.value.status === 1)
 const isPending = computed(() => article.value.revisionState === 1)
 const savedSignature = ref('')
+const recoveryBaselineSignatures = new Set<string>()
 function editorSignature() {
   return draftSignature(article.value,valueHtml.value,tagList.value)
 }
-function markSaved() { savedSignature.value = editorSignature() }
+function markSaved() { savedSignature.value = editorSignature(); recoveryBaselineSignatures.clear(); recoveryBaselineSignatures.add(savedSignature.value) }
 const autosaveMessage=ref('修改后自动保存'),autosaveConflict=ref(false),recoveryPending=ref<DraftSnapshot|null>(null)
 let autosaveTimer:ReturnType<typeof setTimeout>|undefined,localTimer:ReturnType<typeof setTimeout>|undefined,skipFetchId='',disposed=false
 let autosaveRetries=0
 let recoveryOwner=localStorage.getItem('userId'),serverLoaded=!route.query.id
 const cacheKey=()=>recoveryKey(recoveryOwner,String(route.query.id||article.value.articleId||''))
-function offerRecovery(){const snapshot=readRecovery(localStorage,cacheKey());recoveryPending.value=snapshot && snapshot.signature!==editorSignature()?snapshot:null}
-function persistLocal(){if(recoveryPending.value || !articleReady.value || isPending.value || localStorage.getItem('userId')!==recoveryOwner || editorSignature()===savedSignature.value)return;const ok=saveRecovery(localStorage,cacheKey(),{updatedAt:Date.now(),signature:editorSignature(),article:{...article.value},content:valueHtml.value,tags:[...tagList.value]});if(!ok)autosaveMessage.value='本机暂存失败，请手动保存或复制正文'}
+const writingConversationScope = computed(() => String(route.query.id || article.value.articleId || 'new'))
+function offerRecovery(){
+  const snapshot=readRecovery(localStorage,cacheKey())
+  // Recompute from the payload: old stored signatures used different field types.
+  const same = snapshot && recoveryBaselineSignatures.has(draftSignature(snapshot.article,snapshot.content,snapshot.tags))
+  recoveryPending.value = snapshot && !same ? snapshot : null
+  if (same) localStorage.removeItem(cacheKey())
+}
+let localSaveSucceeded = false
+function persistLocal(){if(recoveryPending.value || !articleReady.value || isPending.value || localStorage.getItem('userId')!==recoveryOwner || editorSignature()===savedSignature.value)return;const ok=saveRecovery(localStorage,cacheKey(),{updatedAt:Date.now(),signature:editorSignature(),article:{...article.value},content:valueHtml.value,tags:[...tagList.value]});localSaveSucceeded=ok;if(!ok)autosaveMessage.value='本机暂存失败，请手动保存或复制正文'}
 function discardRecovery(){localStorage.removeItem(cacheKey());recoveryPending.value=null;scheduleAutosave()}
 function restoreLocalDraft(){const snapshot=recoveryPending.value;if(!snapshot)return;const metadata={articleId:article.value.articleId,revisionId:article.value.revisionId,expectedRevisionId:article.value.expectedRevisionId,expectedLockVersion:article.value.expectedLockVersion,lockVersion:article.value.lockVersion,revisionState:article.value.revisionState,status:article.value.status};autosaveConflict.value=!!metadata.articleId && snapshot.article.expectedLockVersion!==metadata.expectedLockVersion;article.value={...article.value,...snapshot.article,...(serverLoaded?metadata:{})};valueHtml.value=snapshot.content;tagList.value=[...snapshot.tags];articleReady.value=true;recoveryPending.value=null;autosaveMessage.value='已恢复本机内容';scheduleAutosave()}
 function scheduleAutosave(delay=5000){clearTimeout(autosaveTimer);if(!articleReady.value || isPending.value || recoveryPending.value || autosaveConflict.value || disposed || localStorage.getItem('userId')!==recoveryOwner)return;autosaveTimer=setTimeout(()=>void persistDraft(true),delay)}
@@ -380,9 +471,9 @@ function addHotTag(tagName: string) {
 async function fetchArticle() {
   const articleId = route.query.id as string
   if(articleId && articleId===skipFetchId){skipFetchId='';return}
-  clearTimeout(autosaveTimer);autosaveConflict.value=false;serverLoaded=!articleId
+  clearTimeout(autosaveTimer);clearTimeout(localTimer);autosaveConflict.value=false;serverLoaded=!articleId
   articleReady.value = !articleId
-  if (!articleId) { markSaved();offerRecovery();return }
+  if (!articleId) { await nextTick();richEditor.value?.resetHistory();markSaved();offerRecovery();return }
   
   try {
     const res = await request.get(`/article/${articleId}/edit`)
@@ -407,10 +498,18 @@ async function fetchArticle() {
       } else if (typeof res.data.tags === 'string' && res.data.tags) {
         // 兼容旧版：tags 是逗号分隔字符串
         tagList.value = res.data.tags.split(',').filter((t: string) => t.trim())
-      }
+      } else tagList.value = []
+      const sourceSignature = editorSignature()
+      // Establish the saved baseline only after the rich editor has parsed the
+      // server HTML. Its removal of unsupported HTML attributes is not a user edit.
+      await nextTick()
+      const normalized = richEditor.value?.readDocument().html
+      if (normalized !== undefined) valueHtml.value = normalized
+      richEditor.value?.resetHistory()
       articleReady.value = true
       serverLoaded=true
       markSaved()
+      recoveryBaselineSignatures.add(sourceSignature)
       offerRecovery()
     }
   } catch (error: any) {
@@ -426,14 +525,14 @@ async function persistDraft(automatic:boolean) {
   if (isPending.value) return
   if(automatic && (autosaveConflict.value || recoveryPending.value || !serverLoaded || editorSignature()===savedSignature.value))return
   persistLocal()
-  if(automatic && !navigator.onLine){autosaveMessage.value='网络不可用，已暂存本机';return}
+  if(automatic && !navigator.onLine){autosaveMessage.value=localSaveSucceeded?'网络不可用，已暂存本机':'网络不可用，本机暂存失败，请复制正文';return}
   if (!article.value.title.trim()) {
-    if(automatic){autosaveMessage.value='已暂存本机，填写标题后自动保存';return}alert('请输入文章标题')
+    if(automatic){autosaveMessage.value=localSaveSucceeded?'已暂存本机，点击补齐标题以保存到服务端':'本机暂存失败，请补齐标题并手动保存';return}alert('请输入文章标题')
     return
   }
   
   if (!article.value.categoryId) {
-    if(automatic){autosaveMessage.value='已暂存本机，选择分类后自动保存';return}alert('请选择文章分类')
+    if(automatic){autosaveMessage.value=localSaveSucceeded?'已暂存本机，点击选择分类以保存到服务端':'本机暂存失败，请选择分类并手动保存';return}alert('请选择文章分类')
     focusCategorySelect()
     return
   }
@@ -461,7 +560,7 @@ async function persistDraft(automatic:boolean) {
     if(disposed || localStorage.getItem('userId')!==recoveryOwner)return
     if (res.code === 200) {
       autosaveRetries=0
-      if(!automatic)notify.success('草稿已保存，公开内容未改变')
+      if(!automatic)notify.success(editorSignature()===submittedSignature ? '草稿已保存到服务端' : '此前内容已保存，新修改等待保存')
       if (res.data?.revisionId) { article.value.revisionId=res.data.revisionId; article.value.expectedRevisionId=res.data.revisionId; article.value.lockVersion=res.data.lockVersion; article.value.expectedLockVersion=res.data.lockVersion; article.value.revisionState=res.data.revisionState; article.value.reviewReason=res.data.reviewReason || '' }
       if (!isEditMode.value && res.data?.articleId) {
         article.value.articleId = res.data.articleId
@@ -470,7 +569,7 @@ async function persistDraft(automatic:boolean) {
       }
       savedSignature.value=submittedSignature
       if(editorSignature()===submittedSignature){localStorage.removeItem(previousCacheKey);localStorage.removeItem(cacheKey())}else persistLocal()
-      autosaveMessage.value='草稿已保存 · '+new Date().toLocaleTimeString()
+      autosaveMessage.value=editorSignature()===submittedSignature ? '已保存到服务端 · '+new Date().toLocaleTimeString() : '有新修改，等待自动保存'
     } else {
       throw new Error(res.message || '保存失败')
     }
@@ -478,7 +577,7 @@ async function persistDraft(automatic:boolean) {
     console.error('保存失败:', error)
     autosaveRetries++
     autosaveConflict.value=error.code===409 || /变化|版本|冲突|审核中/.test(error.message||'')
-    autosaveMessage.value=autosaveConflict.value?'保存冲突，自动保存已暂停':autosaveRetries>=3?'自动保存已暂停，内容已暂存本机，请手动重试':'保存失败，内容已暂存本机，稍后重试'
+    autosaveMessage.value=!localSaveSucceeded?'保存失败，本机暂存也失败，请复制正文':autosaveConflict.value?'保存冲突，自动保存已暂停':autosaveRetries>=3?'自动保存已暂停，内容已暂存本机，请手动重试':'保存失败，内容已暂存本机，稍后重试'
     if(!automatic)alert(error.message || '保存失败')
   } finally {
     saving.value = false
@@ -636,7 +735,7 @@ function getImageUrl(url: string | undefined): string {
 
 // 快捷键
 function handleKeydown(e: KeyboardEvent) {
-  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
     e.preventDefault()
     saveDraft()
   }
@@ -673,6 +772,15 @@ function switchToLogin() {
 }
 
 watch(() => route.query.id, fetchArticle, { immediate: true })
+watch(() => route.query.id, (id, previousId) => {
+  if (!previousId && String(id || '') === String(article.value.articleId)) return // First save assigns an ID to the same draft.
+  // Do not reuse one document's chat when the user opens a different article.
+  showWritingAssistant.value = false
+  writingAssistantMounted.value = false
+  selectionReference.value = null
+  resetWritingEdits()
+  richEditor.value?.syncReferenceMarkers([])
+})
 watch(editorSignature,onEditorChange)
 
 onMounted(() => {
@@ -693,6 +801,21 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.writing-ai-trigger{display:inline-flex;align-items:center;justify-content:center;gap:7px;flex-shrink:0;padding:10px 17px;border:1px solid var(--ej-ink);border-radius:99px;background:var(--ej-surface);color:var(--ej-ink);font:inherit;font-size:13px;cursor:pointer;white-space:nowrap}
+.writing-ai-trigger > span{font-size:18px;line-height:1}
+.writing-ai-trigger:hover,.writing-ai-trigger[aria-expanded="true"]{background:var(--studio-lime,#cbff46)}
+.writing-ai-trigger:focus-visible{outline:2px solid var(--ej-ink);outline-offset:3px}
+.writing-ai-trigger:disabled{opacity:.45;cursor:default}
+@media(min-width:1200px){
+  .article-editor-page.with-writing-assistant{padding-right:calc(var(--writing-ai-width,424px) + 32px)}
+  .with-writing-assistant .editor-container{flex-direction:column}
+  .with-writing-assistant .editor-sidebar{width:100%;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start}
+}
+@media(max-width:767px){
+  :global(#app .article-editor-page .editor-action-bar){flex-wrap:wrap;gap:8px}
+  .autosave-status{flex-basis:100%}
+  .writing-ai-trigger{padding:7px 12px;font-size:12px;margin-right:auto}
+}
 .autosave-status{margin-right:auto;font-size:12px;color:var(--ej-muted)}
 .category-setting-label{display:flex;align-items:center;gap:6px}.category-create-link{margin-left:auto;border:0;background:transparent;color:var(--ej-ink);font-size:12px;cursor:pointer;padding:4px 0;white-space:nowrap}.category-create-link:hover{text-decoration:underline}
 .revision-notice{max-width:1200px;margin:16px auto;padding:14px 20px;border:1px solid var(--ej-line);border-radius:14px;background:var(--ej-surface);color:var(--ej-muted);font-size:13px;display:flex;gap:16px;align-items:center;justify-content:space-between}.revision-notice button{flex-shrink:0;border:1px solid var(--ej-line);border-radius:99px;padding:8px 14px;background:transparent;cursor:pointer}
@@ -1412,4 +1535,17 @@ onBeforeUnmount(() => {
     font-size: 13px;
   }
 }
+
+.editor-container{box-sizing:border-box}
+:global(#app .article-editor-page .editor-container){max-width:none;gap:20px;padding-left:16px;padding-right:16px}
+@media(min-width:1200px){:global(#app .article-editor-page .editor-container){padding-left:192px}}
+@media(min-width:1200px) and (max-width:1599px){:global(#app .article-editor-page.with-writing-assistant .editor-container){padding-left:16px}}
+.editor-main{overflow:visible!important;background:var(--ej-surface,#fffdf7);border-radius:14px}
+.title-input{background:transparent!important;padding-bottom:12px}
+.summary-toggle{align-self:flex-start;margin:0 24px 12px;padding:4px 0;border:0;background:transparent;color:var(--ej-muted);cursor:pointer}
+.save-status-button{border:0;background:transparent;text-align:left;cursor:pointer}
+.summary-input{background:transparent!important;overflow:hidden;resize:none;max-height:none}
+@media(max-width:767px){.editor-container{padding:12px!important}}
+
+.editor-sidebar{scroll-margin-top:200px}
 </style>

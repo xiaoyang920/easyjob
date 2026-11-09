@@ -14,6 +14,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import reactor.core.publisher.SignalType;
+import org.slf4j.Logger;
+import org.springframework.http.HttpStatusCode;
 
 /** No retry filter: chat, approval and publish commands must never be transparently replayed. */
 @Component
@@ -24,20 +26,21 @@ public class AvailabilityFilter implements GlobalFilter, Ordered {
         .maxWaitDurationInHalfOpenState(halfOpenWait)
         .slowCallDurationThreshold(Duration.ofSeconds(340)).slowCallRateThreshold(100).build(); }
     private final CircuitBreaker blog,agent;
+    private final CircuitBreaker auth=CircuitBreaker.of("auth",config(Duration.ofSeconds(10)));
     public AvailabilityFilter() {
         this(CircuitBreaker.of("blog",config(Duration.ofSeconds(10))),
             CircuitBreaker.of("agent-execution",config(Duration.ofSeconds(340))));
     }
     AvailabilityFilter(CircuitBreaker blog,CircuitBreaker agent) {
         this.blog=blog;this.agent=agent;
-        var log=org.slf4j.LoggerFactory.getLogger(AvailabilityFilter.class);
-        for(var breaker:new CircuitBreaker[]{blog,agent}) breaker.getEventPublisher().onStateTransition(event ->
+        Logger log=org.slf4j.LoggerFactory.getLogger(AvailabilityFilter.class);
+        for(CircuitBreaker breaker:new CircuitBreaker[]{blog,agent,auth}) breaker.getEventPublisher().onStateTransition(event ->
             log.info("gateway_circuit name={} transition={}",event.getCircuitBreakerName(),event.getStateTransition()));
     }
     @Override public int getOrder() { return -100; }
     @Override public Mono<Void> filter(ServerWebExchange exchange,GatewayFilterChain chain) {
         Mono<Void> execution=Mono.defer(() -> chain.filter(exchange)).then(Mono.defer(() -> {
-            var status=exchange.getResponse().getStatusCode();
+            HttpStatusCode status=exchange.getResponse().getStatusCode();
             if (status!=null && status.is5xxServerError()) return Mono.error(new UpstreamFailure());
             return Mono.<Void>empty();
         }));
@@ -45,16 +48,16 @@ public class AvailabilityFilter implements GlobalFilter, Ordered {
         boolean startsAgent=path.matches("/api/agent/chat(/stream|/resume|/resume/stream)?");
         // Isolate AI failures; keep cancellation available and exclude long-lived sockets.
         if(!path.startsWith("/ws") && (!path.startsWith("/api/agent/") || startsAgent)) {
-            var breaker=startsAgent?agent:blog;
-            var upstream=execution;
+            CircuitBreaker breaker=com.easyjob.security.RoutePolicy.authRoute(path)?auth:startsAgent?agent:blog;
+            Mono<Void> upstream=execution;
             execution=Mono.defer(() -> {
                 if(!breaker.tryAcquirePermission())
                     return EdgeFilter.reject(exchange,HttpStatus.SERVICE_UNAVAILABLE,"服务暂不可用，请稍后重试");
                 long started=System.nanoTime();
-                var recorded=new AtomicBoolean();
+                AtomicBoolean recorded=new AtomicBoolean();
                 Consumer<Throwable> finish=error -> {
                     if(!recorded.compareAndSet(false,true)) return;
-                    var status=exchange.getResponse().getStatusCode();
+                    HttpStatusCode status=exchange.getResponse().getStatusCode();
                     if(error==null && status!=null && status.is5xxServerError()) error=new UpstreamFailure();
                     if(error==null) breaker.onSuccess(System.nanoTime()-started,TimeUnit.NANOSECONDS);
                     else breaker.onError(System.nanoTime()-started,TimeUnit.NANOSECONDS,error);

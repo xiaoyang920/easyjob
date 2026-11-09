@@ -1,9 +1,9 @@
 <template>
-  <section class="agent-activity" :class="state.status">
+  <section class="agent-activity" :class="displayStatus">
     <button class="activity-header" @click="expanded = !isExpanded" :aria-expanded="isExpanded">
-      <span class="status-indicator" :class="state.status">{{ state.status === 'complete' ? '✓' : state.status === 'error' ? '!' : '' }}</span>
+      <span class="status-indicator" :class="displayStatus">{{ displayStatus === 'warning' || displayStatus === 'error' ? '!' : displayStatus === 'complete' ? '✓' : '' }}</span>
       <span class="activity-summary" aria-live="polite">{{ summary }}</span>
-      <span class="activity-duration">{{ elapsed }} 秒</span>
+      <span v-if="elapsed !== null" class="activity-duration">{{ elapsed }} 秒</span>
       <svg :class="{ open: isExpanded }" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m8 10 4 4 4-4"/></svg>
     </button>
     <div class="activity-reveal" :class="{ open: isExpanded }" :inert="!isExpanded" :aria-hidden="!isExpanded">
@@ -32,7 +32,9 @@
           <span v-if="item.finishedAt && item.startedAt" class="item-duration">{{ ((item.finishedAt - item.startedAt) / 1000).toFixed(1) }}s</span>
         </div>
       </TransitionGroup>
-      <div v-if="!state.activities.length" class="waiting-copy">正在准备处理请求…</div>
+      <div v-if="!state.activities.length && !state.plan.length && !state.commentary.length" class="waiting-copy">
+        {{ state.status === 'working' ? '正在准备处理请求…' : '该回复未保留处理明细。' }}
+      </div>
     </div>
     </div>
   </section>
@@ -41,6 +43,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, useId } from 'vue'
 import type { AgentStreamState } from '@/utils/agentStream'
+import { deliveryReviewWarning } from '@/utils/agentStream'
 
 const props = defineProps<{ state: AgentStreamState }>()
 const expanded = ref<boolean | null>(null)
@@ -61,12 +64,19 @@ const now = ref(Date.now())
 let timer: ReturnType<typeof setInterval>
 onMounted(() => { timer = setInterval(() => { now.value = Date.now() }, 1000) })
 onUnmounted(() => clearInterval(timer))
-const isExpanded = computed(() => expanded.value ?? ['working', 'awaiting', 'error'].includes(props.state.status))
-const elapsed = computed(() => Math.max(0, Math.round(((props.state.finishedAt || now.value) - props.state.startedAt) / 1000)))
-const roleLabels: Record<string, string> = { search: '检索', memory: '记忆', analysis: '分析', writing: '写作' }
+const reviewWarning = computed(() => deliveryReviewWarning(props.state))
+const displayStatus = computed(() => reviewWarning.value ? 'warning' : props.state.status)
+const isExpanded = computed(() => expanded.value ?? ['working', 'awaiting', 'error', 'warning'].includes(displayStatus.value))
+const elapsed = computed(() => {
+  const start = props.state.startedAt
+  const end = props.state.finishedAt ?? (props.state.status === 'working' ? now.value : undefined)
+  return start === undefined || end === undefined || end < start ? null : Math.round((end - start) / 1000)
+})
+const roleLabels: Record<string, string> = { search: '检索', tool: '工具', memory: '记忆', analysis: '分析', writing: '写作' }
 const summary = computed(() => {
   const state = props.state
-  if (state.status === 'complete') return `处理完成 · ${state.activities.length} 项活动`
+  if (reviewWarning.value) return reviewWarning.value
+  if (state.status === 'complete') return state.activities.length ? `处理完成 · ${state.activities.length} 项活动` : '处理完成'
   if (state.status === 'awaiting') return '草稿已准备好，等待你确认'
   if (state.status === 'cancelled') return '已停止处理'
   if (state.status === 'error') return '处理未完成'
@@ -88,6 +98,7 @@ const summary = computed(() => {
 .status-indicator.working { border: 2px solid #e3e5e8; border-top-color: #69717d; animation: activity-spin .9s linear infinite; }
 .status-indicator.complete { color: #47846c; background: #eef6f1; }
 .status-indicator.error { color: #bd6a53; background: #fcf0eb; }
+.status-indicator.warning { color: #947226; background: #fff4d8; }
 .status-indicator.awaiting { background: #d6b775; width: 7px; height: 7px; margin: 3px; }
 .status-indicator.cancelled { background: #a5a9af; width: 7px; height: 7px; margin: 3px; }
 .activity-reveal { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows 350ms cubic-bezier(.22, 1, .36, 1), opacity 200ms ease; }

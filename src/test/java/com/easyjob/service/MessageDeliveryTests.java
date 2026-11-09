@@ -16,6 +16,8 @@ import java.time.LocalDateTime;
 import java.util.Map;
 import static org.mockito.Mockito.*;
 import static org.junit.jupiter.api.Assertions.*;
+import com.easyjob.vo.MessageVO;
+import org.mockito.MockedStatic;
 
 class MessageDeliveryTests {
     MessageMapper messages; ConversationMapper conversations; ConversationService conversationService;
@@ -24,6 +26,7 @@ class MessageDeliveryTests {
         UserContext.setUserId(7L); TransactionSynchronizationManager.initSynchronization();
         service=new MessageServiceImpl(); messages=mock(MessageMapper.class); conversations=mock(ConversationMapper.class);
         conversationService=mock(ConversationService.class); members=mock(ConversationMemberService.class); users=mock(UserService.class);
+        SocialService social=mock(SocialService.class);when(social.canonical(anyLong())).thenAnswer(call->call.getArgument(0));ReflectionTestUtils.setField(service,"social",social);
         ReflectionTestUtils.setField(service,"messageMapper",messages); ReflectionTestUtils.setField(service,"conversationMapper",conversations);
         ReflectionTestUtils.setField(service,"conversationService",conversationService); ReflectionTestUtils.setField(service,"conversationMemberService",members);
         ReflectionTestUtils.setField(service,"userService",users);
@@ -34,12 +37,12 @@ class MessageDeliveryTests {
     }
     @AfterEach void clean() { UserContext.clear(); TransactionSynchronizationManager.clear(); }
     MessageSendDTO request() {
-        var dto=new MessageSendDTO(); dto.setConversationId(11L); dto.setMessageType(1); dto.setContent("hello");
+        MessageSendDTO dto=new MessageSendDTO(); dto.setConversationId(11L); dto.setMessageType(1); dto.setContent("hello");
         dto.setClientMessageId("test-id-1234567890"); dto.setSenderName("forged identity"); return dto;
     }
     @Test void pushWaitsForCommitAndUsesAuthoritativeSender() {
-        try (var ws=mockStatic(ChatWebSocketHandler.class)) {
-            var vo=service.sendMessage(request()); assertEquals("real name",vo.getSenderName());
+        try (MockedStatic<ChatWebSocketHandler> ws=mockStatic(ChatWebSocketHandler.class)) {
+            MessageVO vo=service.sendMessage(request()); assertEquals("real name",vo.getSenderName());
             ws.verifyNoInteractions();
             TransactionSynchronizationManager.getSynchronizations().forEach(sync -> sync.afterCommit());
             ws.verify(() -> ChatWebSocketHandler.sendToUser(eq(8L), argThat((Map<String,Object> map) ->
@@ -47,7 +50,7 @@ class MessageDeliveryTests {
         }
     }
     @Test void rollbackDoesNotPushOrCreatePhantomClientMessage() {
-        try (var ws=mockStatic(ChatWebSocketHandler.class)) {
+        try (MockedStatic<ChatWebSocketHandler> ws=mockStatic(ChatWebSocketHandler.class)) {
             doThrow(new IllegalStateException("transaction failure")).when(members).incrementUnreadCount(11L,7L);
             assertThrows(IllegalStateException.class, () -> service.sendMessage(request()));
             assertTrue(TransactionSynchronizationManager.getSynchronizations().isEmpty()); ws.verifyNoInteractions();
@@ -62,11 +65,17 @@ class MessageDeliveryTests {
         verify(messages,never()).insert(any(Message.class)); verifyNoInteractions(conversationService);
         verify(members,never()).incrementUnreadCount(anyLong(),anyLong());
         assertTrue(TransactionSynchronizationManager.getSynchronizations().isEmpty());
-        var changed=request(); changed.setContent("other");
+        MessageSendDTO changed=request(); changed.setContent("other");
         assertThrows(BusinessException.class, () -> service.sendMessage(changed));
     }
     @Test void catchUpRequiresMembership() {
         assertThrows(BusinessException.class, () -> service.getMessagesAfter(12L,0L,50));
         verify(messages,never()).selectMessagesAfter(anyLong(),anyLong(),anyInt());
+    }
+    @Test void deniedAdmissionCannotInsertOrIncreaseUnread(){
+        SocialService social=(SocialService)ReflectionTestUtils.getField(service,"social");
+        doThrow(new BusinessException(403,"等待对方接受")).when(social).admit(11L,7L,1,"hello");
+        assertThrows(BusinessException.class,()->service.sendMessage(request()));
+        verify(messages,never()).insert(any(Message.class));verify(members,never()).incrementUnreadCount(anyLong(),anyLong());
     }
 }

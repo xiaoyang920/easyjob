@@ -12,7 +12,7 @@ public final class RequestTrace implements AutoCloseable {
     }
     public static boolean valid(String value) { return value!=null && value.matches("[a-zA-Z0-9_-]{8,64}"); }
     public static String current() {
-        var trace=MDC.get("trace_id");return valid(trace)?trace:UUID.randomUUID().toString();
+        String trace=MDC.get("trace_id");return valid(trace)?trace:UUID.randomUUID().toString();
     }
     @Override public void close() {
         restore("trace_id",previousTrace);restore("run_id",previousRun);

@@ -8,6 +8,8 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import java.util.concurrent.TimeUnit;
+import com.easyjob.agent.component.ArticleIndexOutbox.Job;
+import org.springframework.amqp.rabbit.connection.CorrelationData.Confirm;
 
 @Component
 @org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(name="agent.index-outbox.enabled",havingValue="true",matchIfMissing=true)
@@ -32,14 +34,14 @@ public class ArticleIndexRelay {
     }
 
     public boolean relayOnce() {
-        var job = outbox.claim();
+        Job job = outbox.claim();
         if (job == null) return false;
         try {
-            var correlation = new CorrelationData(job.id());
-            var message = new ArticleVectorMessage(job.articleId(), job.action());
+            CorrelationData correlation = new CorrelationData(job.id());
+            ArticleVectorMessage message = new ArticleVectorMessage(job.articleId(), job.action());
             message.setIndexJobId(job.id());
             rabbit.convertAndSend(RabbitMqConstants.TOPIC_EXCHANGE, job.routingKey(), message, correlation);
-            var confirm = correlation.getFuture().get(5, TimeUnit.SECONDS);
+            Confirm confirm = correlation.getFuture().get(5, TimeUnit.SECONDS);
             if (!confirm.isAck() || correlation.getReturned() != null)
                 throw new IllegalStateException("Index message was not accepted/routed");
             outbox.dispatched(job);

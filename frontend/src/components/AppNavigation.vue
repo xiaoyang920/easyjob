@@ -22,6 +22,7 @@
             <nav class="app-account-items" aria-label="账户设置">
               <RouterLink to="/edit-profile"><EditPen />编辑资料</RouterLink>
               <RouterLink to="/account-security"><Lock />账号安全</RouterLink>
+              <RouterLink to="/growth-shop"><Coin />硬币商城</RouterLink>
               <RouterLink v-if="administrator" to="/admin" class="app-account-admin"><Monitor />管理后台</RouterLink>
             </nav>
             <button class="app-account-logout" @click="signOut"><SwitchButton />退出登录</button>
@@ -33,7 +34,7 @@
         <component :is="mobileOpen ? Close : Menu" /><span>{{ currentLabel }}</span>
       </button>
       <nav id="app-navigation-links" class="app-nav-links" :class="{ 'is-open': mobileOpen }" aria-label="平台导航">
-        <RouterLink v-for="item in links" :key="item.path" :to="item.path" class="app-nav-link" :class="{ 'is-current': currentPath === item.path }" :aria-current="currentPath === item.path ? 'page' : undefined">
+        <RouterLink v-for="item in links" :key="item.path" :to="item.path" :title="item.path==='/chat' ? `私信未读 ${unread}，新消息请求 ${requestUnread}` : item.label" class="app-nav-link" :class="{ 'is-current': currentPath === item.path }" :aria-current="currentPath === item.path ? 'page' : undefined">
           <span class="app-nav-icon"><component :is="item.icon" /><span v-if="badge(item.path)" class="app-nav-badge">{{ badge(item.path) > 99 ? '99+' : badge(item.path) }}</span></span>
           <span>{{ item.label }}</span>
         </RouterLink>
@@ -48,11 +49,12 @@
 
 <script setup lang="ts">
 import { signOutSession } from '@/utils/authSession'
+import { subscribeChatEvents } from '@/utils/chatRealtime'
 import { aiRunCount } from '@/utils/aiRuns'
 import { ElMessage } from 'element-plus'
 import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { EditPen, Document, ChatDotRound, Bell, User, Menu, Close, SwitchButton, Lock, Monitor } from '@element-plus/icons-vue'
+import { EditPen, Document, ChatDotRound, Bell, User, Menu, Close, SwitchButton, Lock, Monitor, Coin } from '@element-plus/icons-vue'
 import request from '@/utils/request'
 import { avatarPlaceholder } from '@/utils/avatar'
 import { eventBus, EVENT_AUTH_CHANGED } from '@/utils/eventBus'
@@ -135,7 +137,11 @@ const links = [
 ]
 const currentPath = computed(() => route.path.startsWith('/user-space') ? '/user-space' : route.path === '/edit-article' ? '/create-article' : route.path)
 const currentLabel = computed(() => links.find(item => item.path === currentPath.value)?.label || '导航')
-function badge(path: string) { return path === '/chat' ? (props.unreadMessages ?? unread.value) : path === '/notifications' ? notifyUnreadCount.value : path === '/ai-chat' ? aiRunCount.value : 0 }
+const requestUnread=ref(0)
+let stopChatRealtime:(()=>void)|undefined,summaryGeneration=0
+async function syncMessageSummary(){const run=++summaryGeneration,owner=localStorage.getItem('userId');if(!signedIn.value)return;try{const res:any=await request.get('/social/summary');if(run!==summaryGeneration||owner!==localStorage.getItem('userId'))return;unread.value=Number(res.data.messageUnread)||0;requestUnread.value=Number(res.data.requestUnseen)||0}catch{/* Refresh on the next event or focus. */}}
+function chatEvent(data:any){if(data.type==='social_update')eventBus.emit('social:updated');if(['connected','message','social_update','unread_update','recall'].includes(data.type))void syncMessageSummary()}
+function badge(path: string) { return path === '/chat' ? (props.unreadMessages ?? unread.value)+requestUnread.value : path === '/notifications' ? notifyUnreadCount.value : path === '/ai-chat' ? aiRunCount.value : 0 }
 function closeMenus() { cancelAccountClose(); mobileOpen.value = false; accountOpen.value = false }
 function clickOutside(event: PointerEvent) { if (!root.value?.contains(event.target as Node)) closeMenus() }
 async function syncAccount() {
@@ -149,9 +155,10 @@ async function syncAccount() {
   accountUserId.value = uid
   displayName.value = props.nickname || localStorage.getItem('nickName') || '用户'
   avatarUrl.value = (props.avatar || localStorage.getItem('avatar') || '').replace(/^https?:\/\/(?:localhost|127\.0\.0\.1):8080/, '')
-  if (!signedIn.value) return
+  if (!signedIn.value){unread.value=0;requestUnread.value=0;stopChatRealtime?.();stopChatRealtime=undefined;return}
+  if(!stopChatRealtime)stopChatRealtime=subscribeChatEvents(chatEvent)
   connectNotifyStream()
-  await Promise.allSettled([fetchNotifyUnreadCount(), request.get('/chat/total-unread-count').then((res: any) => { unread.value = Number(res.data) || 0 })])
+  await Promise.allSettled([fetchNotifyUnreadCount(), syncMessageSummary()])
 }
 function login() { emit('login'); if (props.authenticated === undefined) router.push({path:'/',query:{login:'true',redirect:route.fullPath}}) }
 function register() { emit('register'); if (props.authenticated === undefined) router.push({path:'/',query:{register:'true',redirect:route.fullPath}}) }
@@ -172,8 +179,8 @@ async function signOut() {
 // Route changes keep the same navigation instance and notification subscription.
 watch(() => route.path, closeMenus)
 watch(() => [props.authenticated, props.avatar, props.nickname], syncAccount)
-onMounted(() => { syncAccount(); document.addEventListener('pointerdown', clickOutside); eventBus.on(EVENT_AUTH_CHANGED, syncAccount) })
-onUnmounted(() => { cancelAccountClose(); document.removeEventListener('pointerdown', clickOutside); eventBus.off(EVENT_AUTH_CHANGED, syncAccount) })
+onMounted(() => { syncAccount(); document.addEventListener('pointerdown', clickOutside); eventBus.on(EVENT_AUTH_CHANGED, syncAccount);eventBus.on('chat:unread-changed',syncMessageSummary);window.addEventListener('focus',syncMessageSummary) })
+onUnmounted(() => { cancelAccountClose(); document.removeEventListener('pointerdown', clickOutside); eventBus.off(EVENT_AUTH_CHANGED, syncAccount);eventBus.off('chat:unread-changed',syncMessageSummary);window.removeEventListener('focus',syncMessageSummary);stopChatRealtime?.() })
 </script>
 
 <style>

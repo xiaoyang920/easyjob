@@ -1,3 +1,4 @@
+from tool_fakes import retrieval_call, raw_retrieval_call
 """Exercise the real graph, bounded read recovery and deterministic text edits."""
 import asyncio
 import json
@@ -9,6 +10,7 @@ import test_grounding  # Initializes offline provider configuration.
 from fastapi import HTTPException
 from langgraph.checkpoint.memory import InMemorySaver
 
+from app.services import main_tools
 from app.graph import action_runtime, builder, main_agent, staged_runtime
 from app.graph.delivery_recovery import DeliveryLookup
 from app.graph.state_factory import create_initial_state
@@ -79,8 +81,8 @@ class RecoveryTests(unittest.IsolatedAsyncioTestCase):
         request = main_agent.RetrievalRequest(instruction='补查此版本官方默认值', search_query='版本 默认值 官方', filters={})
         if repeat:
             request = main_agent.RetrievalRequest(instruction='原查询', filters={})
-            old = main_agent.compile_action_plan(main_agent.MainDecision(action='retrieve', retrieval=request), 1).tasks[0]
-            state['action_history'] = [{'action': 'retrieve', 'task_ids': ['retrieve_1'], 'tasks': [old.model_dump()]}]
+            old = main_agent.compile_action_plan(main_agent.MainDecision(action='call_tool', tool_call=retrieval_call(request)), 1).tasks[0]
+            state['action_history'] = [{'action': 'call_tool', 'task_ids': ['retrieve_1'], 'tasks': [old.model_dump()]}]
         control = SimpleNamespace(ainvoke=AsyncMock(side_effect=[answer, DeliveryLookup(retrieval=request if lookup else None)]))
         model = SimpleNamespace(with_structured_output=Mock(return_value=control))
         new_id = 'delivery_lookup_3:1'
@@ -107,7 +109,7 @@ class RecoveryTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(main_agent, 'get_llm', return_value=model), \
              patch.object(grounding, 'get_llm', return_value=patch_model), \
              patch.object(grounding, 'review_text', reviewer), \
-             patch.object(action_runtime, 'retrieve_evidence', retriever), \
+             patch.object(main_tools, 'retrieve_evidence', retriever), \
              patch.object(staged_runtime, 'verify_public_evidence', AsyncMock()), \
              patch.object(main_agent.settings, 'MAIN_MAX_ROUNDS', max_rounds):
             graph = builder._build_graph().compile(checkpointer=InMemorySaver(),

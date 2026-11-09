@@ -11,6 +11,9 @@ import java.time.LocalDateTime;
 @Data
 @NoArgsConstructor
 public class MessageVO {
+    private java.util.Map<String,Object> article;
+    private String replyToSenderName;
+    private Integer replyToStatus;
     private String clientMessageId;
     
     /**
@@ -39,7 +42,7 @@ public class MessageVO {
     private String senderAvatar;
     
     /**
-     * 消息类型：1=文本，2=图片
+     * 消息类型：1=文本，2=图片，3=文章卡片
      */
     private Integer messageType;
     

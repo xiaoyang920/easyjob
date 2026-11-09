@@ -8,6 +8,7 @@ import java.util.Map;
 /** Database access only. Caller owns business rules and transaction boundaries. */
 @Mapper
 public interface AdminUserMapper {
+    int updatePublicProfile(@Param("nickName")String name,@Param("introduction")String introduction,@Param("userId")Long uid);
     List<Long> findArticleIds(@Param("userId") Long userId);
     int insertAudit(@Param("actorId") Long actorId, @Param("userId") Long userId, @Param("beforeValue") String beforeValue, @Param("afterValue") String afterValue, @Param("reason") String reason, @Param("details") String details);
     int updateProfile(@Param("nickName") String nickName, @Param("introduction") String introduction, @Param("role") Integer role, @Param("status") Integer status, @Param("authIncrement") int authIncrement, @Param("userId") Long userId);

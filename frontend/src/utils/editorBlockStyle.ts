@@ -2,9 +2,25 @@ import { Boot, DomEditor, SlateEditor, SlateElement, SlateTransforms, type IDomE
 
 export const blockStyleMenuKey = 'articleBlockStyle'
 const headingTypes = ['header1', 'header2', 'header3', 'header4', 'header5']
+export const articleBlockOptions = [
+  { value: 'paragraph', text: '正文', short: '正文' },
+  ...headingTypes.map((value, index) => ({ value, text: `${['一级', '二级', '三级', '四级', '五级'][index]}标题`, short: `H${index + 1}` })),
+]
 const textBlockTypes = new Set(['paragraph', ...headingTypes, 'list-item', 'todo', 'blockquote'])
-type ArticleTextBlock = SlateElement & { type: string; ordered?: boolean; level?: number; checked?: boolean }
+type ArticleTextBlock = SlateElement & { type: string; ordered?: boolean; level?: number; checked?: boolean; indent?: string }
 let registered = false
+
+export function isArticleTextBlock(node: unknown): node is ArticleTextBlock {
+  return SlateElement.isElement(node) && textBlockTypes.has(DomEditor.getNodeType(node))
+}
+
+/** Shared by the toolbar and the hover handle; neither adds automatic indentation. */
+export function setArticleBlockStyle(editor: IDomEditor, value: string, at?: number[]): void {
+  if (editor.isDisabled() || !articleBlockOptions.some(option => option.value === value)) return
+  SlateTransforms.setNodes<ArticleTextBlock>(editor, {
+    type: value, ordered: undefined, level: undefined, checked: undefined,
+  }, { at, match: isArticleTextBlock, mode: 'lowest' })
+}
 
 /** A block format changes the whole paragraph/list item, preserving its inline marks and links. */
 class ArticleBlockStyleMenu implements ISelectMenu {
@@ -24,10 +40,7 @@ class ArticleBlockStyleMenu implements ISelectMenu {
 
   getOptions(editor: IDomEditor) {
     const value = this.getValue(editor)
-    return [
-      { value: 'paragraph', text: '正文' },
-      ...headingTypes.map((type, index) => ({ value: type, text: `${['一级', '二级', '三级', '四级', '五级'][index]}标题` })),
-    ].map(option => ({ ...option, selected: option.value === value }))
+    return articleBlockOptions.map(option => ({ ...option, selected: option.value === value }))
   }
 
   isActive(): boolean { return false }
@@ -41,17 +54,7 @@ class ArticleBlockStyleMenu implements ISelectMenu {
 
   exec(editor: IDomEditor, value: string | boolean): void {
     if (typeof value !== 'string' || !['paragraph', ...headingTypes].includes(value) || this.isDisabled(editor)) return
-    SlateEditor.withoutNormalizing(editor, () => {
-      SlateTransforms.setNodes<ArticleTextBlock>(editor, {
-        type: value,
-        ordered: undefined,
-        level: undefined,
-        checked: undefined,
-      }, {
-        match: node => SlateElement.isElement(node) && textBlockTypes.has(DomEditor.getNodeType(node)),
-        mode: 'lowest',
-      })
-    })
+    setArticleBlockStyle(editor, value)
     editor.hidePanelOrModal()
   }
 }

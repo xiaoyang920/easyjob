@@ -22,7 +22,7 @@ export interface AgentPlanTask {
 
 export interface AgentStreamState {
   status: RunStatus
-  startedAt: number
+  startedAt?: number
   finishedAt?: number
   richEvents: boolean
   commentary: string[]
@@ -35,6 +35,14 @@ export interface AgentStreamState {
 export function createAgentState(): AgentStreamState {
   return { status: 'working', startedAt: Date.now(), richEvents: false, commentary: [],
     activities: [], plan: [], answerSequence: 0, answerReceiving: false }
+}
+
+export function deliveryReviewWarning(state: AgentStreamState): string | undefined {
+  if (state.status !== 'complete') return undefined
+  const review = state.activities.filter(item => item.id.endsWith('/grounding')).at(-1)
+  if (review?.status !== 'error') return undefined
+  if (review.label === '部分引用待确认') return '回答已生成，部分引用待确认'
+  return review.label === '依据核验未通过' ? '回答已生成，部分内容未通过核验' : '回答已生成，核验未完成'
 }
 
 export function setRunStatus(state: AgentStreamState, status: RunStatus) {
@@ -54,7 +62,7 @@ export function setRunStatus(state: AgentStreamState, status: RunStatus) {
 }
 
 export function applyAgentEvent(state: AgentStreamState, event: Record<string, any>) {
-  if (event.version !== 1) return
+  if (event.version !== 1 || event.kind === 'context_usage') return
   if (!state.richEvents) state.activities = [] // Replace legacy progress once rich events arrive.
   state.richEvents = true
   if (event.kind === 'commentary' && typeof event.text === 'string') {
@@ -105,8 +113,9 @@ export function restoreAgentState(message: Record<string, any>): AgentStreamStat
   setRunStatus(state, status)
   const started = Date.parse(message.runStartedAt || '')
   const finished = Date.parse(message.runFinishedAt || '')
-  if (Number.isFinite(started)) state.startedAt = started
-  if (Number.isFinite(finished)) state.finishedAt = finished
+  // Missing historical timing is unknown, not a new run starting at page load.
+  state.startedAt = Number.isFinite(started) ? started : undefined
+  state.finishedAt = Number.isFinite(finished) ? finished : undefined
   return state
 }
 

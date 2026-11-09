@@ -5,6 +5,7 @@ import com.easyjob.mapper.ArticleIndexLockMapper;
 import lombok.RequiredArgsConstructor;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.springframework.stereotype.Component;
+import org.apache.ibatis.session.SqlSession;
 
 /** Holds one MyBatis session/connection for both advisory-lock operations. */
 @Component
@@ -15,8 +16,8 @@ public class ArticleIndexLock {
     public void withLock(Long articleId, Runnable work) {
         if (articleId == null || articleId <= 0) throw new BusinessException("无效文章id");
         String name = "easyjob_rag_" + articleId;
-        try (var session = sessions.openSession(true)) {
-            var locks = session.getMapper(ArticleIndexLockMapper.class);
+        try (SqlSession session = sessions.openSession(true)) {
+            ArticleIndexLockMapper locks = session.getMapper(ArticleIndexLockMapper.class);
             if (!Integer.valueOf(1).equals(locks.acquire(name)))
                 throw new BusinessException("文章索引正在执行，请重试");
             Throwable failure = null;

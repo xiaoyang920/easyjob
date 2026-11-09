@@ -1,5 +1,5 @@
 <template>
-  <div :class="['article-detail-page', { 'ai-question-open': showAiQuestion, 'reading-wide': readingWide }]" :style="readingStyle">
+  <div :class="['article-detail-page', { 'ai-question-open': showAiQuestion, 'reading-wide': readingWide }]" :style="articlePageStyle">
     <!-- 导航栏 -->
     <Teleport defer to="#page-header-actions"><div class="nav-right">
         <button class="nav-btn" @click="goBackOr(router, '/')">返回</button>
@@ -112,6 +112,7 @@
               <button type="button" aria-label="放大正文字号" :disabled="readingScale >= 150" @click="resizeReading(10)">A+</button>
             </div>
             <button type="button" class="reading-width-toggle" :aria-pressed="readingWide" @click="readingWide = !readingWide">{{ readingWide ? '标准宽度' : '宽屏阅读' }}</button>
+            <button type="button" class="reading-comment-toggle" title="Ctrl + Alt + M" @click="commentRef?.open()">文章评论<span v-if="commentRef?.total"> · {{ commentRef.total }}</span></button>
             <button type="button" class="reading-comment-toggle" @click="annotationRef?.open()">划词评论<span v-if="annotationRef?.total"> · {{ annotationRef.total }}</span></button>
             <button v-if="tocItems.length" type="button" class="mobile-toc-toggle" @click="mobileTocOpen = true">目录</button>
             <button v-if="tocItems.length" type="button" @click="shareSection">分享本节</button>
@@ -162,11 +163,11 @@
               </svg>
               <span class="count">{{ article.collectCount || 0 }}</span>
             </button>
-            <button class="action-btn share-btn" @click="shareArticle">
+            <button type="button" class="action-btn share-btn" aria-label="分享文章" aria-haspopup="dialog" :aria-expanded="shareFriendOpen" @click="shareArticle">
               <svg class="action-icon" viewBox="0 0 1236 1024">
                 <path fill="currentColor" d="M741.743 1018.343c-28.287 0-50.917-11.315-73.547-28.288-22.63-22.63-39.602-50.917-39.602-84.862V792.044c-124.464 0-328.133 33.945-435.624 181.039-16.973 28.287-56.575 45.26-90.52 50.917H85.478C28.903 1012.685-5.042 961.768 0.616 905.193c28.287-243.27 113.15-418.652 260.243-537.458 107.492-84.862 231.956-130.122 367.735-141.437V118.807c0-50.917 22.63-96.177 67.89-113.15C736.086-5.657 781.345 0 815.29 33.945l362.077 367.735c28.288 22.63 45.26 56.574 50.918 96.176 5.657 39.603-5.658 79.205-33.945 107.492-5.658 5.658-11.315 16.972-22.63 22.63l-350.762 356.42c-22.63 22.63-50.918 33.945-79.205 33.945z m-90.52-339.448h90.52v226.298l356.42-367.734 5.658-5.658c5.657-5.657 5.657-16.972 5.657-22.63 0-11.315-5.657-16.972-11.315-22.63l-5.657-5.657-356.42-362.077V333.79l-79.205 5.658c-118.806 0-231.956 39.602-328.132 113.149-113.15 90.519-186.696 237.613-209.326 429.967 141.436-175.382 390.364-203.669 531.8-203.669z"/>
               </svg>
-              <span class="count">{{ shareCount || 0 }}</span>
+              <span>分享</span><span class="count">{{ shareCount || 0 }}</span>
             </button>
           </div>
         </div>
@@ -180,14 +181,16 @@
           :target-comment-id="String(route.query.commentId || '')"
           @locate-quote="annotationRef?.locate($event)"
           @changed="annotationRef?.refresh()"
+          @opened="showAiQuestion = false; annotationRef?.close(false)"
         />
         <ArticleAnnotations v-if="article.articleId && article.canReadFull !== false" :key="String(article.articleId)" ref="annotationRef"
           :article-id="String(article.articleId)" :article-author-id="String(article.authorId || article.userId)" :root="contentRef"
-          @changed="commentRef?.refresh()" @login="showLoginDialog = true" @opened="showAiQuestion = false" />
+          :ai-reference="canReferenceArticle" @reference-requested="queueArticleSelection"
+          @changed="commentRef?.refresh()" @login="showLoginDialog = true" @opened="showAiQuestion = false; commentRef?.close(false)" />
       </main>
 
       <!-- 右侧在线用户 -->
-      <aside ref="onlineSidebarRef" :class="['online-sidebar', { 'ai-rail-reserved': showAiQuestion }]" :aria-hidden="showAiQuestion">
+      <aside :class="['online-sidebar', { 'ai-rail-reserved': showAiQuestion }]" :aria-hidden="showAiQuestion">
         <ReadingProgress :progress="readingProgress" :status="readingStatus" class="article-reading-progress" />
         <div class="online-header">
           <h3>在线观看</h3>
@@ -216,7 +219,7 @@
         <button class="ask-article-ai-btn" @click="openAiQuestion" :disabled="!article.articleId || article.requiredLevel > 0" :title="article.requiredLevel > 0 ? '等级文章暂不支持 AI 问答' : ''">
           <span class="ask-ai-mark">✎</span> 问 AI <span class="ask-ai-arrow">↗</span>
         </button>
-        <button class="open-chatroom-btn" @click="openChatroom">
+        <button class="open-chatroom-btn" aria-label="打开文章聊天室" @click="openChatroom">
           <svg viewBox="0 0 1024 1024" fill="currentColor" class="chat-icon">
             <path d="M535.552 796.444444H739.555556q70.712889 0 120.661333-50.005333Q910.222222 696.490667 910.222222 625.777778V341.333333q0-70.712889-50.005333-120.661333Q810.268444 170.666667 739.555556 170.666667H284.444444q-70.712889 0-120.661333 50.005333Q113.777778 270.620444 113.777778 341.333333v284.444445q0 70.712889 50.005333 120.661333Q213.731556 796.444444 284.444444 796.444444h13.084445q4.266667 8.533333 9.898667 16.497778 21.219556 30.151111 55.751111 44.487111 34.531556 14.279111 70.883555 7.964445 39.310222-6.826667 68.152889-35.612445L535.552 796.444444zM739.555556 682.666667H512a56.888889 56.888889 0 0 0-40.220444 16.668444l-50.005334 50.005333q-6.485333 6.485333-15.018666 2.958223Q398.222222 748.771556 398.222222 739.555556a56.888889 56.888889 0 0 0-56.888889-56.888889H284.444444q-23.552 0-40.220444-16.668445T227.555556 625.777778V341.333333q0-23.552 16.668444-40.220444T284.444444 284.444444h455.111112q23.552 0 40.220444 16.668445T796.444444 341.333333v284.444445q0 23.552-16.668444 40.220444T739.555556 682.666667zM341.333333 540.444444a56.888889 56.888889 0 1 0 0-113.777777 56.888889 56.888889 0 0 0 0 113.777777z m170.666667 0a56.888889 56.888889 0 1 0 0-113.777777 56.888889 56.888889 0 0 0 0 113.777777z m170.666667 0a56.888889 56.888889 0 1 0 0-113.777777 56.888889 56.888889 0 0 0 0 113.777777z"/>
           </svg>
@@ -225,20 +228,25 @@
         </button>
       </aside>
       <Transition name="article-ai">
-        <aside v-if="aiQuestionMounted" v-show="showAiQuestion" class="article-ai-drawer" :style="aiDrawerStyle" aria-label="文章问答">
-          <AiChat :key="`${route.params.id}:${myUserId}`" embedded :origin-article-id="String(route.params.id)" :origin-article-title="article.title"
+        <aside v-if="aiQuestionMounted" v-show="showAiQuestion" id="article-ai-panel" class="article-ai-drawer" :style="aiDrawerStyle" aria-label="文章问答">
+          <PanelResizeHandle v-if="aiDocked" v-model:width="aiPanelWidth" :minimum="aiPanelMinimum" :maximum="aiPanelMaximum"
+            :default-width="480" :enabled="showAiQuestion && aiDocked" label="调整文章问答宽度" controls="article-ai-panel" />
+          <AiChat ref="articleAiChat" :key="`${route.params.id}:${myUserId}`" embedded article-references :origin-article-id="String(route.params.id)" :origin-article-title="article.title"
                   :reader-count="onlineUsers.length" :reader-unread="hasNewMessage"
+                  @reference-requested="quoteArticleReference" @reference-ready="flushArticleSelection" @reference-attached="markArticleReference" @references-changed="articleReferences.retain"
                   @close="showAiQuestion = false" @open-chatroom="openChatroom" @login-required="handleAuthExpired" />
         </aside>
       </Transition>
     </div>
+
+    <Teleport to="body"><div class="article-ai-reference-lines" aria-hidden="true"><span v-for="(line, index) in articleReferenceLines" :key="index" :data-reference-id="line.id" :style="line.style"></span></div></Teleport>
 
     <div v-if="showAiQuestion && !aiDocked" class="article-ai-backdrop" @click="showAiQuestion = false"></div>
 
     <!-- 移动端浮动按钮 -->
     <div v-show="!showAiQuestion" class="mobile-float-btn">
       <button class="float-btn mobile-ai-btn" aria-label="问 AI" @click="openAiQuestion">✎</button>
-      <button class="float-btn" @click="openChatroom">
+      <button class="float-btn" aria-label="打开文章聊天室" @click="openChatroom">
         <svg viewBox="0 0 1024 1024" fill="currentColor">
           <path d="M535.552 796.444444H739.555556q70.712889 0 120.661333-50.005333Q910.222222 696.490667 910.222222 625.777778V341.333333q0-70.712889-50.005333-120.661333Q810.268444 170.666667 739.555556 170.666667H284.444444q-70.712889 0-120.661333 50.005333Q113.777778 270.620444 113.777778 341.333333v284.444445q0 70.712889 50.005333 120.661333Q213.731556 796.444444 284.444444 796.444444h13.084445q4.266667 8.533333 9.898667 16.497778 21.219556 30.151111 55.751111 44.487111 34.531556 14.279111 70.883555 7.964445 39.310222-6.826667 68.152889-35.612445L535.552 796.444444zM739.555556 682.666667H512a56.888889 56.888889 0 0 0-40.220444 16.668444l-50.005334 50.005333q-6.485333 6.485333-15.018666 2.958223Q398.222222 748.771556 398.222222 739.555556a56.888889 56.888889 0 0 0-56.888889-56.888889H284.444444q-23.552 0-40.220444-16.668445T227.555556 625.777778V341.333333q0-23.552 16.668444-40.220444T284.444444 284.444444h455.111112q23.552 0 40.220444 16.668445T796.444444 341.333333v284.444445q0 23.552-16.668444 40.220444T739.555556 682.666667zM341.333333 540.444444a56.888889 56.888889 0 1 0 0-113.777777 56.888889 56.888889 0 0 0 0 113.777777z m170.666667 0a56.888889 56.888889 0 1 0 0-113.777777 56.888889 56.888889 0 0 0 0 113.777777z m170.666667 0a56.888889 56.888889 0 1 0 0-113.777777 56.888889 56.888889 0 0 0 0 113.777777z"/>
         </svg>
@@ -248,16 +256,8 @@
     </div>
 
     <!-- 聊天室弹窗 -->
-    <div v-if="showChatroom" class="chatroom-overlay" @click="showChatroom = false">
-      <div class="chatroom-modal" @click.stop>
-        <div class="chatroom-header">
-          <h3>文章聊天室</h3>
-          <button class="close-btn" @click="showChatroom = false">
-            <svg viewBox="0 0 24 24" fill="currentColor">
-              <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
-            </svg>
-          </button>
-        </div>
+    <el-dialog v-model="showChatroom" title="文章聊天室" class="ej-dialog article-chatroom-dialog"
+      append-to-body align-center @opened="chatroomOpened">
         <div class="chatroom-notice">
           <svg viewBox="0 0 24 24" fill="currentColor" class="notice-icon">
             <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
@@ -265,6 +265,7 @@
           消息不会保存，关闭文章页面后消息将被清除
         </div>
         <div class="chatroom-messages" ref="chatroomMessagesRef">
+          <div v-if="!chatroomMessages.length" class="chatroom-empty" role="status"><strong>还没有消息</strong><p>和正在阅读这篇文章的人聊聊吧。</p></div>
           <div 
             v-for="msg in chatroomMessages" 
             :key="msg.timestamp"
@@ -287,6 +288,8 @@
         <div class="chatroom-input">
           <input 
             v-model="chatroomInput"
+            ref="chatroomInputRef"
+            aria-label="聊天室消息"
             type="text" 
             placeholder="输入消息..."
             @keydown.enter="sendChatroomMessage"
@@ -295,8 +298,7 @@
             发送
           </button>
         </div>
-      </div>
-    </div>
+    </el-dialog>
     <Teleport to="body">
     <!-- 图片预览弹窗 -->
     <div v-if="previewImage" class="image-preview-modal" @click="previewImage = ''">
@@ -310,6 +312,7 @@
       <nav class="mobile-article-outline" aria-label="手机文章目录"><ul class="toc-list"><li v-for="item in tocItems" :key="item.id" :class="['toc-item', `level-${item.level}`, {active: activeHeading === item.id}]"><a :href="`#${item.id}`" :aria-current="activeHeading === item.id ? 'location' : undefined" @click.prevent="selectMobileHeading(item.id)">{{ item.text }}</a></li></ul></nav>
     </el-dialog>
 
+    <ShareArticleDialog v-model="shareFriendOpen" :article-id="String(article.articleId || route.params.id || '')" :allow-friend-share="!article.requiredLevel && article.canReadFull !== false" @copy-link="copyArticleLink" @sent="recordArticleShare(3,$event)" />
     <!-- 登录弹窗 -->
     <el-dialog v-model="showLoginDialog" title="" :width="dialogWidth" :close-on-click-modal="true" class="modern-dialog ej-dialog" append-to-body>
       <LoginForm @success="handleLoginSuccess" @switchToRegister="switchToRegister" />
@@ -323,10 +326,11 @@
 </template>
 
 <script setup lang="ts">
+import ShareArticleDialog from '@/components/ShareArticleDialog.vue'
 import { trackEffectiveReading } from '@/utils/effectiveReading'
 import ReadingProgress from '@/components/ReadingProgress.vue'
 import { ReadingHeartbeatPump, readingDuration, type ReadingProgress as Progress } from '@/utils/readingGrowth'
-import { ref, onMounted, onBeforeUnmount, onUnmounted, nextTick, computed, watch, defineAsyncComponent } from 'vue'
+import { ref, shallowRef, onMounted, onBeforeUnmount, onUnmounted, nextTick, computed, watch, defineAsyncComponent } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { goBackOr, goBackUnless } from '../utils/navigation'
@@ -344,6 +348,11 @@ import { safeHtml } from '@/utils/safeHtml'
 import { formatCitationHtml } from '@/utils/citationLinks'
 import CodeViewer from '@/components/CodeViewer.vue'
 import { useArticleReading } from '@/composables/useArticleReading'
+import { useResizablePanelWidth } from '@/composables/useResizablePanelWidth'
+import PanelResizeHandle from '@/components/PanelResizeHandle.vue'
+import { useArticleReferences } from '@/composables/useArticleReferences'
+import { articleReferenceText, selectedArticleReference, type ArticleSelection } from '@/utils/articleReferences'
+import { writingReferencesError, type WritingReferenceKind } from '@/utils/writingReferences'
 import ContentState from '@/components/ContentState.vue'
 import { errorMessage, notify } from '@/utils/feedback'
 import { latestRequest } from '@/utils/latestRequest'
@@ -373,6 +382,11 @@ const article = ref<any>({
 })
 const articleHtml = computed(() => formatCitationHtml(safeHtml(article.value.content), [], true))
 const { scale: readingScale, wide: readingWide, style: readingStyle, resize: resizeReading } = useArticleReading()
+// Keep reading controls independent of each panel's remembered width.
+const { width: aiPanelWidth, minimum: aiPanelMinimum, maximum: aiPanelMaximum, viewportWidth } = useResizablePanelWidth({
+  storageKey: 'easyjob:article-question-width', defaultWidth: 480, reservedWidth: 808
+})
+const articlePageStyle = computed(() => ({ ...readingStyle.value, '--article-ai-width': `${aiPanelWidth.value}px` }))
 const codeViewerOpen = ref(false)
 const previewCode = ref({ text: '', language: '' })
 const articleLoading = ref(true), articleError = ref(''), detailRequests = latestRequest()
@@ -409,6 +423,52 @@ function keepActiveTocItemVisible() {
 
 watch(activeHeading, () => nextTick(keepActiveTocItemVisible))
 const contentRef = ref<HTMLElement>()
+const articleAiChat = ref<InstanceType<typeof AiChat>>()
+const articleReferences = useArticleReferences(contentRef)
+const articleReferenceLines = articleReferences.lines
+const canReferenceArticle = computed(() => article.value.canReadFull !== false && !article.value.requiredLevel)
+const pendingArticleSelections = shallowRef<ArticleSelection[]>([])
+let attachingArticleSelection: ArticleSelection | undefined
+function markArticleReference(id: string, text: string) { articleReferences.mark(id, text, attachingArticleSelection || articleReferences.selection.value) }
+function flushArticleSelection() {
+  const selections = pendingArticleSelections.value, chat = articleAiChat.value
+  if (!selections.length || !showAiQuestion.value || !chat?.canAttachReference?.() || !canReferenceArticle.value) return
+  pendingArticleSelections.value = []
+  for (const selection of selections) {
+    if (!articleReferences.valid(selection)) { ElMessage.info('原文已变化，请重新选择并引用'); continue }
+    attachingArticleSelection = selection
+    try {
+      // Lazy-loading the first quote must not steal a newer selection's focus.
+      const selectingAnother = !!contentRef.value && !!selectedArticleReference(contentRef.value)
+      chat.attachReference({ kind: 'selection', text: selection.text, truncated: false }, { focus: !selectingAnother })
+    }
+    finally { attachingArticleSelection = undefined }
+  }
+}
+async function queueArticleSelection(selection: ArticleSelection) {
+  if (!canReferenceArticle.value) return
+  if (!localStorage.getItem('token')) { showLoginDialog.value = true; return }
+  const selections = [...pendingArticleSelections.value, selection]
+  const error = writingReferencesError(selections.map(value => ({ kind: 'selection', text: value.text, truncated: false })))
+  if (error) { ElMessage.warning(error); return }
+  pendingArticleSelections.value = selections
+  openAiQuestion()
+  await nextTick()
+  flushArticleSelection()
+}
+function quoteArticleReference(kind: WritingReferenceKind) {
+  if (!canReferenceArticle.value || !contentRef.value) return
+  if (kind === 'selection') {
+    const selection = articleReferences.selection.value
+    if (!selection || !articleReferences.valid(selection)) { ElMessage.info('先在正文中选中需要讨论的文字，再引用给 AI'); return }
+    void queueArticleSelection(selection)
+  } else if (kind === 'article') {
+    const body = articleReferenceText(contentRef.value)
+    const text = [`标题：${article.value.title}`, article.value.summary ? `摘要：${article.value.summary}` : '', body ? `正文：\n${body}` : ''].filter(Boolean).join('\n\n')
+    articleAiChat.value?.attachReference({ kind: 'article', text: text.slice(0, 12000), truncated: text.length > 12000 })
+  }
+}
+watch(articleAiChat, () => nextTick(flushArticleSelection), { flush: 'post' })
 const annotationRef = ref<InstanceType<typeof ArticleAnnotations>>()
 const commentRef = ref<InstanceType<typeof ArticleComment>>()
 
@@ -420,36 +480,25 @@ const onlineUsers = ref<any[]>([])
 const showChatroom = ref(false)
 const showAiQuestion = ref(false)
 const aiQuestionMounted = ref(false)
-const onlineSidebarRef = ref<HTMLElement>()
-const aiDocked = ref(false)
-const aiDockLeft = ref(0)
-let aiLayoutObserver: ResizeObserver | undefined
+const aiDocked = computed(() => viewportWidth.value > 1200)
 const aiDrawerStyle = computed(() => aiDocked.value
-  ? { left: `${aiDockLeft.value}px`, right: '20px', width: 'auto' }
+  ? { left: 'auto', right: '20px', width: `${aiPanelWidth.value}px` }
   : {})
-
-function updateAiLayout() {
-  const rail = onlineSidebarRef.value?.getBoundingClientRect()
-  const available = rail ? document.documentElement.clientWidth - rail.left - 20 : 0
-  // Anchor to the original reader rail; reserve its layout space so neither
-  // the reading column nor outline changes position when opening the panel.
-  aiDocked.value = !!rail && rail.width > 0 && available >= 360
-  aiDockLeft.value = rail?.left ?? 0
-}
-
-watch(showAiQuestion, () => nextTick(updateAiLayout))
-watch(readingWide, () => nextTick(updateAiLayout))
 
 function openAiQuestion() {
   if (article.value.requiredLevel > 0) return
   if (!localStorage.getItem('token')) { showLoginDialog.value = true; return }
   aiQuestionMounted.value = true
+  commentRef.value?.close(false)
+  annotationRef.value?.close(false)
   showAiQuestion.value = true
 }
 const chatroomMessages = ref<any[]>([])
 const chatroomInput = ref('')
 const chatroomMessagesRef = ref<HTMLElement>()
+const chatroomInputRef = ref<HTMLInputElement>()
 const myUserId = ref(localStorage.getItem('userId') || '')
+watch(myUserId, () => { pendingArticleSelections.value = []; articleReferences.clear() })
 const hasNewMessage = ref(false)  // 新消息提示
 const myNickName = ref(localStorage.getItem('nickName') || '')
 const myAvatar = ref(localStorage.getItem('avatar') || '')
@@ -555,7 +604,6 @@ async function fetchArticle() {
       generateTOC()
       highlightCode()
       bindImagePreview()  // 绑定图片点击预览
-      if (aiLayoutObserver && onlineSidebarRef.value?.parentElement) aiLayoutObserver.observe(onlineSidebarRef.value.parentElement)
       currentFingerprint = readingFingerprint(article.value.content || '')
       resumeBookmark.value = article.value.canReadFull !== false && !window.location.hash ? readBookmark(String(articleId), currentFingerprint) : undefined
       const linkedHeading = decodeSectionHash()
@@ -763,73 +811,37 @@ async function toggleCoin() {
 
 // 分享文章
 const shareCount = ref(0)
+const shareFriendOpen = ref(false)
+function shareArticle(){if(checkLogin())shareFriendOpen.value=true}
 
-async function shareArticle() {
+async function copyArticleLink() {
   if (!checkLogin()) return
-  
   const url = window.location.href
-  const title = article.value.title || '查看这篇文章'
-  
-  // 先复制链接到剪贴板
+  const articleId = String(article.value.articleId || route.params.id)
   let copySuccess = false
   try {
     await navigator.clipboard.writeText(url)
     copySuccess = true
-  } catch (error) {
-    // 备用方案：创建临时input
+  } catch {
+    const input = document.createElement('input')
     try {
-      const input = document.createElement('input')
       input.value = url
       document.body.appendChild(input)
       input.select()
-      document.execCommand('copy')
-      document.body.removeChild(input)
-      copySuccess = true
-    } catch (e) {
-      console.error('复制失败:', e)
-    }
+      copySuccess = document.execCommand('copy')
+    } catch { copySuccess = false }
+    finally { input.remove() }
   }
-  
-  // 调用后端接口记录分享（无论复制是否成功都调用）
-  try {
-    const articleId = article.value.articleId || route.params.id
-    const res = await request.post('/share/record', {
-      articleId: articleId,
-      shareType: 0  // 0-复制链接
-    })
-    
-    if (res.code === 200) {
-      shareCount.value = res.data || 0
-    }
-  } catch (error) {
-    console.error('记录分享失败:', error)
-  }
-  
-  // 显示成功提示
-  if (copySuccess) {
-    showShareSuccess()
-  }
+  if(!copySuccess){notify.error('链接复制失败，请检查浏览器剪贴板权限后重试');return}
+  notify.success('链接已复制到剪贴板')
+  await recordArticleShare(0,articleId)
 }
 
-function showShareSuccess() {
-  // 创建提示框
-  const toast = document.createElement('div')
-  toast.className = 'share-toast'
-  toast.innerHTML = `
-    <svg viewBox="0 0 24 24" width="20" height="20" style="fill: var(--ej-accent)">
-      <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/>
-    </svg>
-    <span>链接已复制到剪贴板</span>
-  `
-  document.body.appendChild(toast)
-  
-  // 3秒后移除
-  setTimeout(() => {
-    toast.classList.add('fade-out')
-    setTimeout(() => {
-      document.body.removeChild(toast)
-    }, 300)
-  }, 3000)
+async function recordArticleShare(shareType:number,articleId=String(article.value.articleId || route.params.id)) {
+  try {
+    const res = await request.post('/share/record', {articleId,shareType})
+    if (res.code === 200 && String(article.value.articleId || route.params.id)===articleId) shareCount.value = Number(res.data) || 0
+  } catch (error) { console.error('记录分享失败:', error) }
 }
 
 // 编辑文章
@@ -977,9 +989,16 @@ function handleArticleWsMessage(data: any) {
 
 // 打开聊天室
 function openChatroom() {
+  commentRef.value?.close(false)
+  annotationRef.value?.close(false)
+  window.getSelection()?.removeAllRanges()
   showChatroom.value = true
   hasNewMessage.value = false  // 清除新消息提示
   scrollChatroomToBottom()
+}
+function chatroomOpened() {
+  scrollChatroomToBottom()
+  chatroomInputRef.value?.focus()
 }
 
 // 发送聊天室消息
@@ -1109,6 +1128,8 @@ function handleScroll() {
 
 // 登录过期处理
 function handleAuthExpired() {
+  pendingArticleSelections.value = []
+  articleReferences.clear()
   showAiQuestion.value = false
   aiQuestionMounted.value = false
   showLoginDialog.value = true
@@ -1120,10 +1141,6 @@ onMounted(() => {
   window.addEventListener('scroll', handleScroll)
   window.addEventListener('pagehide', persistReadingPosition)
   window.addEventListener('hashchange', handleSectionHashChange)
-  window.addEventListener('resize', updateAiLayout)
-  updateAiLayout()
-  aiLayoutObserver = new ResizeObserver(updateAiLayout)
-  if (onlineSidebarRef.value?.parentElement) aiLayoutObserver.observe(onlineSidebarRef.value.parentElement)
   
   
   // 初始化文章 WebSocket
@@ -1139,8 +1156,6 @@ onUnmounted(() => {
   window.removeEventListener('pagehide', persistReadingPosition)
   window.removeEventListener('hashchange', handleSectionHashChange)
   detailRequests.cancel(); clearTimeout(bookmarkTimer)
-  window.removeEventListener('resize', updateAiLayout)
-  aiLayoutObserver?.disconnect()
   clearTimeout(settleTimer)
   // 清理计时器
   stopReading?.()
@@ -1150,6 +1165,12 @@ onUnmounted(() => {
 })
 </script>
 
+<style>
+html .el-dialog.ej-dialog.article-chatroom-dialog { width:min(600px,calc(100% - 24px)); height:min(640px,calc(100dvh - 40px)); margin:auto; overflow:hidden; }
+html .article-chatroom-dialog .el-dialog__body { display:flex; flex:1; flex-direction:column; padding-bottom:0; overflow:hidden; }
+html .article-chatroom-dialog .el-dialog__headerbtn { display:grid; place-items:center; padding:0; }
+html .article-chatroom-dialog .el-dialog__headerbtn .el-icon { font-size:20px; flex-shrink:0; }
+</style>
 <style scoped>
 .mobile-article-outline .toc-item a { display:block; white-space:normal; overflow-wrap:anywhere; color:var(--ej-muted); }
 .mobile-article-outline .toc-item.active a { background:var(--studio-lime-soft); color:var(--ej-ink); border-left-color:var(--ej-ink); }
@@ -1761,12 +1782,6 @@ onUnmounted(() => {
     font-size: 13px;
   }
   
-  .chatroom-modal {
-    width: 95%;
-    height: 80vh;
-    max-height: none;
-    border-radius: 12px;
-  }
 }
 
 /* 手机适配 */
@@ -1883,20 +1898,6 @@ onUnmounted(() => {
   }
   
   /* 聊天室弹窗手机适配 */
-  .chatroom-modal {
-    width: 100%;
-    height: 100%;
-    max-height: none;
-    border-radius: 0;
-  }
-  
-  .chatroom-header {
-    padding: 15px;
-  }
-  
-  .chatroom-header h3 {
-    font-size: 16px;
-  }
   
   .chatroom-notice {
     padding: 8px 15px;
@@ -2094,69 +2095,6 @@ onUnmounted(() => {
   }
 }
 
-/* 聊天室弹窗 */
-.chatroom-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 9999;
-}
-
-.chatroom-modal {
-  width: 90%;
-  max-width: 600px;
-  height: 70vh;
-  max-height: 600px;
-  background: white;
-  border-radius: 16px;
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
-}
-
-.chatroom-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 20px;
-  border-bottom: 1px solid #f0f0f0;
-}
-
-.chatroom-header h3 {
-  margin: 0;
-  font-size: 18px;
-  color: #333;
-}
-
-.close-btn {
-  width: 32px;
-  height: 32px;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.2s;
-  color: #666;
-}
-
-.close-btn:hover {
-  background: #f0f0f0;
-}
-
-.close-btn svg {
-  width: 20px;
-  height: 20px;
-}
-
 /* 聊天室提示条 */
 .chatroom-notice {
   display: flex;
@@ -2167,6 +2105,8 @@ onUnmounted(() => {
   border-bottom: 1px solid #ffe7ba;
   color: #d48806;
   font-size: 12px;
+  flex-shrink:0;
+  border-radius:10px;
 }
 
 .notice-icon {
@@ -2177,10 +2117,16 @@ onUnmounted(() => {
 
 .chatroom-messages {
   flex: 1;
+  min-height:0;
   overflow-y: auto;
   padding: 20px;
-  background: #f8f9fa;
+  background: var(--ej-canvas);
+  overscroll-behavior:contain;
+  border-radius:12px;
+  margin-top:12px;
 }
+.chatroom-empty { display:flex; min-height:100%; flex-direction:column; align-items:center; justify-content:center; gap:8px; text-align:center; color:var(--ej-muted); font-size:13px; line-height:1.7; }
+.chatroom-empty strong { color:var(--ej-ink); font-size:16px; }
 
 .chatroom-message {
   display: flex;
@@ -2245,15 +2191,18 @@ onUnmounted(() => {
 .chatroom-input {
   display: flex;
   gap: 10px;
-  padding: 15px 20px;
-  border-top: 1px solid #f0f0f0;
-  background: white;
+  padding: 16px 0 0;
+  flex-shrink:0;
+  background: var(--ej-surface);
 }
 
 .chatroom-input input {
   flex: 1;
+  min-width:0;
   padding: 10px 15px;
-  border: 1px solid #e0e0e0;
+  border: 1px solid var(--ej-line);
+  background:var(--ej-surface);
+  color:var(--ej-ink);
   border-radius: 20px;
   outline: none;
   font-size: 14px;
@@ -2265,9 +2214,9 @@ onUnmounted(() => {
 
 .chatroom-send-btn {
   padding: 10px 24px;
-  background: var(--ej-accent);
-  color: white;
-  border: none;
+  background: var(--ej-ink);
+  color: var(--ej-surface);
+  border: 1px solid var(--ej-ink);
   border-radius: 20px;
   cursor: pointer;
   font-size: 14px;
@@ -2275,54 +2224,13 @@ onUnmounted(() => {
 }
 
 .chatroom-send-btn:hover:not(:disabled) {
-  background: var(--ej-ink);
+  background: var(--studio-lime);
+  color:var(--ej-ink);
 }
 
 .chatroom-send-btn:disabled {
-  background: #c0c4cc;
+  opacity:.45;
   cursor: not-allowed;
-}
-
-/* 分享提示框 */
-.share-toast {
-  position: fixed;
-  top: 100px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 24px;
-  background: white;
-  border-radius: 50px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
-  z-index: 9999;
-  animation: slideDown 0.3s ease;
-  font-size: 14px;
-  color: #333;
-  border: 1.5px solid var(--ej-ink);
-}
-
-.share-toast.fade-out {
-  animation: fadeOut 0.3s ease forwards;
-}
-
-@keyframes slideDown {
-  from {
-    opacity: 0;
-    transform: translateX(-50%) translateY(-20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(-50%) translateY(0);
-  }
-}
-
-@keyframes fadeOut {
-  to {
-    opacity: 0;
-    transform: translateX(-50%) translateY(-10px);
-  }
 }
 
 /* 图片预览弹窗 */
@@ -2418,10 +2326,15 @@ onUnmounted(() => {
 .ask-article-ai-btn:disabled { opacity: .5; cursor: default; }
 .ask-ai-mark { font-size: 18px; }
 .ask-ai-arrow { margin-left: auto; }
-.article-ai-drawer { position: fixed; z-index: 2000; top: 96px; bottom: 20px; right: 20px; width: min(480px, calc(100% - 40px)); overflow: hidden; background: var(--ej-surface); border: 1.5px solid var(--ej-ink); border-radius: 20px; box-shadow: 0 5px 0 #11110f12; }
+.article-ai-drawer { position: fixed; z-index: 2000; top: 96px; bottom: 20px; right: 20px; width: min(480px, calc(100% - 40px)); max-width:min(800px,calc(100% - 16px)); overflow: hidden; background: var(--ej-surface); border: 1.5px solid var(--ej-ink); border-radius: 20px; box-shadow: 0 5px 0 #11110f12; }
 .article-ai-backdrop { position: fixed; inset: 72px 0 0; z-index: 1900; background: #11110f20; }
+.article-ai-reference-lines{position:absolute;left:0;top:0;width:100%;height:0;z-index:21;pointer-events:none}.article-ai-reference-lines span{position:absolute;height:2px;background:#8da623;border-radius:2px;box-shadow:0 1px 0 #cbff4680}
 :global(#app .article-detail-page.ai-question-open .main-container) { z-index: auto; }
 :global(#app .article-detail-page .online-sidebar.ai-rail-reserved) { visibility: hidden; pointer-events: none; }
+@media(min-width:1201px){
+  :global(#app .article-detail-page.ai-question-open){padding-right:calc(var(--article-ai-width,480px) + 24px)}
+  :global(#app .article-detail-page.ai-question-open .online-sidebar.ai-rail-reserved){display:none}
+}
 .article-ai-enter-active, .article-ai-leave-active { transition: opacity .22s ease, transform .22s ease; }
 .article-ai-enter-from, .article-ai-leave-to { opacity: 0; transform: translateX(14px); }
 @media (max-width: 1050px) {

@@ -58,6 +58,50 @@ async function selectText(page: Page, text: string) {
   await expect(page.getByRole('button', { name: '评论所选内容', exact: false })).toBeVisible()
 }
 
+for (const mobile of [false, true]) test(`article chatroom stays above quote markers, with usable close and input controls (${mobile ? 'mobile' : 'desktop'})`, async ({ page }) => {
+  await page.setViewportSize(mobile ? { width: 390, height: 844 } : { width: 1540, height: 960 })
+  await page.routeWebSocket(/\/ws\/article/, socket => {
+    socket.onMessage(raw => {
+      const payload = JSON.parse(String(raw))
+      if (payload.type === 'article_chat_message') socket.send(JSON.stringify({ ...payload, userId: '7', nickName: '测试读者', timestamp: Date.now() }))
+    })
+  })
+  const state = await fixture(page)
+  state.items.push(quotedComment(101, '依赖该任务的后续任务不会执行。', '后台的划词评论'))
+  await page.reload()
+  await expect.poll(() => page.locator('.article-comment-line').count()).toBeGreaterThan(0)
+  await page.getByRole('button', { name: '打开文章聊天室', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: '文章聊天室', exact: true })
+  await expect(dialog.getByText('还没有消息', { exact: true })).toBeVisible()
+  const input = dialog.getByRole('textbox', { name: '聊天室消息' })
+  await expect(input).toBeFocused()
+  const geometry = await dialog.evaluate(node => {
+    const overlay = node.closest('.el-overlay')!, close = node.querySelector('.el-dialog__headerbtn svg')!.getBoundingClientRect()
+    const marker = document.querySelector('.article-comment-lines')!
+    const box = node.getBoundingClientRect()
+    return { outsideArticle: !node.closest('.article-detail-page'), bodyOverlay: overlay.parentElement === document.body,
+      overlayZ: Number(getComputedStyle(overlay).zIndex), markerZ: Number(getComputedStyle(marker).zIndex),
+      closeWidth: close.width, left: box.left, right: box.right, bottom: box.bottom,
+      centerX: box.left + box.width / 2, centerY: box.top + box.height / 2, viewportWidth: innerWidth, viewportHeight: innerHeight }
+  })
+  expect(geometry.outsideArticle).toBe(true); expect(geometry.bodyOverlay).toBe(true)
+  expect(geometry.overlayZ).toBeGreaterThan(geometry.markerZ); expect(geometry.closeWidth).toBeGreaterThanOrEqual(18)
+  expect(geometry.left).toBeGreaterThanOrEqual(0); expect(geometry.right).toBeLessThanOrEqual(geometry.viewportWidth)
+  expect(geometry.bottom).toBeLessThanOrEqual(geometry.viewportHeight)
+  expect(Math.abs(geometry.centerX - geometry.viewportWidth / 2)).toBeLessThanOrEqual(1)
+  expect(Math.abs(geometry.centerY - geometry.viewportHeight / 2)).toBeLessThanOrEqual(1)
+  await input.fill('这条消息只发送到模拟聊天室')
+  await dialog.getByRole('button', { name: '发送', exact: true }).click()
+  await expect(dialog.locator('.chatroom-msg-bubble')).toHaveText('这条消息只发送到模拟聊天室')
+  await input.fill('暂未发送的想法')
+  await page.screenshot({ path: `../temp/article-chatroom-fixed-${mobile ? 'mobile' : 'desktop'}.png`, animations: 'disabled' })
+  await page.keyboard.press('Escape'); await expect(dialog).toBeHidden()
+  await page.getByRole('button', { name: '打开文章聊天室', exact: true }).click()
+  await expect(input).toHaveValue('暂未发送的想法')
+  await dialog.locator('.el-dialog__headerbtn').click(); await expect(dialog).toBeHidden()
+  expect(state.errors).toEqual([])
+})
+
 test('selection comment persists, locates original, replies and deletes through the existing endpoints', async ({ page }) => {
   await page.setViewportSize({ width: 1540, height: 960 })
   const state = await fixture(page)

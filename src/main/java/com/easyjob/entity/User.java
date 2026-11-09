@@ -35,6 +35,8 @@ public class User {
     /**
      * 密码
      */
+    @com.baomidou.mybatisplus.annotation.TableField(select=false)
+    @com.fasterxml.jackson.annotation.JsonIgnore
     private String password;
     
     /**

@@ -1,3 +1,4 @@
+from tool_fakes import retrieval_call, raw_retrieval_call
 """Retrieval fetches candidates; Main assesses and acts in one model call."""
 import os
 os.environ["DEEPSEEK_API_KEY"] = "offline-test"
@@ -9,6 +10,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
+from app.services import main_tools
 from app.config import settings
 from app.graph.nodes import search_worker as search
 from app.graph import action_runtime as actions, main_agent as agent, staged_runtime as runtime
@@ -138,15 +140,15 @@ class RetrievalDeliveryTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_failed_report_is_persisted_and_visible_to_main(self):
         state = create_initial_state(7, 'find', [])
-        state.update(main_round=1, main_action='retrieve')
-        state.update(agent.validate_action(state, agent.MainDecision(action='retrieve',
-            retrieval=agent.RetrievalRequest(instruction='find')), 1))
+        state.update(main_round=1, main_action='call_tool')
+        state.update(agent.validate_action(state, agent.MainDecision(action='call_tool',
+            tool_call=retrieval_call(agent.RetrievalRequest(instruction='find'))), 1))
         report = {'assessment_owner': 'main', 'platform': {'status': 'empty'}, 'web': {'status': 'not_requested'}}
         evidence = {'status': 'insufficient_evidence', 'result': '未返回候选', 'citations': [], 'article_cards': [], 'retrieval_report': report}
-        with patch.object(actions, 'retrieve_evidence', AsyncMock(return_value=evidence)):
+        with patch.object(main_tools, 'retrieve_evidence', AsyncMock(return_value=evidence)):
             outcome = await actions.main_retrieve_node(state)
-        self.assertEqual(outcome['task_results']['retrieve_1']['retrieval_report'], report)
-        self.assertEqual(outcome['observations'][0]['retrieval_reports']['retrieve_1'], report)
+        self.assertEqual(outcome['task_results']['tool_1']['retrieval_report'], report)
+        self.assertEqual(outcome['observations'][0]['retrieval_reports']['tool_1'], report)
         state.update(outcome)
         self.assertIn('not_requested', agent.decision_context(state))
 
@@ -194,13 +196,13 @@ class IntegratedAssessmentTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_partial_assessment_and_new_query_are_emitted_together(self):
         state = self.state()
-        decision = agent.MainDecision(action='retrieve', evidence_assessment=self.assessment(),
-            retrieval=agent.RetrievalRequest(instruction='补充 Spring Boot 配置与自动装配入门文章',
-                search_query='Spring Boot 配置 自动装配 入门教程', filters={}, allow_web=True))
+        decision = agent.MainDecision(action='call_tool', evidence_assessment=self.assessment(),
+            tool_call=retrieval_call(agent.RetrievalRequest(instruction='补充 Spring Boot 配置与自动装配入门文章',
+                search_query='Spring Boot 配置 自动装配 入门教程', filters={}, allow_web=True)))
         result, control = await self.decide(state, [decision])
         self.assertEqual(control.ainvoke.await_count, 1)
-        self.assertEqual(result['main_action'], 'retrieve')
-        self.assertEqual(result['plan']['tasks'][0]['search_query'], decision.retrieval.search_query)
+        self.assertEqual(result['main_action'], 'call_tool')
+        self.assertEqual(result['plan']['tasks'][0]['search_query'], decision.tool_call.args.search_query)
         self.assertEqual(set(state['task_results']), {'source'})
         context = json.loads(agent.decision_context({**state, **result}))
         self.assertEqual(context['previous_evidence_assessment']['missing_aspects'], ['其他入门文章'])
@@ -277,9 +279,9 @@ class IntegratedAssessmentTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('未启动生成', result['final_reply'])
 
     async def test_main_artifact_with_missing_selected_evidence_stops_without_server_error(self):
-        decision = agent.MainDecision(action='retrieve',
+        decision = agent.MainDecision(action='call_tool',
             evidence_assessment=self.assessment(selected_ids=[], adequacy='none'),
-            retrieval=agent.RetrievalRequest(instruction='new search'), artifacts=[agent.MainArtifact(
+            tool_call=retrieval_call(agent.RetrievalRequest(instruction='new search')), artifacts=[agent.MainArtifact(
                 task_id='notes', instruction='analyze', result='unsupported', depends_on=['source'], requires_evidence=True)])
         result, control = await self.decide(self.state(), [decision])
         self.assertEqual(control.ainvoke.await_count, 1)
@@ -287,8 +289,8 @@ class IntegratedAssessmentTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_repeated_query_stop_uses_current_selection_without_another_call(self):
         state = self.state()
-        decision = agent.MainDecision(action='retrieve', evidence_assessment=self.assessment(),
-            retrieval=agent.RetrievalRequest(instruction='same query', filters={}))
+        decision = agent.MainDecision(action='call_tool', evidence_assessment=self.assessment(),
+            tool_call=retrieval_call(agent.RetrievalRequest(instruction='same query', filters={})))
         previous = agent.validate_action(state, decision, 1)
         state['action_history'] = previous['action_history']
         state['main_round'] = 1

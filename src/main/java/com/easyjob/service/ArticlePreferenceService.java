@@ -4,6 +4,7 @@ import com.alibaba.fastjson2.JSON;
 import com.easyjob.mapper.ArticlePreferenceMapper;
 import org.springframework.stereotype.Service;
 import java.util.*;
+import java.util.LinkedHashMap;
 
 /** Explicit blog topics are read fresh, so profile removal takes effect immediately. */
 @Service
@@ -15,7 +16,7 @@ public class ArticlePreferenceService {
         List<Map<String,Object>> rows;
         try { rows=store.findTopics(uid); } catch(RuntimeException unavailable) { return List.of(); }
         if (rows.isEmpty()) return List.of();
-        var result = new LinkedHashMap<String,String>();
+        LinkedHashMap<String, String> result = new LinkedHashMap<String,String>();
         for (String field : List.of("interests", "tech_stack")) {
             Object raw = rows.getFirst().get(field);
             if (raw == null) continue;

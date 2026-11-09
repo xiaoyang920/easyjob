@@ -11,6 +11,7 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
+import java.util.List;
 
 /** Explicit opt-in, paged rebuild; normal starts never invoke embeddings for old articles. */
 @Component
@@ -26,7 +27,7 @@ public class RagChunkReindexRunner implements ApplicationRunner {
         long after = 0;
         int count = 0;
         while (true) {
-            var page = articles.findReindexPage(after);
+            List<Article> page = articles.findReindexPage(after);
             if (page.isEmpty()) break;
             for (Article article : page) {
                 indexer.handleVectorMessage(new ArticleVectorMessage(article.getArticleId(), "UPDATE"));

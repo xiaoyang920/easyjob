@@ -1,10 +1,11 @@
 <template>
   <div class="conversation-item" :class="{ active, 'is-pinned': pinned, 'menu-open': menuOpen }">
     <button class="conversation-open" :aria-pressed="active" :title="title" @click="emit('select')">
-      <span class="conv-icon" aria-hidden="true"><component :is="conversation.originArticleId ? Document : ChatDotRound" /></span>
+      <span class="conv-icon" aria-hidden="true"><component :is="conversationScope(conversation) === 'general' ? ChatDotRound : Document" /></span>
       <span class="conv-info">
         <span class="conv-title">{{ title }}</span>
         <span v-if="conversation.originArticleId" class="conv-article-title" :title="conversation.originArticleTitle || '原文章已不可用'">来源：{{ conversation.originArticleTitle || '原文章已不可用' }}</span>
+        <span v-else-if="conversationScope(conversation) === 'writing'" class="conv-article-title" :title="writingSourceTitle(conversation)">草稿：{{ writingSourceTitle(conversation) }}</span>
         <span class="conv-time">
           <span v-if="pinned" class="conv-pinned-badge" :title="`固定在${category}顶部`">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3h6l-1 6 4 4v2H6v-2l4-4-1-6Z"/><path d="M12 15v6"/></svg>
@@ -40,9 +41,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { ChatDotRound, Document, MoreFilled, EditPen, Delete, Loading } from '@element-plus/icons-vue'
+import { conversationScope, conversationCategory, writingSourceTitle, type ConversationSource } from '@/utils/conversationScope'
 
 const props = defineProps<{
-  conversation: { title?: string; isPinned?: boolean | number | string; originArticleId?: string; originArticleTitle?: string }
+  conversation: ConversationSource & { title?: string; isPinned?: boolean | number | string; originArticleTitle?: string }
   active: boolean
   time: string
   status?: string
@@ -53,7 +55,7 @@ const emit = defineEmits<{ select: []; pin: []; rename: []; delete: [] }>()
 const menuOpen = ref(false)
 const title = computed(() => props.conversation.title || '新对话')
 const pinned = computed(() => !!Number(props.conversation.isPinned))
-const category = computed(() => props.conversation.originArticleId ? '文章问答' : '普通聊天')
+const category = computed(() => conversationCategory(props.conversation))
 function onCommand(command: string) {
   if (props.updating) return
   if (command === 'pin') emit('pin')

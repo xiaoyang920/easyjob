@@ -1,3 +1,4 @@
+from tool_fakes import retrieval_call, raw_retrieval_call
 """Public SSE lifecycle; real model token streaming is in test_answer_stream."""
 import os
 os.environ["DEEPSEEK_API_KEY"] = "offline-test"
@@ -16,6 +17,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
 from app import main
+from app.services import main_tools
 from app.graph import builder, main_agent as agent, staged_runtime as runtime, action_runtime as actions
 from app.graph.main_agent import MainArtifact, MainDecision, RetrievalRequest
 from app.graph.nodes import writing_worker
@@ -59,13 +61,13 @@ class StreamingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(frames[-1], 'data:[DONE]\n\n')
 
     async def test_main_artifact_emits_completed_main_activity_without_exposing_body(self):
-        decision = MainDecision(action="retrieve", retrieval=RetrievalRequest(task_id="source", instruction="find"),
+        decision = MainDecision(action='call_tool', tool_call=retrieval_call(RetrievalRequest(task_id="source", instruction="find")),
             artifacts=[MainArtifact(task_id="notes", instruction="整理需求", result="private intermediate body")])
         model, control = llm([decision, MainDecision(action="answer", reply="found [source:1]", answer_dependencies=["source"])])
         service = SimpleNamespace(repository=repository(), finish=AsyncMock(return_value=result("found [source:1]")))
         config = {"configurable": {"thread_id": "artifact-events", "run_id": RUN_ID, "execution_token": "t"}}
         with patch.object(agent, "get_llm", return_value=model), patch.object(main, "run_service", service), \
-             patch.object(actions, "retrieve_evidence", AsyncMock(return_value=evidence("source"))):
+             patch.object(main_tools, "retrieve_evidence", AsyncMock(return_value=evidence("source"))):
             graph = builder._build_graph().compile(checkpointer=InMemorySaver())
             frames = [frame async for frame in source_response(graph, create_initial_state(7, "find", []), 11, 7, config).body_iterator]
         events = parse_frames(frames, '__AGENT_EVENT__:')
@@ -78,12 +80,12 @@ class StreamingTests(unittest.IsolatedAsyncioTestCase):
         model.ainvoke.assert_not_awaited()
 
     async def test_each_main_round_retains_its_own_activity(self):
-        model, _ = llm([MainDecision(action="retrieve", retrieval=RetrievalRequest(task_id="source", instruction="find")),
+        model, _ = llm([MainDecision(action='call_tool', tool_call=retrieval_call(RetrievalRequest(task_id="source", instruction="find"))),
                         MainDecision(action="answer", reply="found [source:1]")])
         service = SimpleNamespace(repository=repository(), finish=AsyncMock(return_value=result("found [source:1]")))
         config = {"configurable": {"thread_id": "round-events", "run_id": RUN_ID, "execution_token": "t"}}
         with patch.object(agent, "get_llm", return_value=model), patch.object(main, "run_service", service), \
-             patch.object(actions, "retrieve_evidence", AsyncMock(return_value=evidence("source"))):
+             patch.object(main_tools, "retrieve_evidence", AsyncMock(return_value=evidence("source"))):
             graph = builder._build_graph().compile(checkpointer=InMemorySaver())
             frames = [frame async for frame in source_response(graph, create_initial_state(7, "find", []), 11, 7, config).body_iterator]
         rounds = [event for event in parse_frames(frames, '__AGENT_EVENT__:') if event.get("step") == "main_agent"]

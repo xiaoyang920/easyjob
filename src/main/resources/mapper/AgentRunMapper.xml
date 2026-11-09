@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.easyjob.mapper.AgentRunMapper">
+  <select id="findRun" resultType="map" useCache="false" flushCache="true">
+    SELECT auth_sid,auth_version,execution_token FROM agent_run WHERE run_id=#{runId} AND user_id=#{uid}
+  </select>
+  <select id="findExecutingRun" resultType="map" useCache="false" flushCache="true">
+    SELECT auth_sid,auth_version FROM agent_run WHERE run_id=#{runId} AND user_id=#{uid} AND execution_token=#{token}
+  </select>
+</mapper>

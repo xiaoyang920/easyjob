@@ -23,7 +23,7 @@ class NotificationTests {
     @AfterEach void cleanup(){if(TransactionSynchronizationManager.isSynchronizationActive())TransactionSynchronizationManager.clearSynchronization();}
     NotificationMessage msg(int type,long sender){return NotificationMessage.builder().userId(7L).senderId(sender).type(type).content("审核结果").build();}
     @Test void reviewNotificationIsInsertedBeforeCommitButPushedOnlyAfterCommit(){
-        TransactionSynchronizationManager.initSynchronization();var message=msg(6,9);
+        TransactionSynchronizationManager.initSynchronization();NotificationMessage message=msg(6,9);
         service.send(message);verify(mapper).insert(any(Notification.class));verifyNoInteractions(rabbit);
         assertEquals(123L,message.getNotificationId());assertEquals(0,message.getIsRead());assertNotNull(message.getCreateTime());
         TransactionSynchronizationManager.getSynchronizations().forEach(s->s.afterCommit());

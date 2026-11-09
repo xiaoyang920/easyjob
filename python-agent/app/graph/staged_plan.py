@@ -49,17 +49,57 @@ class DependencyPlan(BaseModel):
 
 class ExecutionTask(TaskSpec):
     """Backend-only contract; this schema is never exposed to Main's LLM."""
-    kind: Literal["search", "analysis", "writing"]
+    kind: Literal["search", "analysis", "writing", "tool"]
     actor: Literal["main", "subagent"]
-    retrieval_target: Literal["knowledge", "memory", "drafts"] | None = None
+    tool_name: str | None = None
+    tool_args: dict | None = None
+    retrieval_target: Literal["knowledge", "memory", "drafts", "editor"] | None = None
     draft_source_task_id: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_]{0,39}$")
     allow_web: bool = False
     article_ids: list[PositiveInt] = Field(default_factory=list, max_length=8)
     filters: QueryFilters | None = None
     search_query: str | None = Field(default=None, min_length=1, max_length=200)
+    editor_part: Literal['document', 'selection'] = 'document'
+    urls: list[str] = Field(default_factory=list, max_length=3)
 
     @model_validator(mode="after")
     def check_execution(self):
+        if self.kind == 'tool' and (self.actor != 'main' or not self.tool_name):
+            raise ValueError('通用工具任务只能由 Main 通过已注册工具执行')
+        if self.tool_name is not None:
+            from app.models.main_tool import tool_call_adapter, task_fields
+            call = tool_call_adapter.validate_python(dict(name=self.tool_name, args=self.tool_args,
+                task_id=self.task_id, required_skills=self.required_skills))
+            if self.tool_name in ('read_task_result', 'read_task_results') and isinstance(self.tool_args, dict):
+                # Additive optional locator fields must not invalidate already
+                # persisted range-read tasks. Do not relax other contract checks.
+                def defaults(old, new):
+                    return {**old, **{key: None for key in ('query', 'citation_id', 'queries', 'section_id', 'cursor')
+                        if key not in old and new.get(key) is None}}
+                if self.tool_name == 'read_task_result':
+                    self.tool_args = defaults(self.tool_args, call.args.model_dump())
+                elif isinstance(self.tool_args.get('requests'), list):
+                    self.tool_args = {**self.tool_args, 'requests': [defaults(old, new.model_dump())
+                        for old, new in zip(self.tool_args['requests'], call.args.requests)]}
+            expected = task_fields(call)
+            for key, value in expected.items():
+                actual = getattr(self, key)
+                if isinstance(actual, BaseModel):
+                    actual = actual.model_dump()
+                if isinstance(value, BaseModel):
+                    value = value.model_dump()
+                if actual != value:
+                    raise ValueError('工具参数与服务端执行任务不一致')
+            if self.actor != 'main' or self.depends_on or self.draft_source_task_id:
+                raise ValueError('工具调用不能混入委派或草稿写入请求')
+        elif self.tool_args is not None:
+            raise ValueError('工具参数缺少工具名')
+        if self.editor_part != 'document' and self.retrieval_target != 'editor':
+            raise ValueError('只有编辑器读取可以选择选区')
+        if self.retrieval_target == 'editor' and (self.actor != 'main' or self.allow_web or self.requires_evidence or self.article_ids or self.filters is not None or self.search_query is not None or self.urls):
+            raise ValueError('编辑器只读取当前请求关联的快照，不联网或作为公共证据')
+        if self.urls and (self.kind != 'search' or self.retrieval_target != 'knowledge' or not self.allow_web or self.article_ids or self.filters is not None):
+            raise ValueError('指定网页只允许独立的联网知识读取，不混入平台筛选')
         if self.search_query is not None and (self.kind != "search" or self.retrieval_target == "memory"):
             raise ValueError("只有知识检索任务可指定检索词")
         if self.kind == "search":

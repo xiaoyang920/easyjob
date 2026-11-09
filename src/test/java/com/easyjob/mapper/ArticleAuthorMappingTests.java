@@ -25,6 +25,9 @@ import java.util.regex.Pattern;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
+import com.fasterxml.jackson.databind.JsonNode;
+import java.io.InputStream;
+import java.util.regex.Matcher;
 
 class ArticleAuthorMappingTests {
     @ParameterizedTest
@@ -32,7 +35,7 @@ class ArticleAuthorMappingTests {
             "selectRecommendArticles", "selectHotArticlesExclude", "listRecommendedArticles"})
     void listQueryPreservesAuthorThroughMybatisAndJson(String query) throws Exception {
         Configuration configuration = new Configuration();
-        try (var source = Resources.getResourceAsStream("mapper/ArticleMapper.xml")) {
+        try (InputStream source = Resources.getResourceAsStream("mapper/ArticleMapper.xml")) {
             new XMLMapperBuilder(source, configuration, "mapper/ArticleMapper.xml",
                     configuration.getSqlFragments()).parse();
         }
@@ -73,18 +76,18 @@ class ArticleAuthorMappingTests {
         when(jdbc.getResultSet()).thenReturn(resultSet);
         when(jdbc.getUpdateCount()).thenReturn(-1);
 
-        var handler = new DefaultResultSetHandler(mock(Executor.class), statement,
+        DefaultResultSetHandler handler = new DefaultResultSetHandler(mock(Executor.class), statement,
                 mock(ParameterHandler.class), null, sql, RowBounds.DEFAULT);
-        var records = handler.handleResultSets(jdbc);
+        List<Object> records = handler.handleResultSets(jdbc);
         assertEquals(1, records.size());
         ArticleListVO article = (ArticleListVO) records.getFirst();
-        var response = new ObjectMapper().valueToTree(article);
+        JsonNode response = new ObjectMapper().valueToTree(article);
         assertEquals("真实作者", response.path("authorName").asText());
         assertEquals("/uploads/avatars/author.png", response.path("authorAvatar").asText());
     }
 
     private static String selectedAlias(String sql, String column) {
-        var match = Pattern.compile("u\\." + column + "\\s+(?:AS\\s+)?(\\w+)",
+        Matcher match = Pattern.compile("u\\." + column + "\\s+(?:AS\\s+)?(\\w+)",
                 Pattern.CASE_INSENSITIVE).matcher(sql);
         assertTrue(match.find(), "Query must select the author's " + column);
         return match.group(1);

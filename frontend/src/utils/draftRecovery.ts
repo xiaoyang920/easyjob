@@ -2,4 +2,7 @@ export type DraftSnapshot={updatedAt:number;signature:string;article:Record<stri
 export function recoveryKey(user:string|null,id:string){return user?`easyjob:draft-recovery:${user}:${id||'new'}`:''}
 export function saveRecovery(storage:Storage,key:string,value:DraftSnapshot){if(!key)return false;try{storage.setItem(key,JSON.stringify(value));return true}catch{return false}}
 export function readRecovery(storage:Storage,key:string):DraftSnapshot|null{try{const v=JSON.parse(storage.getItem(key)||'null');if(!v || typeof v.updatedAt!=='number' || Date.now()-v.updatedAt>7*86400000 || typeof v.signature!=='string' || typeof v.content!=='string' || !v.article || !Array.isArray(v.tags) || v.tags.some((t:unknown)=>typeof t!=='string'))return null;return v}catch{return null}}
-export function draftSignature(article:Record<string,any>,content:string,tags:string[]){return JSON.stringify({title:article.title,summary:article.summary,categoryId:article.categoryId,coverImage:article.coverImage,isOriginal:article.isOriginal,content:content==='<p><br></p>'?'':content,tags})}
+export function draftSignature(article:Record<string,any>,content:string,tags:string[]){return JSON.stringify({
+ title:String(article.title??''),summary:String(article.summary??''),categoryId:String(article.categoryId??''),coverImage:String(article.coverImage??''),
+ isOriginal:article.isOriginal==null?true:![false,0,'0'].includes(article.isOriginal),content:content==='<p><br></p>'?'':content,tags
+})}

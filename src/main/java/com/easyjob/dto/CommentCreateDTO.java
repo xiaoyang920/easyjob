@@ -24,7 +24,7 @@ public class CommentCreateDTO implements Serializable {
     private Long articleUserId;
     
     /**
-     * 评论内容（必填，1-500字符）
+     * 评论文字（最多500字符；配图评论允许为空）
      */
     private String content;
     
@@ -49,9 +49,8 @@ public class CommentCreateDTO implements Serializable {
      * 验证评论内容是否有效
      */
     public boolean isContentValid() {
-        return content != null 
-            && content.trim().length() >= 1 
-            && content.trim().length() <= 500;
+        int length = content == null ? 0 : content.trim().length();
+        return length <= 500 && (length > 0 || (imgPath != null && !imgPath.isBlank()));
     }
     
     /**

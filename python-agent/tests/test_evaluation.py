@@ -57,10 +57,10 @@ class EvaluationTests(unittest.TestCase):
 
     def test_route_target_is_checked_and_multiple_legitimate_actions_are_allowed(self):
         cases = [{"id": "a", "kind": "route", "query": "查历史", "reviewed": True,
-                  "acceptable_routes": [{"action": "retrieve", "target": "memory"}]}]
-        wrong = self.record(action="retrieve", target="knowledge")
+                  "acceptable_routes": [{"action": 'call_tool', "target": "memory"}]}]
+        wrong = self.record(action="call_tool", target="knowledge")
         self.assertEqual(summarize(cases, [wrong])["reports"][0]["quality"]["route_accuracy"], 0)
-        correct = self.record(action="retrieve", target="memory")
+        correct = self.record(action="call_tool", target="memory")
         self.assertEqual(summarize(cases, [correct])["reports"][0]["quality"]["route_accuracy"], 1)
 
     def test_unknown_tokens_and_unreviewed_answers_remain_unknown(self):

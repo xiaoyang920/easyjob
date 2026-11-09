@@ -17,6 +17,10 @@ import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
+import java.util.concurrent.ConcurrentHashMap.KeySetView;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 
 @SuppressWarnings("unchecked")
 class CacheRebuildMutexTests {
@@ -47,15 +51,15 @@ class CacheRebuildMutexTests {
     }
 
     @Test void concurrentMissesAcrossTwoInstancesOnlyLoadOnce() throws Exception {
-        var anotherInstance = new CacheRebuildMutex(redis, 30000, 2000);
-        var cached = new AtomicReference<String>();
-        var loads = new AtomicInteger();
-        var writes = new AtomicInteger();
-        var readers = ConcurrentHashMap.<Thread>newKeySet();
-        var allReading = new CountDownLatch(24);
-        var entered = new CountDownLatch(1);
-        var finishLoad = new CountDownLatch(1);
-        var start = new CountDownLatch(1);
+        CacheRebuildMutex anotherInstance = new CacheRebuildMutex(redis, 30000, 2000);
+        AtomicReference<String> cached = new AtomicReference<String>();
+        AtomicInteger loads = new AtomicInteger();
+        AtomicInteger writes = new AtomicInteger();
+        KeySetView<Thread, Boolean> readers = ConcurrentHashMap.<Thread>newKeySet();
+        CountDownLatch allReading = new CountDownLatch(24);
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch finishLoad = new CountDownLatch(1);
+        CountDownLatch start = new CountDownLatch(1);
         Supplier<String> read = () -> {
             if (readers.add(Thread.currentThread())) allReading.countDown();
             return cached.get();
@@ -70,10 +74,10 @@ class CacheRebuildMutexTests {
             }
             return "body";
         };
-        try (var pool = Executors.newFixedThreadPool(24)) {
+        try (ExecutorService pool = Executors.newFixedThreadPool(24)) {
             List<Future<String>> results = new java.util.ArrayList<>();
             for (int index = 0; index < 24; index++) {
-                var instance = index % 2 == 0 ? mutex : anotherInstance;
+                CacheRebuildMutex instance = index % 2 == 0 ? mutex : anotherInstance;
                 results.add(pool.submit(() -> {
                     start.await();
                     return instance.getOrLoad("article:1", read, load, value -> {
@@ -90,7 +94,7 @@ class CacheRebuildMutexTests {
             } finally {
                 finishLoad.countDown();
             }
-            for (var result : results) assertEquals("body", result.get(5, TimeUnit.SECONDS));
+            for (Future<String> result : results) assertEquals("body", result.get(5, TimeUnit.SECONDS));
         }
         assertEquals(1, loads.get());
         assertEquals(1, writes.get());
@@ -120,15 +124,15 @@ class CacheRebuildMutexTests {
     @Test void timeoutDoesNotFallThroughToDatabase() {
         locks.put("article:1:rebuild-lock", "other-owner");
         Supplier<String> load = mock(Supplier.class);
-        var noWait = new CacheRebuildMutex(redis, 30000, 0);
-        var error = assertThrows(BusinessException.class,
+        CacheRebuildMutex noWait = new CacheRebuildMutex(redis, 30000, 0);
+        BusinessException error = assertThrows(BusinessException.class,
                 () -> noWait.getOrLoad("article:1", () -> null, load, value -> fail()));
         assertEquals(503, error.getCode());
         verifyNoInteractions(load);
     }
 
     @Test void loaderFailureReleasesLockAndNextRequestCanRetry() {
-        var missing = new BusinessException(404, "missing");
+        BusinessException missing = new BusinessException(404, "missing");
         assertSame(missing, assertThrows(BusinessException.class, () -> mutex.getOrLoad("article:1",
                 () -> null, () -> { throw missing; }, value -> fail())));
         assertTrue(locks.isEmpty());
@@ -146,7 +150,7 @@ class CacheRebuildMutexTests {
     @Test void failedReleaseDoesNotMaskTheOriginalLoaderFailure() {
         when(redis.execute(any(DefaultRedisScript.class), anyList(), anyString()))
                 .thenThrow(new IllegalStateException("Redis unavailable"));
-        var missing = new BusinessException(404, "missing");
+        BusinessException missing = new BusinessException(404, "missing");
         assertSame(missing, assertThrows(BusinessException.class, () -> mutex.getOrLoad("article:1",
                 () -> null, () -> { throw missing; }, value -> fail())));
     }

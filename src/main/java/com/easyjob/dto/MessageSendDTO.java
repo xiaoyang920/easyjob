@@ -9,6 +9,7 @@ import lombok.NoArgsConstructor;
 @Data
 @NoArgsConstructor
 public class MessageSendDTO {
+    private Long articleId;
     private String clientMessageId;
     
     /**
@@ -17,7 +18,7 @@ public class MessageSendDTO {
     private Long conversationId;
     
     /**
-     * 消息类型：1=文本，2=图片
+     * 消息类型：1=文本，2=图片，3=文章卡片
      */
     private Integer messageType;
     

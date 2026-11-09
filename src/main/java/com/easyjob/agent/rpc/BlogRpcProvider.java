@@ -7,6 +7,8 @@ import com.easyjob.service.ArticleRevisionService;
 import com.easyjob.rpc.v1.*;
 import org.springframework.web.server.ResponseStatusException;
 import java.util.function.Supplier;
+import com.easyjob.observability.RequestTrace;
+import com.easyjob.rpc.v1.Identity;
 
 /** Reuses the business service transaction, approval hash and optimistic lock checks. */
 public class BlogRpcProvider extends DubboBlogRpcTriple.BlogRpcImplBase {
@@ -19,12 +21,12 @@ public class BlogRpcProvider extends DubboBlogRpcTriple.BlogRpcImplBase {
         this.auth = auth; this.drafts = drafts; this.revisions = revisions;
     }
     private long user(DraftRequest request) {
-        var identity = request.getIdentity();
-        return auth.verify(identity.getServiceKey(), Long.toString(identity.getUserId()));
+        Identity identity = request.getIdentity();
+        return auth.delegated(identity,request.getRunId(),request.getExecutionToken());
     }
     private Reply reply(Identity identity, String method, String runId, Supplier<java.lang.Object> action) {
         long started=System.nanoTime();
-        try(var trace=new com.easyjob.observability.RequestTrace(identity.getTraceId(),runId)) {
+        try(RequestTrace trace=new com.easyjob.observability.RequestTrace(identity.getTraceId(),runId)) {
             Reply result=reply(action);
             org.slf4j.LoggerFactory.getLogger(BlogRpcProvider.class).info("rpc_server trace={} run={} method={} status={} duration_ms={}",
                 com.easyjob.observability.RequestTrace.current(),org.slf4j.MDC.get("run_id"),method,

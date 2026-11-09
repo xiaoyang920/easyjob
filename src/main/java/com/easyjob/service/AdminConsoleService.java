@@ -13,6 +13,10 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import java.util.*;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 @Service @RequiredArgsConstructor
 public class AdminConsoleService {
@@ -27,13 +31,13 @@ public class AdminConsoleService {
         if (!access.isAdmin(uid)) throw new BusinessException(403,"只有管理员可以访问管理后台");
     }
     public Map<String,Object> me(Long uid) {
-        var permissions=access.permissions(uid);if(permissions.isEmpty())throw new BusinessException(403,"没有后台访问权限");
-        var result=new LinkedHashMap<>(store.findOperator(uid));result.put("permissions",permissions.stream().sorted().toList());return result;
+        Set<String> permissions=access.permissions(uid);if(permissions.isEmpty())throw new BusinessException(403,"没有后台访问权限");
+        LinkedHashMap<String, Object> result=new LinkedHashMap<>(store.findOperator(uid));result.put("permissions",permissions.stream().sorted().toList());return result;
     }
     public void requirePermission(Long uid,String permission){if(!access.isAdmin(uid) && !access.hasPermission(uid,permission))throw new BusinessException(403,"没有执行此操作的权限");}
     public Map<String,Object> overview(Long uid) {
         requirePermission(uid,"overview.read");
-        var result=new LinkedHashMap<String,Object>();
+        LinkedHashMap<String, Object> result=new LinkedHashMap<String,Object>();
         result.put("users",store.countUsers());
         result.put("published",store.countPublished());
         result.put("restricted",store.countRestricted());
@@ -54,7 +58,7 @@ public class AdminConsoleService {
         String pattern=searchPattern(keyword);
         ArticleRevisionService.bounds(page,size);
         long total=store.countArticles(pattern,status);
-        var records=store.findArticles(pattern,status,size,(page-1)*size);
+        List<Map<String, Object>> records=store.findArticles(pattern,status,size,(page-1)*size);
         return new PageVO<>(records,total,(long)size,(long)page,(total+size-1)/size);
     }
     public PageVO<Map<String,Object>> users(Long uid,String keyword,int page,int size) {
@@ -62,22 +66,22 @@ public class AdminConsoleService {
         String pattern=searchPattern(keyword);
         ArticleRevisionService.bounds(page,size);
         long total=store.countMatchingUsers(pattern);
-        var records=store.findUsers(pattern,size,(page-1)*size);
+        List<Map<String, Object>> records=store.findUsers(pattern,size,(page-1)*size);
         return new PageVO<>(records,total,(long)size,(long)page,(total+size-1)/size);
     }
     public PageVO<Map<String,Object>> logs(Long uid,int page,int size) {
         requirePermission(uid,"logs.read");
         if(page<1 || page>10000 || size<1 || size>100) throw new BusinessException(400,"分页参数无效");
         long total=store.countOperationLogs();
-        var rows=store.findOperationLogs(size,(page-1)*size);
+        List<Map<String, Object>> rows=store.findOperationLogs(size,(page-1)*size);
         return new PageVO<>(rows,total,(long)size,(long)page,(total+size-1)/size);
     }
     private Map<String,Object> lockArticle(Long aid) {
         if(aid==null || aid<=0) throw new BusinessException(400,"文章ID无效");
-        var owners=store.findArticleOwner(aid);
+        List<Map<String, Object>> owners=store.findArticleOwner(aid);
         if(owners.isEmpty())throw new BusinessException(404,"文章不存在");
         store.lockOwner(((Number)owners.getFirst().get("user_id")).longValue());
-        var rows=store.lockArticle(aid);
+        List<Map<String, Object>> rows=store.lockArticle(aid);
         if(rows.isEmpty()) throw new BusinessException(404,"文章不存在");
         return rows.getFirst();
     }
@@ -85,7 +89,7 @@ public class AdminConsoleService {
         store.insertArticleAudit(uid,action,aid,String.valueOf(before),String.valueOf(after));
     }
     @Transactional public void level(Long uid,Long aid,Integer expected,Integer level) {
-        requirePermission(uid,"articles.manage");var article=lockArticle(aid);
+        requirePermission(uid,"articles.manage");Map<String, Object> article=lockArticle(aid);
         int old=((Number)article.get("required_level")).intValue();
         if(expected==null || old!=expected) throw new BusinessException(409,"文章等级已变化，请刷新后重试");
         if(level==null) throw new BusinessException(400,"阅读等级无效");
@@ -95,7 +99,7 @@ public class AdminConsoleService {
     @Transactional public void visibility(Long uid,Long aid,Integer expected,Integer status) {
         requirePermission(uid,"articles.manage");
         if(status==null || (status!=1 && status!=2)) throw new BusinessException(400,"只支持下架或恢复已发布文章");
-        var article=lockArticle(aid);int old=((Number)article.get("status")).intValue();
+        Map<String, Object> article=lockArticle(aid);int old=((Number)article.get("status")).intValue();
         if(old!=1 && old!=2) throw new BusinessException(409,"草稿由作者发布，不能通过管理后台直接发布");
         if(expected==null || old!=expected) throw new BusinessException(409,"文章状态已变化，请刷新后重试");
         if(old==status) return;

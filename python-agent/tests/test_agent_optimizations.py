@@ -179,6 +179,21 @@ class CoalescingTests(unittest.IsolatedAsyncioTestCase):
 
 
 class ArtifactTests(unittest.IsolatedAsyncioTestCase):
+    async def test_cached_web_child_expires_without_discarding_fresh_cache(self):
+        from datetime import datetime, timezone
+        context = self.context()
+        result = {**self.result(), 'citations': [{'url': 'https://example.com'}]}
+        saved = {'input_hash': task_fingerprint(context), 'result_json': result, 'updated_at': datetime(2000, 1, 1)}
+        db = SimpleNamespace(fetch_one=AsyncMock(side_effect=lambda *args: SimpleNamespace(_mapping=saved)))
+        ledger = TaskArtifacts(db, AsyncMock())
+        self.assertIsNone(await ledger.load(context, task_fingerprint(context)))
+        saved['updated_at'] = datetime.now(timezone.utc)
+        self.assertEqual(await ledger.load(context, task_fingerprint(context)), result)
+        result['source_run_updated_at'] = '2000-01-01T00:00:00Z'
+        self.assertIsNone(await ledger.load(context, task_fingerprint(context)))
+        result['citations'] = [{'articleId': '1'}]
+        self.assertIsNone(await ledger.load(context, task_fingerprint(context)))
+
     def context(self):
         task = ExecutionTask(task_id='a', actor='subagent', kind='search', instruction='Redis')
         state = create_initial_state(7, 'research', [])
@@ -274,9 +289,10 @@ class RecoveryTests(unittest.IsolatedAsyncioTestCase):
     async def test_only_readonly_pending_delegate_can_be_recovered(self):
         service = RunService(SimpleNamespace(), SimpleNamespace())
         plan = {'tasks': [ExecutionTask(task_id='a', actor='subagent', kind='search', instruction='A').model_dump()]}
-        graph = SimpleNamespace(aget_state=AsyncMock(return_value=SimpleNamespace(next=('main_delegate',), tasks=[], values={'plan': plan})))
+        graph = SimpleNamespace(aget_state=AsyncMock(return_value=SimpleNamespace(next=('main_delegate',), tasks=[], values={'plan': plan, 'run_id': 'run', 'user_id': 7, 'conversation_id': 11})))
         self.assertIsNotNone(await service.recovery_snapshot(self.fixture_run(), graph))
-        for update in [{'status': 'cancelled'}, {'status': 'awaiting_approval'}, {'draft_article_id': 99}, {'recovery_count': 1}]:
+        self.assertIsNotNone(await service.recovery_snapshot(self.fixture_run(status='cancelled', recovery_count=1), graph))
+        for update in [{'status': 'awaiting_approval'}, {'draft_article_id': 99}]:
             self.assertIsNone(await service.recovery_snapshot(self.fixture_run(**update), graph))
         graph.aget_state.return_value.next = ('main_writing',)
         self.assertIsNone(await service.recovery_snapshot(self.fixture_run(), graph))
@@ -301,10 +317,10 @@ class RecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(error.exception.status_code, 404)
         repo.claim_recovery.assert_not_awaited(); graph.aget_state.assert_not_awaited()
 
-    async def test_repository_rejects_active_newer_or_already_recovered_run(self):
+    async def test_repository_rejects_active_newer_or_completed_run(self):
         @asynccontextmanager
         async def transaction(): yield
-        for update, active, latest in [({}, 'active', 'run'), ({}, None, 'newer'), ({'recovery_count': 1}, None, 'run'), ({'status': 'cancelled'}, None, 'run')]:
+        for update, active, latest in [({}, 'active', 'run'), ({}, None, 'newer'), ({'status': 'succeeded'}, None, 'run'), ({'status': 'awaiting_approval'}, None, 'run')]:
             db = SimpleNamespace(transaction=transaction, fetch_one=AsyncMock(return_value=SimpleNamespace(_mapping=self.fixture_run(**update))),
                                  fetch_val=AsyncMock(return_value=active), execute=AsyncMock())
             repo = RunRepository(db)
@@ -334,7 +350,7 @@ class RecoveryTests(unittest.IsolatedAsyncioTestCase):
     async def test_http_recovery_binds_principal_and_releases_ticket_on_rejection(self):
         rid = 'ae0bd008-98cf-4018-b809-e80860386b01'
         admission = SimpleNamespace(acquire=AsyncMock(return_value='ticket'), release=AsyncMock())
-        service = SimpleNamespace(prepare_recovery=AsyncMock(side_effect=HTTPException(409, 'stale')))
+        service = SimpleNamespace(reconnect_config=AsyncMock(return_value=None), prepare_recovery=AsyncMock(side_effect=HTTPException(409, 'stale')))
         main.app.dependency_overrides[main.require_principal] = lambda: Principal(user_id=7)
         try:
             with patch.object(main, 'execution_admission', admission), patch.object(main, 'run_service', service), \

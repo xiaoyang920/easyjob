@@ -13,7 +13,7 @@ public class RequestTraceFilter extends OncePerRequestFilter {
     @Override protected void doFilterInternal(HttpServletRequest request,HttpServletResponse response,FilterChain chain)
             throws ServletException,IOException {
         long started=System.nanoTime();
-        try(var trace=new RequestTrace(request.getHeader("X-Request-Id"),null)) {
+        try(RequestTrace trace=new RequestTrace(request.getHeader("X-Request-Id"),null)) {
             response.setHeader("X-Request-Id",RequestTrace.current());
             try { chain.doFilter(request,response); }
             finally { log.info("http_dispatch trace={} method={} status={} duration_ms={} async={}",

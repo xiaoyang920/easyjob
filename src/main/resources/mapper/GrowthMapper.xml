@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.easyjob.mapper.GrowthMapper">
+  <insert id="createActivity">
+    INSERT INTO growth_activity(activity_id,title,coin_price,growth_seconds,total_stock,available_stock,starts_at,ends_at,pay_seconds,created_by) VALUES(#{id},#{title},10,1800,#{stock},#{available},#{starts},#{ends},#{seconds},#{uid})
+  </insert>
+  <update id="activateDraft">
+    UPDATE growth_activity SET state='ACTIVE' WHERE activity_id=#{id} AND state='DRAFT'
+  </update>
+  <select id="activities" resultType="map" useCache="false" flushCache="true">
+    SELECT * FROM growth_activity WHERE state='ACTIVE' AND ends_at&gt;DATE_SUB(NOW(3),INTERVAL 1 DAY) ORDER BY starts_at DESC LIMIT 30
+  </select>
+  <select id="adminActivities" resultType="map" useCache="false" flushCache="true">
+    SELECT * FROM growth_activity ORDER BY created_at DESC LIMIT 100
+  </select>
+  <select id="orderStates" resultType="map" useCache="false" flushCache="true">
+    SELECT state,COUNT(*) AS amount FROM growth_order WHERE activity_id=#{id} GROUP BY state
+  </select>
+  <select id="heldOrders" resultType="long" useCache="false" flushCache="true">
+    SELECT COUNT(*) FROM growth_order WHERE activity_id=#{id} AND state IN ('PENDING','PAID')
+  </select>
+  <select id="pendingEffects" resultType="long" useCache="false" flushCache="true">
+    SELECT COUNT(*) FROM growth_outbox WHERE activity_id=#{id} AND delivered=0
+  </select>
+  <select id="activityOrders" resultType="map" useCache="false" flushCache="true">
+    SELECT order_id FROM growth_order WHERE activity_id=#{id}
+  </select>
+  <select id="releasedOrders" resultType="map" useCache="false" flushCache="true">
+    SELECT order_id FROM growth_outbox WHERE activity_id=#{id} AND event_type='RELEASE' AND delivered=1
+  </select>
+  <update id="pauseActivity">
+    UPDATE growth_activity SET state='PAUSED' WHERE activity_id=#{id} AND state='ACTIVE'
+  </update>
+  <update id="resumeActivity">
+    UPDATE growth_activity SET state='ACTIVE' WHERE activity_id=#{id} AND state='PAUSED'
+  </update>
+  <select id="buyerOrder" resultType="map" useCache="false" flushCache="true">
+    SELECT * FROM growth_order WHERE activity_id=#{activity} AND user_id=#{uid}
+  </select>
+  <select id="orders" resultType="map" useCache="false" flushCache="true">
+    SELECT * FROM growth_order WHERE user_id=#{uid} ORDER BY created_at DESC LIMIT 100
+  </select>
+  <select id="wallet" resultType="map" useCache="false" flushCache="true">
+    SELECT current_coin_count FROM user_info WHERE user_id=#{uid}
+  </select>
+  <insert id="createOrder">
+    INSERT IGNORE INTO growth_order(order_id,activity_id,user_id,request_id,coin_cost,growth_seconds,state,expires_at) VALUES(#{id},#{activity},#{uid},#{request},#{price},#{seconds},'PENDING',#{expires})
+  </insert>
+  <select id="lockOrderIdentity" resultType="map" useCache="false" flushCache="true">
+    SELECT order_id FROM growth_order WHERE order_id=#{id} FOR UPDATE
+  </select>
+  <update id="reserveStock">
+    UPDATE growth_activity SET available_stock=available_stock-1 WHERE activity_id=#{activity} AND state='ACTIVE' AND available_stock&gt;0 AND NOW(3)&lt;#{expires}
+  </update>
+  <update id="rejectOrder">
+    UPDATE growth_order SET state='REJECTED',reason='名额未能确认或支付期限已过' WHERE order_id=#{id}
+  </update>
+  <insert id="scheduleExpiry">
+    INSERT IGNORE INTO growth_outbox(event_id,activity_id,order_id,event_type) VALUES(#{event},#{activity},#{order},'EXPIRE')
+  </insert>
+  <select id="lockOrder" resultType="map" useCache="false" flushCache="true">
+    SELECT *,expires_at&lt;=NOW(3) AS expired FROM growth_order WHERE order_id=#{id} FOR UPDATE
+  </select>
+  <select id="expiredOrder" resultType="long" useCache="false" flushCache="true">
+    SELECT COUNT(*) FROM growth_order WHERE order_id=#{id} AND expires_at&lt;=NOW(3)
+  </select>
+  <update id="debitCoins">
+    UPDATE user_info SET current_coin_count=current_coin_count-#{price} WHERE user_id=#{uid} AND status=1 AND current_coin_count&gt;=#{minimum}
+  </update>
+  <insert id="recordCoinPurchase">
+    INSERT INTO coin_ledger(user_id,order_id,business_type,delta) VALUES(#{uid},#{order},'GROWTH_BUY',#{delta})
+  </insert>
+  <update id="creditGrowth">
+    UPDATE user_reading_progress SET purchased_millis=#{purchased},earned_level=#{level},updated_at=NOW(3) WHERE user_id=#{uid}
+  </update>
+  <insert id="recordGrowthPurchase">
+    INSERT INTO growth_ledger(user_id,order_id,business_type,delta_millis) VALUES(#{uid},#{order},'PURCHASE',#{delta})
+  </insert>
+  <update id="payOrder">
+    UPDATE growth_order SET state='PAID',paid_at=NOW(3) WHERE order_id=#{id}
+  </update>
+  <update id="closeOrder">
+    UPDATE growth_order SET state='CLOSED',reason='超过支付期限' WHERE order_id=#{id} AND state='PENDING'
+  </update>
+  <update id="restoreStock">
+    UPDATE growth_activity SET available_stock=available_stock+1 WHERE activity_id=#{id}
+  </update>
+  <select id="lockExpiredOrder" resultType="map" useCache="false" flushCache="true">
+    SELECT * FROM growth_order WHERE order_id=#{id} AND state='PENDING' AND expires_at&lt;=NOW(3) FOR UPDATE
+  </select>
+  <select id="relayActivities" resultType="map" useCache="false" flushCache="true">
+    SELECT activity_id FROM growth_activity WHERE state IN ('ACTIVE','PAUSED')
+  </select>
+  <select id="expiredOrders" resultType="map" useCache="false" flushCache="true">
+    SELECT order_id FROM growth_order WHERE state='PENDING' AND expires_at&lt;=NOW(3) ORDER BY expires_at LIMIT 100
+  </select>
+  <select id="pendingOutbox" resultType="map" useCache="false" flushCache="true">
+    SELECT * FROM growth_outbox WHERE delivered=0 AND next_attempt_at&lt;=NOW(3) ORDER BY created_at LIMIT 50
+  </select>
+  <update id="completeOutbox">
+    UPDATE growth_outbox SET delivered=1,last_error='' WHERE event_id=#{id}
+  </update>
+  <update id="retryOutbox">
+    UPDATE growth_outbox SET attempts=attempts+1,next_attempt_at=DATE_ADD(NOW(3),INTERVAL 5 SECOND),last_error=#{error} WHERE event_id=#{id}
+  </update>
+  <select id="activity" resultType="map" useCache="false" flushCache="true">
+    SELECT * FROM growth_activity WHERE activity_id=#{id}
+  </select>
+  <select id="order" resultType="map" useCache="false" flushCache="true">
+    SELECT * FROM growth_order WHERE order_id=#{id}
+  </select>
+  <insert id="insertReleaseEvent">
+    INSERT IGNORE INTO growth_outbox(event_id,activity_id,order_id,event_type) VALUES(#{event},#{activity},#{order},'RELEASE')
+  </insert>
+</mapper>

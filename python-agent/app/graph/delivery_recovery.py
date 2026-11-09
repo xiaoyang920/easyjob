@@ -8,6 +8,7 @@ from langchain_core.exceptions import OutputParserException
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from app.config import settings
+from app.models.main_tool import call_from_retrieval
 from app.graph.main_agent import RetrievalRequest
 from app.services.agent_events import activity, publish_route
 from app.services.grounding import retrievable_gaps
@@ -79,15 +80,15 @@ async def plan_delivery_lookup(state):
             return fallback
         # Model-local task IDs never identify the recovery slot.
         request = choice.retrieval.model_copy(update={'task_id': f'delivery_lookup_{round_number}'})
-        decision = main.MainDecision(action='retrieve', retrieval=request)
+        decision = main.MainDecision(action='call_tool', tool_call=call_from_retrieval(request))
         update = main.validate_action(prepared, decision, round_number)
         if update.get('stop_reason'):
             fallback['delivery_review']['lookup_status'] = 'budget_or_repeat_limit'
             await activity(state, 'delivery_lookup', '采用已有资料修正回答', 'done')
             return fallback
-        await publish_route(state, 'retrieve', update)
+        await publish_route(state, 'call_tool', update)
         await activity(state, 'delivery_lookup', '已安排补充检索', 'done')
-        return {**context_update, **update, 'main_round': round_number, 'main_action': 'retrieve',
+        return {**context_update, **update, 'main_round': round_number, 'main_action': 'call_tool',
                 'execution_mode': 'direct', 'delivery_review': {**recovery, 'phase': 'retrieving',
                     'lookup_count': 1, 'task_id': request.task_id, 'lookup_status': 'running'}}
     except (ContextBudgetExceeded, ValueError, OutputParserException, *RECOVERABLE):

@@ -8,6 +8,8 @@ import com.easyjob.mapper.AdminCategoryMapper;
 import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
+import com.easyjob.service.AdminCategoryService.Create;
+import java.util.Map;
 
 class AdminCategoryTests {
     final AdminCategoryMapper store=mock(AdminCategoryMapper.class);
@@ -20,13 +22,13 @@ class AdminCategoryTests {
         assertEquals(403,assertThrows(BusinessException.class,()->service.create(1L,body("后端",0))).getCode());verifyNoInteractions(store);
     }
     @Test void boundsAndControlCharactersAreRejectedBeforeWrites(){
-        for(var b:List.of(body("  ",0),body("a".repeat(51),0),body("后\n端",0),body("后端",-1),new AdminCategoryService.Create("后端",0L,10000,""),new AdminCategoryService.Create("后端",0L,0,"a".repeat(201))))assertEquals(400,assertThrows(BusinessException.class,()->service.create(2L,b)).getCode());
+        for(Create b:List.of(body("  ",0),body("a".repeat(51),0),body("后\n端",0),body("后端",-1),new AdminCategoryService.Create("后端",0L,10000,""),new AdminCategoryService.Create("后端",0L,0,"a".repeat(201))))assertEquals(400,assertThrows(BusinessException.class,()->service.create(2L,b)).getCode());
         verifyNoInteractions(store);
     }
     @Test void parentMustExistBeEnabledAndTopLevel(){
         when(store.lockParent(anyLong())).thenReturn(List.of());
         assertEquals(400,assertThrows(BusinessException.class,()->service.create(2L,body("Java",3))).getCode());
-        for(var row:List.of(Map.<String,Object>of("parent_id",0L,"status",0),Map.<String,Object>of("parent_id",3L,"status",1))){
+        for(Map<String, Object> row:List.of(Map.<String,Object>of("parent_id",0L,"status",0),Map.<String,Object>of("parent_id",3L,"status",1))){
             when(store.lockParent(anyLong())).thenReturn(List.of(row));
             assertEquals(400,assertThrows(BusinessException.class,()->service.create(2L,body("Java",3))).getCode());
         }
@@ -38,7 +40,7 @@ class AdminCategoryTests {
         verify(store,never()).insertCreateAudit(any(),anyLong(),any(),any());
     }
     @Test void createdCategoryGetsBackendIdNormalizationAndAudit(){
-        var result=service.create(2L,body("  Ｊａｖａ  ",0));
+        Map<String, Object> result=service.create(2L,body("  Ｊａｖａ  ",0));
         assertEquals("Java",result.get("categoryName"));assertTrue(Long.parseLong((String)result.get("categoryId"))>0);assertEquals("0",result.get("parentId"));assertEquals(1,result.get("status"));
         verify(store).insertCreateAudit(any(),anyLong(),any(),any());
     }

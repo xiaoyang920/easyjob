@@ -7,7 +7,7 @@ from app.tools.article_tool import search_articles_by_knn, search_articles
 from app.tools.get_article_comments import get_article_comments
 from app.tools.get_trending_topics import get_trending_topics
 from app.tools.get_user_articles import get_user_articles
-from app.tools.web_search import web_search
+from app.tools.web_search import web_search, read_webpage
 from app.services.tool_recovery import ToolPolicy
 
 log = logging.getLogger(__name__)
@@ -26,6 +26,7 @@ class ToolRegistry:
             "search_articles": search_articles,
             "search_articles_by_knn": search_articles_by_knn,
             "web_search": web_search,
+            "read_webpage": read_webpage,
             "get_user_articles": get_user_articles,
             "get_trending_topics": get_trending_topics,
             "get_article_comments": get_article_comments,
@@ -47,14 +48,29 @@ class ToolRegistry:
     def is_registered(self, name: str) -> bool:
         return name in self._local_tools or name in self._mcp_tools
 
+    def main_catalog(self):
+        from app.services.main_tools import MAIN_TOOLS
+        return [{'name': name, 'description': spec.label, 'capability': spec.capability,
+                 'read_only': True} for name, spec in MAIN_TOOLS.items()]
+
+    def get_local_tool(self, name: str) -> BaseTool:
+        """Main's trusted adapters never resolve MCP aliases over local names."""
+        return self._local_tools[name]
+
+    def main_tool(self, name: str):
+        from app.services.main_tools import MAIN_TOOLS
+        if name not in MAIN_TOOLS:
+            raise ValueError('工具未注册或不允许 Main 调用')
+        return MAIN_TOOLS[name]
+
     def policy_for(self, tool: BaseTool) -> ToolPolicy | None:
         # Identity matters: an MCP tool shadowing a local name cannot inherit
         # the local tool's read-only policy. MCP annotations alone grant nothing.
-        readonly_names = {'search_articles', 'search_articles_by_knn', 'web_search',
+        readonly_names = {'search_articles', 'search_articles_by_knn', 'web_search', 'read_webpage',
                           'get_user_articles', 'get_trending_topics', 'get_article_comments'}
         if tool.name not in readonly_names or self._local_tools.get(tool.name) is not tool:
             return None
-        return ToolPolicy(read_only=True, capability='web_search' if tool.name == 'web_search' else 'platform_read')
+        return ToolPolicy(read_only=True, capability='web_search' if tool.name in ('web_search', 'read_webpage') else 'platform_read')
     def get_tools(self,name: list[str])-> list[BaseTool]:
         """按名称获取指定工具"""
         merged = {**self._local_tools, **self._mcp_tools}

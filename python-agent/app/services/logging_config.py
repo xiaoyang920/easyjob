@@ -12,6 +12,7 @@ import sys
 import uuid
 import re
 from typing import Optional
+from opentelemetry import trace as otel_trace
 
 # 请求级别的 trace id 上下文
 _trace_id: contextvars.ContextVar[str] = contextvars.ContextVar("trace_id", default="-")
@@ -41,6 +42,9 @@ class TraceFilter(logging.Filter):
         record.trace_id = _trace_id.get()
         record.conv_id = _conversation_id.get()
         record.run_id = _run_id.get()
+        context = otel_trace.get_current_span().get_span_context()
+        record.otel_trace_id = f"{context.trace_id:032x}" if context.is_valid else "-"
+        record.otel_span_id = f"{context.span_id:016x}" if context.is_valid else "-"
         return True
 
 
@@ -69,7 +73,7 @@ def setup_logging(level: str = "INFO") -> None:
     - 统一格式：时间 | 级别 | [trace=xxx conv=yyy] | logger名 | 消息
     - 第三方库降级到 WARNING，减少噪音
     """
-    fmt = "%(asctime)s | %(levelname)-5s | [trace=%(trace_id)s conv=%(conv_id)s run=%(run_id)s] | %(name)s | %(message)s"
+    fmt = "%(asctime)s | %(levelname)-5s | [trace=%(otel_trace_id)s span=%(otel_span_id)s request=%(trace_id)s conv=%(conv_id)s run=%(run_id)s] | %(name)s | %(message)s"
     datefmt = "%H:%M:%S"
 
     handler = logging.StreamHandler(sys.stdout)

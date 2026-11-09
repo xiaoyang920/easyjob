@@ -10,7 +10,7 @@ from app.graph import main_agent
 from app.graph.state_factory import create_initial_state
 from app.services import main_context
 from app.services.conversation import ConversationService
-from app.utils.context_budget import request_tokens, split_history
+from app.utils.context_budget import input_budget, request_tokens, split_history
 from test_context_budget import FakeStore, budgets
 
 
@@ -28,6 +28,16 @@ def source_state(tokens=96000, history=None):
 
 class FullRequestTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
+        # Keep these established boundary fixtures explicit rather than tied to
+        # whichever context window the local runtime happens to configure.
+        window = patch.multiple(settings, MAIN_CONTEXT_MAX_TOKENS=131072,
+            CONTEXT_COMPACT_TRIGGER_TOKENS=98304, CONTEXT_COMPACT_TARGET_TOKENS=65536)
+        window.start(); self.addCleanup(window.stop)
+        # These tests isolate history admission; projection has its own regressions.
+        self.projection_patch = patch.object(settings, 'CONTEXT_TOOL_INLINE_TOKENS', 1000000)
+        self.projection_patch.start(); self.addCleanup(self.projection_patch.stop)
+        selection = patch.object(settings, 'CONTEXT_RESULT_ACCESS_ENABLED', False)
+        selection.start(); self.addCleanup(selection.stop)
         self.model = SimpleNamespace(ainvoke=AsyncMock(return_value=SimpleNamespace(content='用户已确认：文章面向 Java 初学者。')))
         self.summary_patch = patch('app.services.conversation.get_llm', return_value=self.model)
         self.summary_patch.start()
@@ -84,6 +94,29 @@ class FullRequestTests(unittest.IsolatedAsyncioTestCase):
         _, again = await self.prepare(prepared)
         self.assertEqual(again['context_compaction']['status'], 'already_attempted')
         self.assertEqual(self.model.ainvoke.await_count, calls)
+
+    async def test_256k_window_compacts_above_192k_toward_one_quarter_without_losing_latest_turn(self):
+        history = long_history(25, 4000)
+        state = create_initial_state(1, '按已确认要求继续', history)
+        with budgets(MAIN_CONTEXT_MAX_TOKENS=262144, CONTEXT_COMPACT_TRIGGER_TOKENS=196608,
+                     CONTEXT_COMPACT_TARGET_TOKENS=65536, SUMMARY_INPUT_MAX_TOKENS=262144):
+            prepared, update = await self.prepare(state)
+            stats = update['context_compaction']
+            self.assertEqual(stats['status'], 'compacted')
+            self.assertGreater(stats['before_tokens'], 196608)
+            self.assertLess(stats['after_tokens'], 262144 // 4)
+            self.assertEqual(prepared['history_messages'][-2:], history[-2:])
+            self.assertEqual(len(state['history_messages']), 50)
+            self.model.ainvoke.assert_awaited_once()
+
+    async def test_summary_input_budget_still_respects_a_smaller_shared_context_window(self):
+        state = create_initial_state(1, '按已确认要求继续', long_history(25, 4000))
+        with budgets(SUMMARY_INPUT_MAX_TOKENS=262144):
+            _, update = await self.prepare(state)
+            self.assertEqual(update['context_compaction']['status'], 'compacted')
+            self.assertGreater(self.model.ainvoke.await_count, 1)
+            for call in self.model.ainvoke.await_args_list:
+                self.assertLessEqual(request_tokens(call.args[0]), input_budget(settings.SUMMARY_MAX_TOKENS))
 
     async def test_latest_complete_turn_over_24k_is_kept_intact(self):
         history = long_history(9, 4000) + long_history(1, 14000)
@@ -163,7 +196,7 @@ class DurableHistoryTests(unittest.IsolatedAsyncioTestCase):
             history = await self.service.get_context_for_llm(1)
             await self.service.postprocess_messages(1)
         self.assertEqual(len(history), 10)
-        self.assertIn('full:v4', self.service._llm_cache_key(1))
+        self.assertIn('window:v5', self.service._llm_cache_key(1))
         model.assert_not_called()
 
     async def test_cursor_advances_only_complete_old_turn_and_raw_rows_remain(self):

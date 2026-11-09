@@ -17,6 +17,7 @@ import java.time.Duration;
 import java.util.concurrent.atomic.AtomicInteger;
 import static org.mockito.Mockito.*;
 import static org.junit.jupiter.api.Assertions.*;
+import java.io.OutputStream;
 
 @SpringBootTest(webEnvironment=SpringBootTest.WebEnvironment.RANDOM_PORT,properties={
     "spring.cloud.consul.enabled=false","spring.cloud.consul.discovery.enabled=false",
@@ -33,7 +34,7 @@ class ForwardingTests {
             upstream=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);
             upstream.createContext("/api/stream",e->{
                 e.getResponseHeaders().set("Content-Type","text/event-stream");e.sendResponseHeaders(200,0);
-                try(var out=e.getResponseBody()) {
+                try(OutputStream out=e.getResponseBody()) {
                     out.write("data:first\n\n".getBytes());out.flush();
                     try {Thread.sleep(3000);}catch(InterruptedException interrupted){Thread.currentThread().interrupt();}
                     out.write("data:last\n\n".getBytes());out.flush();
@@ -48,7 +49,7 @@ class ForwardingTests {
             upstream.createContext("/api/disconnect",e->{
                 e.getRequestBody().readAllBytes();disconnectedWrites.incrementAndGet();e.close();
             });
-            upstream.setExecutor(java.util.concurrent.Executors.newCachedThreadPool(r->{var t=new Thread(r);t.setDaemon(true);return t;}));
+            upstream.setExecutor(java.util.concurrent.Executors.newCachedThreadPool(r->{Thread t=new Thread(r);t.setDaemon(true);return t;}));
             upstream.start();
         } catch(Exception e){throw new ExceptionInInitializerError(e);}
     }
@@ -60,7 +61,7 @@ class ForwardingTests {
     @SuppressWarnings("unchecked") void allow() { when(redis.execute(any(),anyList(),anyList())).thenReturn((Flux)Flux.just(1L)); }
     @Test void firstSseFrameArrivesBeforeUpstreamFinishes() {
         allow();long start=System.nanoTime();
-        var first=WebClient.create("http://127.0.0.1:"+port).get().uri("/api/stream").retrieve()
+        ServerSentEvent<String> first=WebClient.create("http://127.0.0.1:"+port).get().uri("/api/stream").retrieve()
             .bodyToFlux(new ParameterizedTypeReference<ServerSentEvent<String>>(){}).blockFirst(Duration.ofSeconds(2));
         assertNotNull(first);assertEquals("first",first.data());
         assertTrue(System.nanoTime()-start<Duration.ofSeconds(2).toNanos());
@@ -73,7 +74,7 @@ class ForwardingTests {
     }
     @Test void connectionLossAfterMutationNeverReplaysThePost() {
         allow();int before=disconnectedWrites.get();
-        var status=WebClient.create("http://127.0.0.1:"+port).post().uri("/api/disconnect").bodyValue("mutation")
+        Integer status=WebClient.create("http://127.0.0.1:"+port).post().uri("/api/disconnect").bodyValue("mutation")
             .exchangeToMono(response->reactor.core.publisher.Mono.just(response.statusCode().value())).block(Duration.ofSeconds(5));
         assertEquals(503,status);assertEquals(before+1,disconnectedWrites.get());
     }

@@ -2,8 +2,13 @@
 export interface ChatSession<Message, Image> {
   key: string
   conversationId: string | null
+  contextUsage: import('./contextUsage').ContextUsage | null
   originArticleId: string | null
   originArticleTitle: string
+  isWriting: boolean
+  writingArticleId: string | null
+  writingArticleTitle: string
+  writingArticleAvailable: boolean
   messages: Message[]
   userInput: string
   selectedImages: Image[]
@@ -26,8 +31,8 @@ export interface ChatSession<Message, Image> {
 }
 
 export function createChatSession<Message, Image>(key: string, conversationId: string | null = null): ChatSession<Message, Image> {
-  return { key, conversationId, originArticleId: null, originArticleTitle: '', messages: [], userInput: '',
-    selectedImages: [], loading: false, streaming: false, resuming: false, cancelling: false, operation: 0, historyLoaded: false,
+  return { key, conversationId, originArticleId: null, originArticleTitle: '', isWriting: false, writingArticleId: null, writingArticleTitle: '', writingArticleAvailable: false, messages: [], userInput: '',
+    selectedImages: [], contextUsage: null, loading: false, streaming: false, resuming: false, cancelling: false, operation: 0, historyLoaded: false,
     historyLoadFailed: false, abortController: null, unread: false, questionIndex: [],
     historyWindow: { beforeCursor: null, afterCursor: null, hasOlder: false, hasNewer: false },
     historyBusy: false, historyVersion: 0, questionVersion: 0, questionIndexFailed: false, liveMessages: [] }

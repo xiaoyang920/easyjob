@@ -19,7 +19,7 @@ def build_cases():
         positive = [key for key, grade in source['relevance'].items() if grade >= 2]
         add('retrieval-' + source['id'], 'retrieval', [chat(
             '只搜索作者“RAG评测样例”的平台文章：' + source['query'] + ' 请根据文章回答并标注来源，不要联网或写草稿。',
-            required_citations=True, relevant_documents=positive, required_nodes=['main_retrieve'])],
+            required_citations=True, relevant_documents=positive, required_nodes=['execute_tool'])],
             '检查回答是否解决问题，引用正文是否支持结论；合成相关文章标签不等同于真人事实评审。', requires_corpus=True)
 
     for i, (query, terms) in enumerate([

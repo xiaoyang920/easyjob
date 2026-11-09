@@ -3,7 +3,6 @@ import asyncio
 import os
 from pathlib import Path
 import sys
-from types import SimpleNamespace
 
 root = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(root / 'python-agent'))
@@ -19,7 +18,6 @@ sys.stderr.reconfigure(encoding='utf-8')
 from app.config import settings
 from app.rpc import server, blog_client
 from app.rpc.generated import easyjob_rpc_pb2 as pb
-from starlette.responses import StreamingResponse
 from fastapi import HTTPException
 from app.services.logging_config import current_trace_id, set_request_trace
 
@@ -27,32 +25,23 @@ BIG = 9007199254740993
 
 
 async def serve(port, ready):
-    from app.main import ChatRequest, ResumeRequest, ChatResponse, ProfileEdit, RecordEdit
-    async def chat(request, principal):
-        assert principal.user_id == 7 and request.origin_article_id == BIG
+    from unittest.mock import patch
+    async def query(request, uid):
+        assert uid == 7
         assert current_trace_id() == 'interop-java-12345678'
-        return ChatResponse(reply='中文二进制 RPC', conversation_id=str(BIG), run_id=str(request.request_id))
-    async def stream(request, principal):
-        assert current_trace_id() == 'interop-java-12345678'
-        async def frames():
-            yield 'data:__ANSWER__:{"type":"start"}\n\n'
-            yield ': keepalive\n\n'
-            yield 'data:__REPLY__:中文\\n回复\n\n'
-            yield 'data:[DONE]\n\n'
-        return StreamingResponse(frames())
-    async def messages(cid, uid, principal, limit, before, after, around):
-        assert (cid, uid, before) == (42, 7, BIG)
-        return {'data': {'messages': [], 'cursor': str(before), 'id': before}}
-    async def cancel(*args): raise HTTPException(409, '运行状态已改变')
-    app = SimpleNamespace(ChatRequest=ChatRequest, ResumeRequest=ResumeRequest, ProfileEdit=ProfileEdit,
-        RecordEdit=RecordEdit, chat=chat, chat_stream=stream, get_messages=messages, cancel_chat=cancel)
+        if request.kind == 'conflict':
+            raise HTTPException(409, '操作版本已改变')
+        return {'reply': '中文二进制 RPC', 'id': BIG, 'items': []}
     settings.AGENT_RPC_BIND = f'127.0.0.1:{port}'
-    rpc = await server.start_server(app)
-    Path(ready).write_text('ready')
-    try:
-        while not Path(ready + '.stop').exists():
-            await asyncio.sleep(0.1)
-    finally: await rpc.stop(0)
+    with patch('app.security.delegation.verify', return_value={}), \
+            patch('app.services.service_queries.query', side_effect=query):
+        rpc = await server.start_server()
+        Path(ready).write_text('ready')
+        try:
+            while not Path(ready + '.stop').exists():
+                await asyncio.sleep(.05)
+        finally:
+            await rpc.stop(0)
 
 
 async def callback(port):

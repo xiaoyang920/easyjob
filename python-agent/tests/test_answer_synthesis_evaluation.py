@@ -1,3 +1,4 @@
+from tool_fakes import retrieval_call, raw_retrieval_call
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -36,8 +37,8 @@ class AnswerSynthesisEvaluationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_non_answer_decision_is_failed_without_dispatching_action(self):
         from app.graph import main_agent, staged_runtime
-        decision = main_agent.MainDecision(action='retrieve', retrieval=main_agent.RetrievalRequest(instruction='合成查询'))
-        update = {'main_action': 'retrieve', 'main_decision': decision.model_dump()}
+        decision = main_agent.MainDecision(action='call_tool', tool_call=retrieval_call(main_agent.RetrievalRequest(instruction='合成查询')))
+        update = {'main_action': 'call_tool', 'main_decision': decision.model_dump()}
         with patch.object(main_agent, 'main_agent_node', AsyncMock(return_value=update)) as actual_main, \
              patch.object(staged_runtime, 'final_gate', AsyncMock()) as gate:
             row = await execute(cases()[0], 'replay')

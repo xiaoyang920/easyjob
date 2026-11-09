@@ -230,7 +230,7 @@ class RunArbitrationTests(unittest.IsolatedAsyncioTestCase):
         db.execute.assert_not_awaited()
 
     async def test_cancel_before_commit_terminates_run(self):
-        db, _ = database({"run_id": RUN_ID, "status": "running", "draft_article_id": None})
+        db, _ = database({"run_id": RUN_ID, "execution_token": "t", "status": "running", "draft_article_id": None})
         result = await RunRepository(db).cancel(11, 7)
         self.assertEqual(result["status"], "cancelled")
         updates = [call.args[0] for call in db.execute.call_args_list if 'UPDATE agent_run' in call.args[0]]

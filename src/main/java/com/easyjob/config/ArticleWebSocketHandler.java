@@ -23,6 +23,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArraySet;
+import com.easyjob.security.IdentityTokens.Principal;
 
 @Component
 @Slf4j
@@ -47,6 +48,8 @@ public class ArticleWebSocketHandler extends TextWebSocketHandler {
      */
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
+        Principal identity=(com.easyjob.security.IdentityTokens.Principal)session.getAttributes().get("authPrincipal");
+        session.getAttributes().put("authRegistration",com.easyjob.security.ConnectionSessions.register(identity,()->{try{session.close(CloseStatus.POLICY_VIOLATION);}catch(IOException ignored){}}));
         // 获取用户ID
         UserInfo userInfo = getUserInfo(session);
         if (userInfo!= null) {
@@ -156,6 +159,7 @@ public class ArticleWebSocketHandler extends TextWebSocketHandler {
      * @param session
      */
     private void cleanupSession(WebSocketSession session) {
+        try{Object r=session.getAttributes().get("authRegistration");if(r instanceof AutoCloseable registration)registration.close();}catch(Exception ignored){}
         //移除用户会话
         UserInfo userInfo = SESSIONS.remove(session);
         if(userInfo!= null&&userInfo.getCurrentArticleId()!= null){

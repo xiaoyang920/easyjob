@@ -4,6 +4,7 @@
     <div class="reading-meter" role="progressbar" :aria-valuenow="percent" aria-valuemin="0" aria-valuemax="100"><i :style="{ width: `${percent}%` }"></i></div>
     <p>{{ progress.nextLevel === null ? '已达到当前最高等级，阅读时间继续累计' : `距离 L${progress.nextLevel} 还需有效阅读 ${readingDuration(progress.secondsToNext)}` }}</p>
     <small v-if="status">{{ status }}</small>
+    <small v-if="progress.purchasedSeconds">实际阅读 {{ readingDuration(progress.naturalSeconds || 0) }} · 兑换成长 {{ readingDuration(progress.purchasedSeconds) }}</small>
   </section>
 </template>
 <script setup lang="ts">

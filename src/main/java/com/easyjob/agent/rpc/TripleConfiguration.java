@@ -16,7 +16,7 @@ public class TripleConfiguration {
             @Value("${agent.rpc.target:${AGENT_RPC_TARGET:127.0.0.1:50051}}") String target,
             @Value("${agent.rpc.bind:${BLOG_RPC_BIND:127.0.0.1}}") String bind,
             @Value("${agent.rpc.port:${BLOG_RPC_PORT:20881}}") int port) {
-        var runtime=new TripleRuntime(new BlogRpcProvider(auth, drafts, revisions).queries(queries), target, bind, port);
+        TripleRuntime runtime=new TripleRuntime(new BlogRpcProvider(auth, drafts, revisions).queries(queries), target, bind, port);
         runtime.catalog(catalog); return runtime;
     }
     @Bean public AgentRpcClient agentRpcClient(TripleRuntime runtime, AgentServiceAuth auth) {

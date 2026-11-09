@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><title>Writing panel compatibility fixture</title></head>
+<body>
+  <div id="legacy-writing-host"></div>
+  <script type="module">
+    import { createApp, h } from 'vue'
+    import { createRouter, createMemoryHistory } from 'vue-router'
+    import WritingAssistant from '/src/components/WritingAssistant.vue'
+    import '/src/style.css'
+    import '/src/styles/theme.css'
+    // A tab still running the old parent does not send the new width props.
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<div />' } }] })
+    createApp({
+      render: () => h(WritingAssistant, {
+          open: true, fullscreen: true, conversationScope: '42',
+          getDraft: () => ({ title: '', summary: '', html: '' }),
+          getEditorContext: () => null,
+          applyEdit: () => ({ ok: false, message: '' }),
+          undoEdit: () => ({ ok: false, message: '' })
+      })
+    }).use(router).mount('#legacy-writing-host')
+  </script>
+</body>
+</html>

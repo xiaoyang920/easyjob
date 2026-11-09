@@ -26,6 +26,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
+import com.easyjob.vo.ResponseVO;
 
 class AuthRegistrationTests {
     private final AuthController controller = new AuthController();
@@ -61,7 +62,7 @@ class AuthRegistrationTests {
 
     @Test void registrationReturnsLoginIdentityAndRenewableHttpOnlyCookie() {
         request.setCookies(new Cookie("easyjob_refresh", "previous-session"));
-        var result = controller.register(body(), request, response);
+        ResponseVO<?> result = controller.register(body(), request, response);
         assertEquals(200, result.getCode());
         Map<?, ?> data = (Map<?, ?>) result.getData();
         assertEquals("access-token", data.get("token"));
@@ -82,7 +83,7 @@ class AuthRegistrationTests {
         verify(sessions).revoke("previous-session");
         verify(users).touchLogin(9007199254740993L);
         verify(codes).deleteCheckCode("register@example.invalid");
-        var saved = ArgumentCaptor.forClass(User.class);
+        ArgumentCaptor<User> saved = ArgumentCaptor.forClass(User.class);
         verify(users).insert(saved.capture());
         assertTrue(PasswordUtil.matches("test-password", saved.getValue().getPassword()));
         assertEquals(1, saved.getValue().getStatus());
@@ -96,7 +97,7 @@ class AuthRegistrationTests {
     }
 
     @Test void invalidCodeCannotCreateUserOrSignIn() {
-        var body = body(); body.setCode("000000");
+        UserAuthDTO body = body(); body.setCode("000000");
         assertThrows(BusinessException.class, () -> controller.register(body, request, response));
         verify(users, never()).insert(any(User.class));
         verifyNoInteractions(sessions, jwt);
@@ -121,7 +122,7 @@ class AuthRegistrationTests {
     @Test @SuppressWarnings("unchecked")
     void registrationTokenCanRefreshAndIsRevokedByLogoutWithoutAnotherLogin() {
         // Use the real session and JWT implementations; substitute only external stores.
-        var redis = mock(StringRedisTemplate.class);
+        StringRedisTemplate redis = mock(StringRedisTemplate.class);
         ValueOperations<String, String> values = mock(ValueOperations.class);
         when(redis.opsForZSet()).thenReturn(mock(org.springframework.data.redis.core.ZSetOperations.class));
         Map<String, String> stored = new HashMap<>();
@@ -136,8 +137,8 @@ class AuthRegistrationTests {
             User user = invocation.getArgument(0); user.setUserId(7L); accounts.put(7L, user); return 1;
         }).when(users).insert(any(User.class));
         when(users.selectById(anyLong())).thenAnswer(invocation -> accounts.get(invocation.getArgument(0)));
-        var realSessions = new AuthSessionService(redis, users);
-        var realJwt = new JwtUtil();
+        AuthSessionService realSessions = new AuthSessionService(redis, users);
+        JwtUtil realJwt = new JwtUtil();
         ReflectionTestUtils.setField(realJwt, "secret", "isolated-registration-test-signing-key-".repeat(3));
         ReflectionTestUtils.setField(realJwt, "sessions", realSessions);
         ReflectionTestUtils.setField(controller, "sessions", realSessions);
@@ -147,10 +148,10 @@ class AuthRegistrationTests {
         String token = (String) identity.get("token");
         assertEquals(7L, realJwt.getUserIdFromToken(token));
         String credential = response.getHeader("Set-Cookie").split(";", 2)[0].split("=", 2)[1];
-        var refresh = new MockHttpServletRequest();
+        MockHttpServletRequest refresh = new MockHttpServletRequest();
         refresh.addHeader("X-Auth-Refresh", "1");
         refresh.setCookies(new Cookie("easyjob_refresh", credential));
-        var renewed = controller.refresh(refresh, new MockHttpServletResponse());
+        ResponseVO<?> renewed = controller.refresh(refresh, new MockHttpServletResponse());
         assertEquals("7", ((Map<?, ?>) renewed.getData()).get("userId"));
         assertTrue(realJwt.validateToken((String) ((Map<?, ?>) renewed.getData()).get("token")));
         controller.logout(refresh, new MockHttpServletResponse());

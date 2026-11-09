@@ -83,8 +83,13 @@ def rejection_snapshot(state, response, issues):
         return result
     snapshot = {}
     fields = {issue.get('path', '').split('.')[0] for issue in issues}
+    if '$' in fields:
+        fields.update({'action', 'user_reply', 'artifacts', 'answer_dependencies', 'editor_edits',
+                       'tool_call', 'draft_request', 'plan', 'delegation_reason'})
     for field in sorted(fields & {'artifacts', 'answer_dependencies', 'reuse_previous_results',
-                                  'memory_changes', 'constraint_overrides', 'evidence_assessment'}):
+                                  'memory_changes', 'constraint_overrides', 'evidence_assessment',
+                                  'action', 'user_reply', 'editor_edits', 'tool_call', 'draft_request',
+                                  'plan', 'delegation_reason'}):
         if field not in response:
             snapshot[field] = {'present': False}
             continue
@@ -92,6 +97,8 @@ def rejection_snapshot(state, response, issues):
         entry = {'present': True, **describe(value)}
         if value is None:
             entry['value'] = None
+        if field == 'action' and isinstance(value, str) and value in ('answer', 'call_tool', 'delegate', 'write_draft'):
+            entry['value'] = value
         if field in ('reuse_previous_results', 'answer_dependencies') and isinstance(value, list):
             refs = []
             for item in value[:32]:
@@ -118,7 +125,7 @@ def repair_data(state, response, issues):
         'none': {'selected_ids': 'empty', 'conflicts': 'empty'},
         'partial': {'selected_ids': 'nonempty', 'conflicts': 'only_selected_distinct_sources'},
         'sufficient': {'selected_ids': 'nonempty', 'missing_aspects': 'empty', 'conflicts': 'empty'},
-        'missing_information': '若仍有预算且缺口可检索，选择有针对性的retrieve；格式修复不要求改成answer。',
+        'missing_information': '若仍有预算且缺口可检索，选择call_tool进行有针对性的检索；格式修复不要求改成answer。',
     }
     return {'kind': 'decision_contract_repair', 'errors': issues,
             'rejected_controls': rejected_controls(response), 'successful_tasks': successful,

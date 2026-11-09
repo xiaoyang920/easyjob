@@ -16,6 +16,8 @@ import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
+import com.easyjob.mapper.UserMapper;
+import com.easyjob.vo.ArticleCommentVO;
 
 class ArticleCommentQuoteTests {
     ArticleCommentServiceImpl service; ArticleCommentMapper comments; ArticleMapper articles;
@@ -25,7 +27,7 @@ class ArticleCommentQuoteTests {
         UserContext.setUserId(7L); service=new ArticleCommentServiceImpl();
         comments=mock(ArticleCommentMapper.class); articles=mock(ArticleMapper.class);
         anchors=mock(ArticleCommentAnchorService.class); access=mock(ArticleAccessService.class);
-        var users=mock(UserMapper.class); var user=new User(); user.setUserId(7L); user.setNickName("Reader");
+        UserMapper users=mock(UserMapper.class); User user=new User(); user.setUserId(7L); user.setNickName("Reader");
         when(users.selectById(7L)).thenReturn(user);
         ReflectionTestUtils.setField(service,"articleCommentMapper",comments);
         ReflectionTestUtils.setField(service,"articleMapper",articles);
@@ -34,6 +36,7 @@ class ArticleCommentQuoteTests {
         ReflectionTestUtils.setField(service,"userMapper",users);
         ReflectionTestUtils.setField(service,"userActionMapper",mock(UserActionMapper.class));
         ReflectionTestUtils.setField(service,"notificationService",mock(NotificationServiceImpl.class));
+        ReflectionTestUtils.setField(service,"files",mock(FileStorageService.class));
         article=new Article(); article.setArticleId(42L); article.setUserId(99L); article.setStatus(1); article.setDeleted(0); article.setRequiredLevel(0); article.setContent("<p>正文</p>");
         when(anchors.lockArticle(42L)).thenReturn(article); when(articles.selectById(42L)).thenReturn(article);
         when(access.canRead(7L,99L,0)).thenReturn(true);
@@ -42,15 +45,44 @@ class ArticleCommentQuoteTests {
     }
     @AfterEach void clear() { UserContext.clear(); }
     @Test void quoteAndCommentShareCreationAndAuthorComesFromServer() {
-        var quote=new CommentQuote(); quote.setExact("正文"); dto.setQuote(quote);
+        CommentQuote quote=new CommentQuote(); quote.setExact("正文"); dto.setQuote(quote);
         when(anchors.validate(quote,article.getContent())).thenReturn(quote);
-        var result=service.create(dto);
+        ArticleCommentVO result=service.create(dto);
         assertSame(quote,result.getQuote()); assertEquals("101",result.getCommentId());
         verify(anchors).save(101L,quote);
         verify(comments).insert(argThat((ArticleComment c)->c.getArticleUserId().equals(99L) && c.getStatus()==0));
     }
+    @Test void imageOnlyCommentPersistsAndNotificationUsesAnImagePreview() {
+        dto.setContent(null); dto.setImgPath("/uploads/comments/7/2026/10/20/00000000000000000000000000000001.png");
+        ArticleCommentVO result=service.create(dto);
+        assertEquals("",result.getContent()); assertEquals(dto.getImgPath(),result.getImgPath());
+        FileStorageService files=(FileStorageService)ReflectionTestUtils.getField(service,"files");
+        verify(files).requireCommentImage(dto.getImgPath(),7L);
+        NotificationServiceImpl notifications=(NotificationServiceImpl)ReflectionTestUtils.getField(service,"notificationService");
+        verify(notifications).send(argThat(message->"[图片]".equals(message.getTargetPreview())));
+    }
+    @Test void imageOnlyReplyUsesTheSameAttachmentValidation() {
+        dto.setContent("  "); dto.setImgPath("/uploads/comments/7/image.png"); dto.setParentId(5L);
+        ArticleComment parent=new ArticleComment(); parent.setCommentId(5L); parent.setArticleId(42L); parent.setParentId(0L); parent.setStatus(0);
+        when(comments.selectById(5L)).thenReturn(parent);
+        assertEquals("",service.create(dto).getContent());
+        verify(comments).changeCommentCount(5L,1);
+    }
+    @Test void invalidImageCannotInsertCommentOrIncrementCounts() {
+        dto.setImgPath("https://example.org/image.png");
+        FileStorageService files=(FileStorageService)ReflectionTestUtils.getField(service,"files");
+        doThrow(new BusinessException("图片地址无效")).when(files).requireCommentImage(anyString(),anyLong());
+        assertThrows(BusinessException.class,()->service.create(dto));
+        verifyNoInteractions(comments); verify(articles,never()).changeCommentCount(any(),anyInt());
+    }
+    @Test void emptyAndOversizedCommentsRemainInvalidEvenWithAnImage() {
+        dto.setContent("  "); assertThrows(BusinessException.class,()->service.create(dto));
+        dto.setImgPath(" "); assertThrows(BusinessException.class,()->service.create(dto));
+        dto.setContent("x".repeat(501)); dto.setImgPath("/uploads/comments/7/image.png");
+        assertThrows(BusinessException.class,()->service.create(dto)); verifyNoInteractions(comments);
+    }
     @Test void invalidQuoteDoesNotInsertCommentOrIncrementCounts() {
-        var quote=new CommentQuote(); dto.setQuote(quote);
+        CommentQuote quote=new CommentQuote(); dto.setQuote(quote);
         when(anchors.validate(quote,article.getContent())).thenThrow(new BusinessException(409,"已更新"));
         assertThrows(BusinessException.class,()->service.create(dto));
         verifyNoInteractions(comments); verify(articles,never()).changeCommentCount(any(),anyInt());
@@ -62,14 +94,14 @@ class ArticleCommentQuoteTests {
         verify(anchors,never()).page(any(),anyInt(),anyInt()); verifyNoInteractions(comments);
     }
     @Test void replyCannotCrossArticlesOrAddANewAnchor() {
-        dto.setParentId(5L); var parent=new ArticleComment(); parent.setArticleId(43L); parent.setStatus(0);
+        dto.setParentId(5L); ArticleComment parent=new ArticleComment(); parent.setArticleId(43L); parent.setStatus(0);
         when(comments.selectById(5L)).thenReturn(parent);
         assertThrows(BusinessException.class,()->service.create(dto));
         dto.setQuote(new CommentQuote()); assertThrows(BusinessException.class,()->service.create(dto));
         verify(comments,never()).insert(any(ArticleComment.class));
     }
     @Test void deletingSomeoneElsesCommentIsDenied() {
-        var comment=new ArticleComment(); comment.setUserId(8L); when(comments.selectById(101L)).thenReturn(comment);
+        ArticleComment comment=new ArticleComment(); comment.setUserId(8L); when(comments.selectById(101L)).thenReturn(comment);
         assertThrows(BusinessException.class,()->service.removeComment(101L));
         verify(comments,never()).deleteById(anyLong());
     }

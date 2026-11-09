@@ -25,6 +25,10 @@ async def require_principal(request: Request) -> Principal:
             raise ValueError()
     except ValueError:
         raise HTTPException(401, "用户身份无效") from None
+    if settings.AUTH_DELEGATION_ENABLED:
+        from types import SimpleNamespace
+        from app.security.delegation import verify
+        verify(SimpleNamespace(user_id=user_id,delegation_token=request.headers.get('X-Agent-Delegation','')),'HttpRequest')
     return Principal(user_id)
 
 

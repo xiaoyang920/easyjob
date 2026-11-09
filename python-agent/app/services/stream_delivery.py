@@ -112,7 +112,7 @@ class StreamDelivery:
                 if result.get('interrupted'):
                     yield 'data:__INTERRUPTED__:' + json.dumps(result['interrupted'], ensure_ascii=False) + '\n\n'
                 elif result.get('reply'):
-                    for marker, value in [('__ARTICLES__:', result.get('articles', [])), ('__CITATIONS__:', result.get('citations', [])),
+                    for marker, value in [('__ARTICLES__:', result.get('articles', [])), ('__CITATIONS__:', result.get('citations', [])), ('__EDITOR_EDITS__:', result.get('editor_edits', [])),
                                           ('__REPLY__:', {'content': result['reply']})]:
                         yield 'data:' + marker + json.dumps(value, ensure_ascii=False) + '\n\n'
                     if result.get('draft_article_id'):

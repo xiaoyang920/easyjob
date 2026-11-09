@@ -101,7 +101,7 @@ class BoundaryRenderingTests(unittest.TestCase):
             lambda s: s.update(execution_token='other executor'),
             lambda s: s.update(stop_reason='other reason'),
             lambda s: s.update(article_cards=[{'articleId': '42'}]),
-            lambda s: s.update(main_action='retrieve'),
+            lambda s: s.update(main_action='call_tool'),
             lambda s: s.update(business_complete=True),
             lambda s: s.update(backend_boundary=True)]
         for mutate in mutations:
@@ -191,9 +191,7 @@ class BoundaryGateTests(unittest.IsolatedAsyncioTestCase):
         model = SimpleNamespace(with_structured_output=Mock(return_value=control))
         with patch.object(agent, 'get_llm', return_value=model), \
              patch.object(agent, 'assert_run', AsyncMock()), \
-             patch.object(agent, 'publish_route', AsyncMock()), \
-             patch.object(agent, 'build_main_messages', return_value=[]), \
-             patch.object(agent, 'ensure_request_budget'):
+             patch.object(agent, 'publish_route', AsyncMock()):
             result = await agent.decide_main_action(state)
         self.assertEqual(result['backend_boundary'], {})
         self.assertEqual(result['stop_reason'], '')

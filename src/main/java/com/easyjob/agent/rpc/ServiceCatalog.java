@@ -13,6 +13,9 @@ import java.net.http.*;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
+import java.net.http.HttpRequest.Builder;
+import java.net.http.HttpResponse;
+import java.util.ArrayList;
 
 /** Consul catalog adapter for native gRPC peers. Failed discovery expires, never falls back to a write retry. */
 @Component
@@ -26,7 +29,7 @@ public class ServiceCatalog {
     private record Snapshot(List<String> peers, long refreshed) {}
     private volatile Snapshot snapshot = new Snapshot(List.of(), 0);
     private final ScheduledExecutorService refreshers = Executors.newScheduledThreadPool(2, runnable -> {
-        var thread = new Thread(runnable, "consul-catalog"); thread.setDaemon(true); return thread;
+        Thread thread = new Thread(runnable, "consul-catalog"); thread.setDaemon(true); return thread;
     });
     public ServiceCatalog(ObjectMapper json,
             @Value("${SERVICE_DISCOVERY_ENABLED:false}") boolean enabled,
@@ -42,10 +45,10 @@ public class ServiceCatalog {
     }
     public boolean enabled() { return enabled; }
     private String request(String method,String path,java.lang.Object body) throws Exception {
-        var builder=HttpRequest.newBuilder(URI.create(base+path)).timeout(Duration.ofSeconds(2));
+        Builder builder=HttpRequest.newBuilder(URI.create(base+path)).timeout(Duration.ofSeconds(2));
         if (!token.isBlank()) builder.header("X-Consul-Token",token);
         builder.method(method,body==null?HttpRequest.BodyPublishers.noBody():HttpRequest.BodyPublishers.ofString(json.writeValueAsString(body)));
-        var response=http.send(builder.build(),HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> response=http.send(builder.build(),HttpResponse.BodyHandlers.ofString());
         if(response.statusCode()/100!=2) throw new IllegalStateException("Service catalog unavailable");
         return response.body();
     }
@@ -69,10 +72,10 @@ public class ServiceCatalog {
     public void refresh() {
         if (!enabled || !ready) return;
         try {
-                var next=new ArrayList<String>();
+                ArrayList<String> next=new ArrayList<String>();
                 JsonNode items=json.readTree(request("GET","/v1/health/service/easyjob-agent?passing=true",null));
-                for(var item:items) {
-                    var s=item.path("Service");String host=s.path("Address").asText();int port=s.path("Meta").path("rpc_port").asInt();
+                for(JsonNode item:items) {
+                    JsonNode s=item.path("Service");String host=s.path("Address").asText();int port=s.path("Meta").path("rpc_port").asInt();
                     if(!host.matches("[a-zA-Z0-9.:-]+") || port<1 || port>65535) continue;
                     next.add((host.contains(":")?"["+host+"]":host)+":"+port);
                 }
@@ -80,7 +83,7 @@ public class ServiceCatalog {
         } catch(Exception ignored) { /* Readers enforce expiry even if refresh is still blocked. */ }
     }
     public List<String> healthyTargets() {
-        var current=snapshot;
+        Snapshot current=snapshot;
         return ready && now()-current.refreshed() <= Duration.ofSeconds(30).toNanos()
             ? current.peers() : List.of();
     }

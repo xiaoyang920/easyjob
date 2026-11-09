@@ -20,6 +20,9 @@ async def user_source(uid):
 
 async def query(q, uid, database=db):
     kind = q.kind
+    if kind == 'health':
+        if await database.fetch_val('SELECT 1') != 1:raise HTTPException(503,'Agent 数据库尚未就绪')
+        return {'status':'ready'}
     if kind == 'delivery_metrics':
         from app.rpc.codec import decode_object
         try:
@@ -38,7 +41,7 @@ async def query(q, uid, database=db):
             AND JSON_EXTRACT(result_json,'$.delivery_metrics.first_answer_ms') IS NULL''',
             {'rid':q.name,'uid':uid,'metrics':json.dumps({'first_answer_ms':elapsed,'measurement':'browser_visible_answer'})})
         return True
-    if kind in ('conversation_library','conversation_edit','answer_feedback','answer_feedback_get','feedback_report','feedback_detail','feedback_review'):
+    if kind in ('conversation_library','conversation_edit','conversation_writing_context','answer_feedback','answer_feedback_get','feedback_report','feedback_detail','feedback_review'):
         from app.services.conversation_features import query as features
         return await features(q,uid,database)
     if kind == 'profile_topics':
@@ -57,14 +60,15 @@ async def query(q, uid, database=db):
         values = {'start':start, 'end':end}
         if q.source != 'all':
             where += ' AND data_source=:source'; values['source'] = q.source
-        sql = {'metric_states': 'SELECT status,COUNT(*) AS count '+where+' GROUP BY status',
+        incomplete = "(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(result_json,'$.delivery_status'))='incomplete',FALSE) OR COALESCE(JSON_UNQUOTE(JSON_EXTRACT(result_json,'$.progress.decision_contract_audit.last_outcome'))='stopped',FALSE))"
+        sql = {'metric_states': "SELECT status,COUNT(*) AS count,SUM(status='succeeded' AND "+incomplete+") AS incomplete "+where+' GROUP BY status',
             'metric_rows': "SELECT status,JSON_EXTRACT(result_json,'$.metrics') AS metrics,JSON_EXTRACT(result_json,'$.delivery_metrics') AS delivery "+where+' ORDER BY created_at DESC,run_id DESC LIMIT 10000',
-            'metric_daily': "SELECT CAST(DATE(created_at) AS CHAR) AS day,COUNT(*) AS count,SUM(status='failed') AS failed "+where+' GROUP BY day',
+            'metric_daily': "SELECT CAST(DATE(created_at) AS CHAR) AS day,COUNT(*) AS count,SUM(status IN ('failed','cancelled','expired') OR (status='succeeded' AND "+incomplete+")) AS failed "+where+' GROUP BY day',
             'metric_stages': 'SELECT e.node,e.status,e.duration_ms FROM agent_run_event e JOIN (SELECT run_id '+where+' ORDER BY created_at DESC,run_id DESC LIMIT 10000) r ON r.run_id=e.run_id WHERE e.duration_ms IS NOT NULL ORDER BY e.event_id DESC LIMIT 50000'}[kind]
         rows = [dict(r._mapping) for r in await database.fetch_all(sql,values)]
         if kind == 'metric_stages':
             from app.services.operations import latency_distribution
-            known = {'main_agent','main_retrieve','main_delegate','prepare_draft','collect_draft','final_gate',
+            known = {'main_agent','execute_tool','main_retrieve','main_delegate','prepare_draft','collect_draft','final_gate',
                      'generate_draft','approve_draft','save_draft','reject_draft','main_answer',
                      'retrieval/query_rewrite','retrieval/coarse_retrieval','retrieval/rerank','retrieval/web_search','retrieval/evidence_verification'}
             stages = {}

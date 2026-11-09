@@ -9,6 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.Map;
+import java.util.List;
 
 /** One effective reading per reader/article/Shanghai calendar day, committed with its count. */
 @Service
@@ -23,23 +24,23 @@ public class ArticleReadService {
         if (articleId == null || articleId <= 0 || readerHash == null || !readerHash.matches("[a-f0-9]{64}"))
             throw new BusinessException(400, "阅读参数无效");
         // Shared article lock also serializes changes to the existing single-row reading history.
-        var rows = store.lockArticle(articleId);
+        List<Map<String, Object>> rows = store.lockArticle(articleId);
         if (rows.isEmpty() || ((Number) rows.getFirst().get("status")).intValue() != 1
                 || ((Number) rows.getFirst().get("deleted")).intValue() != 0)
             throw new BusinessException(404, "文章不存在或不可访问");
-        var row = rows.getFirst();
+        Map<String, Object> row = rows.getFirst();
         int count = row.get("view_count") == null ? 0 : ((Number) row.get("view_count")).intValue();
         long author = ((Number) row.get("user_id")).longValue();
         if(!access.canRead(userId,author,((Number)row.get("required_level")).intValue()))
             throw new BusinessException(403,"尚未达到文章阅读等级");
         if (userId != null && userId == author) return Map.of("counted", false, "viewCount", count);
-        var day = LocalDate.now(ZoneId.of("Asia/Shanghai"));
+        LocalDate day = LocalDate.now(ZoneId.of("Asia/Shanghai"));
         boolean counted = store.insertReceipt(articleId,readerHash,day) == 1;
         if (counted) {
             store.incrementViews(articleId);
             count++;
             if (userId != null) {
-                var history = store.findHistory(userId,articleId);
+                List<Map<String, Object>> history = store.findHistory(userId,articleId);
                 if (history.isEmpty()) store.insertHistory(userId,articleId,author);
                 else store.touchHistory(author,((Number)history.getFirst().get("action_id")).longValue());
             }

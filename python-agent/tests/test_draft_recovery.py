@@ -1,3 +1,4 @@
+from tool_fakes import retrieval_call, raw_retrieval_call
 """Production writing graph, frozen evidence and scripted models; no paid calls."""
 import hashlib
 import json
@@ -10,6 +11,7 @@ from fastapi import HTTPException
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
+from app.services import main_tools
 from app.graph import action_runtime, builder, draft_recovery, main_agent, staged_runtime
 from app.graph.nodes import writing_worker
 from app.graph.state_factory import create_initial_state
@@ -37,8 +39,8 @@ class DraftRecoveryTests(unittest.IsolatedAsyncioTestCase):
         request = main_agent.RetrievalRequest(instruction='原查询' if repeat else '补查此版本官方默认值',
             search_query=None if repeat else '版本 默认值 官方', filters={}, allow_web=not repeat)
         if repeat:
-            old = main_agent.compile_action_plan(main_agent.MainDecision(action='retrieve', retrieval=request), 1).tasks[0]
-            state['action_history'] = [{'action': 'retrieve', 'task_ids': ['retrieve_1'], 'tasks': [old.model_dump()]}]
+            old = main_agent.compile_action_plan(main_agent.MainDecision(action='call_tool', tool_call=retrieval_call(request)), 1).tasks[0]
+            state['action_history'] = [{'action': 'call_tool', 'task_ids': ['retrieve_1'], 'tasks': [old.model_dump()]}]
         task_id = 'draft_test'
         decision = main_agent.MainDecision(action='write_draft',
             evidence_assessment=EvidenceAssessment(selected_ids=[CID], adequacy='sufficient', reason='候选资料'),
@@ -90,7 +92,7 @@ class DraftRecoveryTests(unittest.IsolatedAsyncioTestCase):
              patch.object(grounding, 'review_text', reviewer), \
              patch.object(writing_worker, 'generate_draft', generate), \
              patch.object(writing_worker, 'save_approved_draft', save), \
-             patch.object(action_runtime, 'retrieve_evidence', retriever), \
+             patch.object(main_tools, 'retrieve_evidence', retriever), \
              patch.object(staged_runtime, 'run_repository', repo), \
              patch('app.services.evidence_verifier.verify_public_evidence', AsyncMock()), \
              patch.object(staged_runtime, 'verify_public_evidence', AsyncMock()), \

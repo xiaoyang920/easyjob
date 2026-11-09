@@ -1,3 +1,4 @@
+from tool_fakes import retrieval_call, raw_retrieval_call
 """User intent, graph state and persistence arbitration for structured memory."""
 import os
 os.environ["DEEPSEEK_API_KEY"] = "offline-test"
@@ -375,6 +376,8 @@ class MemoryPersistenceTests(unittest.IsolatedAsyncioTestCase):
 
 class StartupAndGraphTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
+        context = patch('app.services.run_service.run_history.task_context', AsyncMock(return_value={}))
+        context.start(); self.addCleanup(context.stop)
         history = patch('app.services.run_service.run_history.previous', AsyncMock(return_value=({}, {})))
         history.start()
         self.addCleanup(history.stop)
@@ -403,7 +406,7 @@ class StartupAndGraphTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_main_queues_in_same_call_and_passes_turn_overlay_without_claiming_persistence(self):
         c = change()
-        model, control = llm([MainDecision(action="retrieve", retrieval=RetrievalRequest(instruction="history", target="memory"), memory_changes=[c]),
+        model, control = llm([MainDecision(action='call_tool', tool_call=retrieval_call(RetrievalRequest(instruction="history", target="memory")), memory_changes=[c]),
                               MainDecision(action="answer", reply="简短回答")])
         applied = {"memory_changes_queued": True, 'pending_memory_changes': [c.model_dump()], 'memory_write_status': 'pending'}
         with patch.object(agent, "get_llm", return_value=model), patch.object(agent.memory_policy_service, "enqueue_changes", AsyncMock(return_value=applied)) as save, \
@@ -422,13 +425,13 @@ class StartupAndGraphTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_memory_queue_failure_does_not_block_the_requested_action(self):
         from app.models.memory_identity import MemoryConflict
-        decision = MainDecision(action='retrieve', retrieval=RetrievalRequest(instruction='find'), memory_changes=[change()])
+        decision = MainDecision(action='call_tool', tool_call=retrieval_call(RetrievalRequest(instruction='find')), memory_changes=[change()])
         model, _ = llm([decision])
         with patch.object(agent, 'get_llm', return_value=model), \
              patch.object(agent.memory_policy_service, 'enqueue_changes', AsyncMock(side_effect=ConnectionError('database unavailable'))), \
              patch.object(agent, 'publish_route', AsyncMock()) as route:
             result = await agent.decide_main_action(state())
-        self.assertEqual(result['main_action'], 'retrieve')
+        self.assertEqual(result['main_action'], 'call_tool')
         self.assertEqual(result['memory_write_status'], 'failed')
         self.assertEqual(result['pending_memory_changes'][0]['value'], 'brief')
         route.assert_awaited_once()

@@ -18,6 +18,7 @@ import com.alibaba.fastjson2.JSON;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.ai.embedding.Embedding;
 
 /**
  * Embedding服务
@@ -64,7 +65,7 @@ public class ZhipuEmbeddingService {
             if (values != null) for (int i=0; i<distinct.size(); i++) {
                 if (values.get(i) == null) continue;
                 try {
-                    var vector = JSON.parseArray(values.get(i), Double.class);
+                    List<Double> vector = JSON.parseArray(values.get(i), Double.class);
                     if (valid(vector)) found.put(distinct.get(i), List.copyOf(vector));
                 } catch (RuntimeException ignored) { /* Corrupt cache entries are recomputed. */ }
             }
@@ -74,7 +75,7 @@ public class ZhipuEmbeddingService {
             EmbeddingResponse response = embeddingModel.embedForResponse(missing);
             if (response.getResults().size() != missing.size()) throw new IllegalStateException("向量返回数量不一致");
             boolean[] seen = new boolean[missing.size()];
-            for (var result : response.getResults()) {
+            for (Embedding result : response.getResults()) {
                 int index = result.getIndex();
                 if (index < 0 || index >= missing.size() || seen[index]) throw new IllegalStateException("向量返回索引无效或重复");
                 seen[index] = true;

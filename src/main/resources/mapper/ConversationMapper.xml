@@ -4,7 +4,7 @@
     <update id="updateLastMessage">
         UPDATE conversation
         SET last_message_id = #{messageId},
-            last_message_content = #{content},
+            last_message_content = LEFT(#{content},100),
             last_message_time = now()
         WHERE conversation_id = #{conversationId}
     </update>

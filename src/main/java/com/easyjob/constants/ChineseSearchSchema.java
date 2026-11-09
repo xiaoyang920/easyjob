@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.util.List;
+import java.io.InputStream;
 
 /** Additive multi-fields: old mappings, source content, chunk IDs and vectors stay compatible. */
 public final class ChineseSearchSchema {
@@ -16,7 +17,7 @@ public final class ChineseSearchSchema {
     private ChineseSearchSchema() {}
 
     public static String settings(String legacy) {
-        try (var input = ChineseSearchSchema.class.getResourceAsStream("/elasticsearch/chinese-analysis.json")) {
+        try (InputStream input = ChineseSearchSchema.class.getResourceAsStream("/elasticsearch/chinese-analysis.json")) {
             if (input == null) {
                 throw new IllegalStateException("Missing Chinese search analysis resource");
             }

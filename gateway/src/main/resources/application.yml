@@ -32,6 +32,14 @@ spring:
           max-connections: 200
           acquire-timeout: 2000
       routes:
+        - id: auth-api
+          uri: lb://easyjob-auth
+          predicates:
+            - Path=/api/auth/**,/api/account/**,/api/admin/accounts/*/security
+        - id: agent-api
+          uri: lb://easyjob-agent
+          predicates:
+            - Path=/api/agent/**
         - id: blog-websocket
           uri: lb:ws://easyjob-blog
           predicates:

@@ -389,7 +389,7 @@ CREATE TABLE `message` (
   `message_id` bigint NOT NULL COMMENT '消息ID',
   `conversation_id` bigint NOT NULL COMMENT '会话ID',
   `sender_id` bigint NOT NULL COMMENT '发送者ID',
-  `message_type` tinyint NOT NULL DEFAULT '1' COMMENT '消息类型：1=文本，2=图片，3=语音，4=视频，5=文件',
+  `message_type` tinyint NOT NULL DEFAULT '1' COMMENT '消息类型：1=文本，2=图片，3=文章卡片',
   `content` text NOT NULL COMMENT '消息内容',
   `extra_data` json DEFAULT NULL COMMENT '扩展数据（图片尺寸、文件大小等）',
   `reply_to_message_id` bigint DEFAULT NULL COMMENT '回复的消息ID',
@@ -476,7 +476,8 @@ CREATE TABLE `user_focus` (
   `focus_user_id` bigint NOT NULL COMMENT '被关注用户id',
   `focus_time` datetime DEFAULT NULL,
   PRIMARY KEY (`user_id`,`focus_user_id`) USING BTREE,
-  KEY `idx_user_focus` (`user_id`,`focus_user_id`)
+  UNIQUE KEY `uq_user_focus_pair` (`user_id`,`focus_user_id`),
+  KEY `ix_focus_reverse` (`focus_user_id`,`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci ROW_FORMAT=DYNAMIC;
 
 CREATE TABLE `user_info` (
@@ -577,3 +578,33 @@ CREATE TABLE `user_tag_preference` (
   KEY `idx_user_score` (`user_id`,`score` DESC)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='用户标签偏好表';
 SET FOREIGN_KEY_CHECKS=1;
+
+CREATE TABLE IF NOT EXISTS user_contact_setting (
+  owner_id BIGINT NOT NULL, target_id BIGINT NOT NULL, remark VARCHAR(200) NOT NULL DEFAULT '',
+  PRIMARY KEY(owner_id,target_id)
+);
+CREATE TABLE IF NOT EXISTS user_block (
+  user_id BIGINT NOT NULL, blocked_user_id BIGINT NOT NULL,
+  created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  PRIMARY KEY(user_id,blocked_user_id), KEY ix_block_target(blocked_user_id,user_id)
+);
+CREATE TABLE IF NOT EXISTS user_social_setting (
+  user_id BIGINT NOT NULL, allow_message_requests TINYINT NOT NULL DEFAULT 1,
+  PRIMARY KEY(user_id)
+);
+CREATE TABLE IF NOT EXISTS direct_chat_state (
+  user_low_id BIGINT NOT NULL, user_high_id BIGINT NOT NULL, conversation_id BIGINT NULL,
+  state VARCHAR(16) NOT NULL DEFAULT 'NONE', initiator_id BIGINT NULL,
+  permission_source VARCHAR(20) NULL, requested_by BIGINT NULL, requested_at DATETIME(6) NULL,
+  handled_at DATETIME(6) NULL, viewed_at DATETIME(6) NULL,
+  PRIMARY KEY(user_low_id,user_high_id), UNIQUE KEY uq_direct_conversation(conversation_id),
+  KEY ix_request_sender(requested_by,requested_at)
+);
+CREATE TABLE IF NOT EXISTS direct_chat_alias (
+  old_conversation_id BIGINT NOT NULL, conversation_id BIGINT NOT NULL,
+  PRIMARY KEY(old_conversation_id), KEY ix_alias_canonical(conversation_id)
+);
+CREATE TABLE IF NOT EXISTS social_migration_state (
+  version VARCHAR(64) NOT NULL, completed_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  PRIMARY KEY(version)
+);

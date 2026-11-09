@@ -2,7 +2,6 @@
 import asyncio
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 sys.path.insert(0,str(Path(__file__).resolve().parents[2]/'python-agent'))
 from app.clients.mysql_client import db
 from app.rpc.server import start_server
@@ -10,7 +9,7 @@ from app.rpc.discovery import catalog
 
 async def main():
     await db.connect()
-    server=await start_server(SimpleNamespace())
+    server=await start_server()
     await catalog.start()
     print('Agent query peer ready',flush=True)
     try:

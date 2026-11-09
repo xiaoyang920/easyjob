@@ -34,6 +34,12 @@ import java.util.regex.Pattern;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
+import com.easyjob.service.UserActionService.InteractionResult;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
+import java.util.regex.Matcher;
+import org.apache.ibatis.session.SqlSessionFactory;
 
 /** Opt-in real InnoDB tests. Creates/drops only its own random local test database. */
 @EnabledIfEnvironmentVariable(named="EASYJOB_INTERACTION_DB_TEST", matches="1")
@@ -58,34 +64,34 @@ class ArticleInteractionMysqlTests {
         server = new JdbcTemplate(new DriverManagerDataSource(base + options, user, password));
         database = "easyjob_interaction_test_" + UUID.randomUUID().toString().replace("-", "");
         server.execute("CREATE DATABASE `" + database + "` CHARACTER SET utf8mb4");
-        var datasource = new DriverManagerDataSource(base + database + options, user, password);
+        DriverManagerDataSource datasource = new DriverManagerDataSource(base + database + options, user, password);
         jdbc = new JdbcTemplate(datasource);
         // Use the repository's actual table definitions, not H2 approximations of MySQL locking.
         String schema = Files.readString(Path.of("tests/integration/schema.sql"));
-        var tables = Pattern.compile("(?ms)^CREATE TABLE `(article_info|user_action|article_index_outbox)` \\(.*?^\\) ENGINE=.*?;").matcher(schema);
+        Matcher tables = Pattern.compile("(?ms)^CREATE TABLE `(article_info|user_action|article_index_outbox)` \\(.*?^\\) ENGINE=.*?;").matcher(schema);
         int count = 0;
         while (tables.find()) { jdbc.execute(tables.group()); count++; }
         assertEquals(3, count);
 
-        var factory = new MybatisSqlSessionFactoryBean(); factory.setDataSource(datasource);
-        var config = new MybatisConfiguration(); config.setMapUnderscoreToCamelCase(true);
+        MybatisSqlSessionFactoryBean factory = new MybatisSqlSessionFactoryBean(); factory.setDataSource(datasource);
+        MybatisConfiguration config = new MybatisConfiguration(); config.setMapUnderscoreToCamelCase(true);
         factory.setConfiguration(config);
         factory.setMapperLocations(new ClassPathResource("mapper/ArticleMapper.xml"),
                 new ClassPathResource("mapper/ArticleIndexOutboxMapper.xml"));
-        var sessions = factory.getObject(); assertNotNull(sessions);
+        SqlSessionFactory sessions = factory.getObject(); assertNotNull(sessions);
         sessions.getConfiguration().addMapper(UserActionMapper.class);
-        var sql = new SqlSessionTemplate(sessions);
-        var manager = new DataSourceTransactionManager(datasource);
+        SqlSessionTemplate sql = new SqlSessionTemplate(sessions);
+        DataSourceTransactionManager manager = new DataSourceTransactionManager(datasource);
         publisher = spy(new ArticleIndexPublisher(new ArticleIndexOutbox(sql.getMapper(ArticleIndexOutboxMapper.class), manager)));
-        var target = new UserActionServiceImpl();
+        UserActionServiceImpl target = new UserActionServiceImpl();
         ReflectionTestUtils.setField(target, "articleMapper", sql.getMapper(ArticleMapper.class));
         ReflectionTestUtils.setField(target, "userActionMapper", sql.getMapper(UserActionMapper.class));
         ReflectionTestUtils.setField(target, "articleIndexPublisher", publisher);
         ReflectionTestUtils.setField(target, "notificationService", mock(NotificationServiceImpl.class));
         ReflectionTestUtils.setField(target, "userMapper", mock(UserMapper.class));
-        var interceptor = new TransactionInterceptor(); interceptor.setTransactionManager(manager);
+        TransactionInterceptor interceptor = new TransactionInterceptor(); interceptor.setTransactionManager(manager);
         interceptor.setTransactionAttributeSource(new AnnotationTransactionAttributeSource());
-        var proxy = new ProxyFactory(target); proxy.addAdvice(interceptor);
+        ProxyFactory proxy = new ProxyFactory(target); proxy.addAdvice(interceptor);
         service = (UserActionService) proxy.getProxy();
     }
 
@@ -105,9 +111,9 @@ class ArticleInteractionMysqlTests {
     }
 
     List<UserActionService.InteractionResult> concurrent(boolean like, boolean active, boolean sameUser) throws Exception {
-        try (var executor = Executors.newFixedThreadPool(8)) {
-            var start = new CountDownLatch(1);
-            var jobs = new ArrayList<Future<UserActionService.InteractionResult>>();
+        try (ExecutorService executor = Executors.newFixedThreadPool(8)) {
+            CountDownLatch start = new CountDownLatch(1);
+            ArrayList<Future<InteractionResult>> jobs = new ArrayList<Future<UserActionService.InteractionResult>>();
             for (int i = 0; i < 24; i++) {
                 final long uid = sameUser ? 9L : 100L + i;
                 jobs.add(executor.submit(() -> {
@@ -117,8 +123,8 @@ class ArticleInteractionMysqlTests {
                 }));
             }
             start.countDown();
-            var results = new ArrayList<UserActionService.InteractionResult>();
-            for (var job : jobs) results.add(job.get(20, TimeUnit.SECONDS));
+            ArrayList<InteractionResult> results = new ArrayList<UserActionService.InteractionResult>();
+            for (Future<InteractionResult> job : jobs) results.add(job.get(20, TimeUnit.SECONDS));
             return results;
         }
     }
@@ -126,7 +132,7 @@ class ArticleInteractionMysqlTests {
     long scalar(String sql) { return jdbc.queryForObject(sql, Long.class); }
 
     @Test void twentyFourRetriesFromOneUserCreateExactlyOneLikeAndOutbox() throws Exception {
-        var results = concurrent(true, true, true);
+        List<InteractionResult> results = concurrent(true, true, true);
         assertTrue(results.stream().allMatch(r -> r.active() && r.count()==1));
         assertEquals(1, scalar("SELECT like_count FROM article_info WHERE article_id=42"));
         assertEquals(1, scalar("SELECT COUNT(*) FROM user_action WHERE article_id=42 AND comment_id=0 AND action_type=2"));

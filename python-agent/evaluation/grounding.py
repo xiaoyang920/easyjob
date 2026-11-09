@@ -36,7 +36,9 @@ def unqualified_claim_present(text, phrase):
 
 
 async def execute(case, mode):
-    from app.graph import builder, main_agent, action_runtime
+    from app.models.main_tool import call_from_retrieval
+    from app.services import main_tools
+    from app.graph import builder, main_agent
     from app.graph.state_factory import create_initial_state
     from app.models.evidence_assessment import EvidenceAssessment
     from app.services import grounding
@@ -53,8 +55,8 @@ async def execute(case, mode):
     assessment = EvidenceAssessment(selected_ids=[] if adequacy == 'none' else list(contents), adequacy=adequacy,
         reason='固定合成资料', missing_aspects=['实现细节'] if adequacy == 'partial' else [],
         conflicts=[{'citation_ids': list(contents), 'description': '不同版本默认值不同'}] if case.get('conflict') else [])
-    decisions = [main_agent.MainDecision(action='retrieve', retrieval=main_agent.RetrievalRequest(
-        instruction=case['query'], filters={}, allow_web=case['web'] != 'not_requested')),
+    decisions = [main_agent.MainDecision(action='call_tool', tool_call=call_from_retrieval(main_agent.RetrievalRequest(
+        task_id='retrieve_1', instruction=case['query'], filters={}, allow_web=case['web'] != 'not_requested'))),
         main_agent.MainDecision(action='answer', reply=case['candidate'], evidence_assessment=assessment)]
     main_control = SimpleNamespace(ainvoke=AsyncMock(side_effect=decisions))
     main_model = SimpleNamespace(with_structured_output=Mock(return_value=main_control))
@@ -92,6 +94,12 @@ async def execute(case, mode):
                     kind = 'non_factual'
                 if spec.get('no_quotes') or kind in ('recommendation', 'general_knowledge', 'illustration', 'non_factual'):
                     unit_quotes = []
+                # Replay bypasses review_text (including source rechecks). This
+                # fixture explicitly labels the original bound source as lacking
+                # support, rather than treating a different selected ID as proof.
+                if first and case.get('scripted_bound_source_missing'):
+                    unit_quotes = []
+                    verdict = 'unsupported'
                 claims.append(grounding.ClaimReview(unit_index=unit['unit_index'], statement=unit['text'], kind=kind,
                     issue_code=spec.get('issue_code', 'none'),
                     missing_information=spec.get('missing_information', 'none'),
@@ -101,7 +109,7 @@ async def execute(case, mode):
             reviews.append(grounding.BlockReview(block_index=i, claims=claims))
         return grounding.validate_review(grounding.GroundingReview(blocks=reviews), blocks, sources)
     with patch.object(main_agent, 'get_llm', return_value=main_model), \
-         patch.object(action_runtime, 'retrieve_evidence', AsyncMock(return_value=evidence)), \
+         patch.object(main_tools, 'retrieve_evidence', AsyncMock(return_value=evidence)), \
          patch('app.graph.delivery_recovery.can_lookup', return_value=False):
         # This benchmark isolates a fixed candidate's audit/repair quality;
         # dynamic lookup is measured by test_delivery_recovery, not replayed here.

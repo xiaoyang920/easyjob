@@ -1,3 +1,4 @@
+from tool_fakes import retrieval_call, raw_retrieval_call
 """Regression tests for dynamic decisions, dependency scheduling and correction limits."""
 import os
 os.environ["DEEPSEEK_API_KEY"] = "offline-test"
@@ -16,6 +17,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.errors import NodeCancelledError
 from langgraph.types import Command
 
+from app.services import main_tools
 from app.graph import builder, main_agent as agent, action_runtime as actions, staged_runtime as runtime
 from app.graph.main_agent import MainArtifact, MainDecision, RetrievalRequest
 from app.graph.staged_plan import DependencyPlan, DelegatedTask, DraftRequest
@@ -28,7 +30,7 @@ from test_main_agent import llm, evidence, run_updates
 
 
 def retrieve(instruction="find", tid="source"):
-    return MainDecision(action="retrieve", retrieval=RetrievalRequest(task_id=tid, instruction=instruction))
+    return MainDecision(action='call_tool', tool_call=retrieval_call(RetrievalRequest(task_id=tid, instruction=instruction)))
 
 
 def delegate(tasks):
@@ -70,7 +72,7 @@ class ActionLoopTests(unittest.IsolatedAsyncioTestCase):
         model, control = llm([retrieve("first"), retrieve("narrower", "new_source"),
                               MainDecision(action="answer", reply="found [new_source:1]")])
         with patch.object(agent, "get_llm", return_value=model), \
-             patch.object(actions, "retrieve_evidence", AsyncMock(side_effect=[TimeoutError("secret endpoint"), evidence("new_source")])) as rag:
+             patch.object(main_tools, "retrieve_evidence", AsyncMock(side_effect=[TimeoutError("secret endpoint"), evidence("new_source")])) as rag:
             result, _ = await run_updates(builder._build_graph().compile(checkpointer=InMemorySaver()), create_initial_state(7, "find", []))
         self.assertEqual(rag.await_count, 2)
         self.assertEqual(result["correction_count"], 1)
@@ -83,7 +85,7 @@ class ActionLoopTests(unittest.IsolatedAsyncioTestCase):
         for second in (retrieve(tid="new_source"), delegate(tasks)):
             model, control = llm([retrieve(), second])
             with self.subTest(action=second.action), patch.object(agent, "get_llm", return_value=model), \
-                 patch.object(actions, "retrieve_evidence", AsyncMock(return_value=evidence("source"))) as rag, \
+                 patch.object(main_tools, "retrieve_evidence", AsyncMock(return_value=evidence("source"))) as rag, \
                  patch.object(runtime, "search_worker_node", AsyncMock()) as child:
                 result, _ = await run_updates(builder._build_graph().compile(checkpointer=InMemorySaver()), create_initial_state(7, "find", []))
             self.assertIn("停止重复执行", result["final_reply"])
@@ -156,7 +158,7 @@ class ActionLoopTests(unittest.IsolatedAsyncioTestCase):
         for setting, limit, message in cases:
             model, _ = llm([retrieve("first"), retrieve("changed", "second")])
             with self.subTest(setting=setting), patch.object(agent, "get_llm", return_value=model), \
-                 patch.object(agent.settings, setting, limit), patch.object(actions, "retrieve_evidence", AsyncMock(return_value=evidence("source"))) as rag:
+                 patch.object(agent.settings, setting, limit), patch.object(main_tools, "retrieve_evidence", AsyncMock(return_value=evidence("source"))) as rag:
                 result, _ = await run_updates(builder._build_graph().compile(checkpointer=InMemorySaver()), create_initial_state(7, "find", []))
             self.assertIn(message, result["final_reply"])
             self.assertEqual(rag.await_count, 0 if setting == "MAIN_CONTEXT_MAX_CHARS" else 1)
@@ -182,7 +184,7 @@ class ActionLoopTests(unittest.IsolatedAsyncioTestCase):
     async def test_source_or_permission_failures_do_not_enter_recovery(self):
         model, control = llm([retrieve(), MainDecision(action="answer", reply="unsafe")])
         with patch.object(agent, "get_llm", return_value=model), \
-             patch.object(actions, "retrieve_evidence", AsyncMock(side_effect=ValueError("source or permission changed"))):
+             patch.object(main_tools, "retrieve_evidence", AsyncMock(side_effect=ValueError("source or permission changed"))):
             with self.assertRaisesRegex(ValueError, "source or permission changed"):
                 await run_updates(builder._build_graph().compile(checkpointer=InMemorySaver()), create_initial_state(7, "find", []))
         self.assertEqual(control.ainvoke.await_count, 1)
@@ -221,7 +223,7 @@ class ActionLoopTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("fixed [source:1]", state["dependency_context"])
             return {"worker_results": [{"worker_name": "analysis", "result": "final [source:1]"}]}
         with patch.object(agent, "get_llm", return_value=model), \
-             patch.object(actions, "retrieve_evidence", AsyncMock(return_value=evidence("source"))) as rag, \
+             patch.object(main_tools, "retrieve_evidence", AsyncMock(return_value=evidence("source"))) as rag, \
              patch.object(runtime, "analysis_worker_node", AsyncMock(side_effect=consume)) as child:
             result, _ = await run_updates(builder._build_graph().compile(checkpointer=InMemorySaver()), create_initial_state(7, "analyze", []))
         self.assertEqual(rag.await_count, 1)
@@ -235,7 +237,7 @@ class ActionLoopTests(unittest.IsolatedAsyncioTestCase):
         for retry_result, succeeds in [(evidence("retry"), True), (TimeoutError("private"), False)]:
             model, control = llm([retrieve(), retrieve(tid="retry"), MainDecision(action="answer", reply="found [retry:1]")])
             with self.subTest(succeeds=succeeds), patch.object(agent, "get_llm", return_value=model), \
-                 patch.object(actions, "retrieve_evidence", AsyncMock(side_effect=[TimeoutError("private"), retry_result])) as rag:
+                 patch.object(main_tools, "retrieve_evidence", AsyncMock(side_effect=[TimeoutError("private"), retry_result])) as rag:
                 result, _ = await run_updates(builder._build_graph().compile(checkpointer=InMemorySaver()), create_initial_state(7, "find", []))
             self.assertEqual(rag.await_count, 2)
             self.assertEqual(control.ainvoke.await_count, 3 if succeeds else 2)
@@ -250,7 +252,7 @@ class ActionLoopTests(unittest.IsolatedAsyncioTestCase):
         source["rag_context"] = "x" * 3500 + "重要尾部资料 [source:1]"
         source["citations"][0]["excerpt"] = "y" * 800 + "原始证据尾部"
         model, control = llm([retrieve(), MainDecision(action="answer", reply="解释 [source:1]")])
-        with patch.object(agent, "get_llm", return_value=model), patch.object(actions, "retrieve_evidence", AsyncMock(return_value=source)):
+        with patch.object(agent, "get_llm", return_value=model), patch.object(main_tools, "retrieve_evidence", AsyncMock(return_value=source)):
             await run_updates(builder._build_graph().compile(checkpointer=InMemorySaver()), create_initial_state(7, "find", []))
         context = json.loads(control.ainvoke.await_args_list[1].args[0][1].content)
         self.assertEqual(context["successful_tasks"]["source"]["result"], source["rag_context"])
@@ -268,7 +270,7 @@ class ActionLoopTests(unittest.IsolatedAsyncioTestCase):
         baseline = sum(len(json_text(m.content)) for m in agent.main_message_renderer(initial)([]))
         baseline += len(json_text(convert_to_openai_tool(MainDecision)))
         with patch.object(agent, "get_llm", return_value=model), patch.object(agent.settings, "MAIN_CONTEXT_MAX_CHARS", baseline + 4000), \
-             patch.object(actions, "retrieve_evidence", AsyncMock(return_value=source)):
+             patch.object(main_tools, "retrieve_evidence", AsyncMock(return_value=source)):
             result, _ = await run_updates(builder._build_graph().compile(checkpointer=InMemorySaver()), create_initial_state(7, "find", []))
         self.assertIn("处理预算", result["final_reply"])
         self.assertEqual(result["task_results"]["source"]["result"], source["rag_context"])
@@ -277,7 +279,7 @@ class ActionLoopTests(unittest.IsolatedAsyncioTestCase):
     async def test_successful_transport_retry_cannot_be_repeated_a_third_time(self):
         model, control = llm([retrieve(), retrieve(tid="retry"), retrieve(tid="third")])
         with patch.object(agent, "get_llm", return_value=model), \
-             patch.object(actions, "retrieve_evidence", AsyncMock(side_effect=[TimeoutError(), evidence("retry")])) as rag:
+             patch.object(main_tools, "retrieve_evidence", AsyncMock(side_effect=[TimeoutError(), evidence("retry")])) as rag:
             result, _ = await run_updates(builder._build_graph().compile(checkpointer=InMemorySaver()), create_initial_state(7, "find", []))
         self.assertIn("停止重复执行", result["final_reply"])
         self.assertEqual(rag.await_count, 2)
@@ -288,7 +290,7 @@ class ActionLoopTests(unittest.IsolatedAsyncioTestCase):
         decision.artifacts = [MainArtifact(task_id="notes", instruction="整理需求", result="已经整理的需求")]
         model, _ = llm([decision])
         with patch.object(agent, "get_llm", return_value=model), patch.object(agent.settings, "MAIN_MAX_TASKS", 1), \
-             patch.object(actions, "retrieve_evidence", AsyncMock()) as rag:
+             patch.object(main_tools, "retrieve_evidence", AsyncMock()) as rag:
             result, _ = await run_updates(builder._build_graph().compile(checkpointer=InMemorySaver()), create_initial_state(7, "find", []))
         self.assertIn("任务数量上限", result["final_reply"])
         self.assertEqual(result["task_results"], {})
@@ -296,11 +298,11 @@ class ActionLoopTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_artifact_citation_repair_cannot_change_external_request(self):
         artifact = MainArtifact(task_id="notes", instruction="整理", result="bad [fake:1]")
-        first = MainDecision(action="retrieve", retrieval=RetrievalRequest(instruction="original"), artifacts=[artifact])
-        second = {"action": "retrieve", "retrieval": {"instruction": "changed"},
+        first = MainDecision(action='call_tool', tool_call=retrieval_call(RetrievalRequest(instruction="original")), artifacts=[artifact])
+        second = {"action": 'call_tool', 'tool_call': raw_retrieval_call({"instruction": "changed"}),
                   "artifacts": [{"task_id": "notes", "result": "fixed"}]}
         model, _ = llm([first, second])
-        with patch.object(agent, "get_llm", return_value=model), patch.object(actions, "retrieve_evidence", AsyncMock()) as rag:
+        with patch.object(agent, "get_llm", return_value=model), patch.object(main_tools, "retrieve_evidence", AsyncMock()) as rag:
             result, _ = await run_updates(builder._build_graph().compile(checkpointer=InMemorySaver()), create_initial_state(7, "find", []))
         self.assertIn("回答引用未通过校验", result["final_reply"])
         self.assertEqual(result["task_results"], {})

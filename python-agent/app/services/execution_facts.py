@@ -1,10 +1,20 @@
 """Server-derived execution facts; model prose never changes these facts."""
 import re
+import json
 
 
 def execution_facts(state):
     retrievals, drafts = [], []
+    conversation_messages = {}
     for tid, result in (state.get('task_results') or {}).items():
+        if result.get('status') == 'succeeded' and result.get('tool_name') in (
+                'search_conversation_history', 'read_conversation_messages'):
+            try:
+                for message in json.loads(result['result']).get('messages', []):
+                    key = (message['message_id'], message.get('start_char', 0), message.get('next_start_char'))
+                    conversation_messages[key] = message
+            except (ValueError, TypeError, KeyError):
+                pass  # Invalid envelopes cannot become execution evidence.
         if report := result.get('retrieval_report'):
             retrievals.append({'task_id': tid, 'status': result.get('status'),
                 'platform': report.get('platform', {}).get('status', 'unknown'),
@@ -14,7 +24,27 @@ def execution_facts(state):
             drafts.append({'task_id': tid, 'saved': result.get('status') == 'succeeded'
                 and bool(result.get('draft_article_id'))})
     previous = state.get('previous_run') or {}
-    return {'retrievals': retrievals, 'drafts': drafts,
+    public_tools = [{'task_id': tid, 'tool': result['tool_name'], 'result': result['result']}
+                    for tid, result in (state.get('task_results') or {}).items()
+                    if result.get('kind') == 'tool' and result.get('status') == 'succeeded'
+                    and result.get('tool_name') in ('get_article_comments', 'get_user_articles', 'get_trending_topics')]
+    editor_documents = []
+    snapshot = state.get('editor_context') or {}
+    reads = [result for result in (state.get('task_results') or {}).values()
+             if result.get('status') == 'succeeded' and result.get('retrieval_target') == 'editor'
+             and snapshot.get('snapshot_id') and result.get('editor_snapshot_id') == snapshot['snapshot_id']]
+    if reads:
+        part = 'document' if any(result.get('editor_part') == 'document' for result in reads) else 'selection'
+        editor_documents.append({'title': snapshot.get('title', ''), 'summary': snapshot.get('summary', ''),
+            'part': part, 'content': snapshot.get('content', '') if part == 'document' else snapshot.get('selection', ''),
+            'content_format': snapshot.get('content_format', 'text') if part == 'document' else 'text',
+            'content_complete': snapshot.get('content_complete', True) if part == 'document' else False})
+    task = state.get('task_context') or {}
+    user_context = {'current_message': state.get('user_message', ''),
+        'task_requirements': {key: task[key] for key in ('goal', 'active_requirements', 'revoked_requirements', 'decisions') if key in task}}
+    return {'retrievals': retrievals, 'drafts': drafts, 'public_tool_results': public_tools, 'editor_documents': editor_documents,
+        'user_context': user_context,
+        'conversation_messages': list(conversation_messages.values()),
         'memory_write': state.get('memory_write_status') or 'not_submitted',
         'previous_run': {key: previous[key] for key in ('status', 'node', 'tasks', 'saved_draft_id') if key in previous},
         'notice': '状态仅证明实际执行；found不证明资料相关，empty不证明全平台不存在。'}
@@ -48,15 +78,19 @@ def delivery_notices(state, citations):
     audit = state.get('grounding_audit') or {}
     supplemented = (audit.get('lookup_status') == 'succeeded'
                     and audit.get('status') in ('verified', 'repaired'))
-    if assessment.get('adequacy') == 'none' and not state.get('business_complete'):
+    facts = execution_facts(state)
+    public_scope = bool(facts['retrievals']) or bool(citations)
+    if public_scope and assessment.get('adequacy') == 'none' and not state.get('business_complete'):
         notes.append('初轮检索资料不足，本次已补充检索；具体可确认的内容见正文。' if supplemented else
                      '本次检索未找到足够相关资料；通用解释或建议不代表已通过本次检索验证。')
-    if assessment.get('adequacy') == 'partial':
+    if public_scope and assessment.get('adequacy') == 'partial':
+        article_excerpt = ((state.get('article_context') or {}).get('completeness') == 'excerpt'
+                           and not facts['retrievals'] and all(c.get('id') == 'article_context:1' for c in citations))
         notes.append('初轮资料只覆盖部分目标，本次已补充检索；具体范围见正文。' if supplemented else
+                     '当前文章只读取了部分正文，以上仅总结已读取内容。' if article_excerpt else
                      '资料只支持部分目标，以上内容不代表完整结论。')
     if assessment.get('conflicts'):
         notes.append('所选资料存在冲突，相关结论需要结合版本和适用条件判断。')
-    facts = execution_facts(state)
     web = {item['web'] for item in facts['retrievals']}
     if 'error' in web:
         notes.append('部分联网检索未完成，不能据此认定没有相关网页。')

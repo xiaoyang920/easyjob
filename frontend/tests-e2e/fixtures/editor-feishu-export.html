@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><title>网站到飞书复制验证</title></head>
+<body><div id="app"></div><script type="module">
+import { createApp, h, ref } from 'vue'
+import ArticleRichEditor from '/src/components/ArticleRichEditor.vue'
+import '/src/styles/theme.css'
+const initial = '<h1>网站复制到飞书验证</h1><h2 style="margin-left:32px">二级标题</h2><p style="margin-left:64px;text-indent:32px">正文第一行</p><p style="margin-left:96px;text-indent:32px">正文第二行</p><p style="margin-left:64px;text-indent:32px">正文第三行</p><p><strong>粗体</strong> <em>斜体</em> <u>下划线</u> <s>删除线</s> <a href="https://example.org/guide">链接</a> <code>行内代码</code></p><p>包含中文😀与软换行<br>下一行</p><p></p>'
+createApp({setup(){const html=ref(initial);return()=>h(ArticleRichEditor,{modelValue:html.value,'onUpdate:modelValue':value=>html.value=value})}}).mount('#app')
+</script></body>
+</html>

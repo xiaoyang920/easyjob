@@ -24,6 +24,7 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.ArrayList;
 
 /**
  * 消息Service实现类
@@ -34,6 +35,7 @@ public class MessageServiceImpl extends ServiceImpl<MessageMapper, Message> impl
     
     @Autowired
     private MessageMapper messageMapper;
+    @Autowired private com.easyjob.service.SocialService social;
     
     @Autowired
     private ConversationService conversationService;
@@ -74,13 +76,22 @@ public class MessageServiceImpl extends ServiceImpl<MessageMapper, Message> impl
         if (size == null || size < 1 || size > 100) throw new BusinessException(400, "分页范围无效");
         return size;
     }
+    @Override public MessageListVO getMessageContext(Long cid,Long id){
+        cid=social.canonical(cid);
+        if(!conversationMemberService.isMember(cid,UserContext.getUserId()))throw new BusinessException(403,"用户不是会话成员");
+        Message target=messageMapper.selectById(id);
+        if(target==null||!cid.equals(target.getConversationId()))throw new BusinessException(404,"原消息不存在");
+        ArrayList<MessageVO> rows=new java.util.ArrayList<>(messageMapper.selectMessageList(cid,Math.addExact(id,1),30));rows.addAll(messageMapper.selectMessagesAfter(cid,id,30));social.enrichMessages(rows);MessageListVO result=new MessageListVO();result.setRecords(rows);result.setHasMore(true);return result;
+    }
 
     @Override public MessageListVO getMessagesAfter(Long cid, Long after, Integer size) {
         pageSize(size);
         if (after == null || after < 0) throw new BusinessException(400, "消息游标无效");
+        cid=social.canonical(cid);
         if (!conversationMemberService.isMember(cid, UserContext.getUserId())) throw new BusinessException(403, "用户不是会话成员");
-        var rows = messageMapper.selectMessagesAfter(cid, after, size + 1);
-        var result = new MessageListVO(); result.setHasMore(rows.size() > size);
+        List<MessageVO> rows = messageMapper.selectMessagesAfter(cid, after, size + 1);
+        social.enrichMessages(rows);
+        MessageListVO result = new MessageListVO(); result.setHasMore(rows.size() > size);
         result.setRecords(rows.subList(0, Math.min(size, rows.size()))); return result;
     }
     /**
@@ -93,6 +104,7 @@ public class MessageServiceImpl extends ServiceImpl<MessageMapper, Message> impl
     @Override
     public MessageListVO getMessageList(Long conversationId, Long lastMessageId, Integer size) {
         pageSize(size);
+        conversationId=social.canonical(conversationId);
         Long userId = UserContext.getUserId();
         // 1. 验证用户是会话成员：conversationMemberService.isMember(conversationId, userId)
         boolean isMember = conversationMemberService.isMember(conversationId, userId);
@@ -106,6 +118,7 @@ public class MessageServiceImpl extends ServiceImpl<MessageMapper, Message> impl
         //    - records: 实际返回的消息列表（最多 size 条）
         //    - hasMore: 查询结果是否超过 size 条
         MessageListVO messageListVO = new MessageListVO();
+        social.enrichMessages(messageList);
         messageListVO.setRecords(messageList.subList(0, Math.min(size, messageList.size())));
         messageListVO.setHasMore(messageList.size() > size);
         return messageListVO;
@@ -119,14 +132,16 @@ public class MessageServiceImpl extends ServiceImpl<MessageMapper, Message> impl
     @Transactional(rollbackFor = Exception.class, isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
     public MessageVO sendMessage(MessageSendDTO dto) {
         Long userId = UserContext.getUserId();
-        // 1. 验证用户是会话成员
-        boolean isMember = conversationMemberService.isMember(dto.getConversationId(), userId);
-        if (!isMember) {
-            throw new BusinessException("用户不是会话成员");
+        if(dto.getConversationId()==null)throw new BusinessException(400,"请选择会话");
+        dto.setConversationId(social.canonical(dto.getConversationId()));
+        if(Integer.valueOf(3).equals(dto.getMessageType())){
+            if(dto.getArticleId()==null)throw new BusinessException(400,"请选择文章");
+            dto.setContent(dto.getArticleId().toString());
         }
-        if (dto.getConversationId() == null || dto.getContent() == null || dto.getContent().isBlank()
-                || dto.getContent().length() > 10000 || !java.util.Set.of(1, 2).contains(dto.getMessageType() == null ? 0 : dto.getMessageType()))
-            throw new BusinessException(400, "消息内容或类型无效");
+        if (dto.getContent() == null || dto.getContent().isBlank() || dto.getContent().length()>10000
+                || !java.util.Set.of(1,2,3).contains(dto.getMessageType()==null?0:dto.getMessageType()))
+            throw new BusinessException(400,"消息内容或类型无效");
+        social.lockChat(dto.getConversationId(),userId);
         String key = dto.getClientMessageId();
         if (key == null) key = java.util.UUID.randomUUID().toString();
         if (!key.matches("[A-Za-z0-9_-]{16,64}")) throw new BusinessException(400, "消息幂等键无效");
@@ -140,11 +155,14 @@ public class MessageServiceImpl extends ServiceImpl<MessageMapper, Message> impl
                     || !java.util.Objects.equals(previous.getMessageType(), dto.getMessageType())
                     || !java.util.Objects.equals(previous.getReplyToMessageId(), dto.getReplyToMessageId()))
                 throw new BusinessException(409, "消息幂等键对应的内容不一致");
-            return toVO(previous, sender);
+            MessageVO result=toVO(previous,sender);social.enrichMessages(java.util.List.of(result));return result;
         }
+        social.admit(dto.getConversationId(),userId,dto.getMessageType(),dto.getContent());
+        if(Integer.valueOf(3).equals(dto.getMessageType()) && !Boolean.TRUE.equals(social.article(dto.getArticleId()).get("available")))
+            throw new BusinessException(403,"只能分享当前公开且可访问的文章");
         if (dto.getReplyToMessageId() != null) {
             Message reply = messageMapper.selectById(dto.getReplyToMessageId());
-            if (reply == null || !reply.getConversationId().equals(dto.getConversationId())) throw new BusinessException(400, "回复消息不属于当前会话");
+            if (reply == null || !Integer.valueOf(0).equals(reply.getStatus()) || !reply.getConversationId().equals(dto.getConversationId())) throw new BusinessException(400, "回复消息不属于当前会话");
         }
         // 2. 创建 Message 实体并保存
         Message message = new Message();
@@ -167,6 +185,7 @@ public class MessageServiceImpl extends ServiceImpl<MessageMapper, Message> impl
         conversationMemberService.incrementUnreadCount(dto.getConversationId(), userId);
         // 5. 构建并返回 MessageVO
         MessageVO messageVO = toVO(message, sender);
+        social.enrichMessages(java.util.List.of(messageVO));
         Long receiveId = conversationMemberService.getOneReceiveId(dto.getConversationId(), userId);
         Map<String, Object> wsMsg = new HashMap<>();
         wsMsg.put("type", "message");
@@ -175,6 +194,8 @@ public class MessageServiceImpl extends ServiceImpl<MessageMapper, Message> impl
         wsMsg.put("content", messageVO.getContent()); wsMsg.put("messageType", messageVO.getMessageType());
         wsMsg.put("senderId", messageVO.getSenderId()); wsMsg.put("senderName", sender.getNickName());
         wsMsg.put("senderAvatar", sender.getAvatar()); wsMsg.put("createTime", messageVO.getCreateTime().toString());
+        wsMsg.put("article",messageVO.getArticle());
+        wsMsg.put("replyToContent",messageVO.getReplyToContent());wsMsg.put("replyToSenderName",messageVO.getReplyToSenderName());wsMsg.put("replyToStatus",messageVO.getReplyToStatus());
         wsMsg.put("status", 0); wsMsg.put("replyToMessageId", messageVO.getReplyToMessageId());
         afterCommit(() -> { if (receiveId != null) ChatWebSocketHandler.sendToUser(receiveId, wsMsg);ChatWebSocketHandler.sendToUser(userId,wsMsg); });
         return messageVO;

@@ -12,6 +12,14 @@ import java.sql.Timestamp;
 import java.time.*;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import com.alibaba.excel.ExcelWriter;
+import com.easyjob.service.AdminStatisticsService.Daily;
+import com.easyjob.service.AdminStatisticsService.Distribution;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 
 /** Aggregates only: no user contacts, article body, or invented historical view counts. */
 @Service
@@ -40,40 +48,40 @@ public class AdminStatisticsService {
         if(days!=7 && days!=30 && days!=90)throw new BusinessException(400,"统计范围仅支持7、30或90天");
         LocalDate to=LocalDate.now(clock),from=to.minusDays(days-1);
         Timestamp start=Timestamp.valueOf(from.atStartOfDay()),end=Timestamp.valueOf(to.plusDays(1).atStartOfDay());
-        var users=index(store.dailyUsers(start,end,source));
-        var publications=index(store.dailyPublications(start,end,source));
-        var reading=index(store.dailyReading(java.sql.Date.valueOf(from),java.sql.Date.valueOf(to.plusDays(1)),source));
-        var daily=new ArrayList<Daily>(days);
+        Map<String, Map<String, Object>> users=index(store.dailyUsers(start,end,source));
+        Map<String, Map<String, Object>> publications=index(store.dailyPublications(start,end,source));
+        Map<String, Map<String, Object>> reading=index(store.dailyReading(java.sql.Date.valueOf(from),java.sql.Date.valueOf(to.plusDays(1)),source));
+        ArrayList<Daily> daily=new ArrayList<Daily>(days);
         long newUsers=0,newArticles=0,millis=0;
         for(LocalDate date=from;!date.isAfter(to);date=date.plusDays(1)) {
             String day=date.toString();long u=value(users.get(day),"amount"),a=value(publications.get(day),"amount"),m=value(reading.get(day),"millis");
             daily.add(new Daily(day,u,a,m,value(reading.get(day),"readers")));newUsers+=u;newArticles+=a;millis+=m;
         }
         Long distinct=store.distinctReaders(java.sql.Date.valueOf(from),java.sql.Date.valueOf(to.plusDays(1)),source);
-        var articleCounts=store.articleDistribution(source);
+        List<Map<String, Object>> articleCounts=store.articleDistribution(source);
         Long unpublished=store.countUnpublished(source);
-        var articles=new ArrayList<Distribution>();
+        ArrayList<Distribution> articles=new ArrayList<Distribution>();
         for(int state=0;state<=2;state++) {
             final int current=state;
             long count=articleCounts.stream().filter(r->value(r,"status")==current).mapToLong(r->value(r,"amount")).sum();
             if(state==0)count=unpublished==null?0:unpublished;
             articles.add(new Distribution(switch(state){case 0->"未公开";case 1->"已发布";default->"已下架";},count));
         }
-        var levelRows=store.levelDistribution(source);
-        var configured=store.configuredLevels();
-        var levelCounts=new TreeMap<Long,Long>();for(var row:configured)levelCounts.put(value(row,"level"),0L);
-        for(var row:levelRows)levelCounts.put(value(row,"level"),value(row,"amount"));
-        var levels=levelCounts.entrySet().stream().map(e->new Distribution("L"+e.getKey(),e.getValue())).toList();
+        List<Map<String, Object>> levelRows=store.levelDistribution(source);
+        List<Map<String, Object>> configured=store.configuredLevels();
+        TreeMap<Long, Long> levelCounts=new TreeMap<Long,Long>();for(Map<String, Object> row:configured)levelCounts.put(value(row,"level"),0L);
+        for(Map<String, Object> row:levelRows)levelCounts.put(value(row,"level"),value(row,"amount"));
+        List<Distribution> levels=levelCounts.entrySet().stream().map(e->new Distribution("L"+e.getKey(),e.getValue())).toList();
         return new Report(days,from.toString(),to.toString(),ZonedDateTime.now(clock).toOffsetDateTime().toString(),List.copyOf(daily),List.copyOf(articles),levels,newUsers,newArticles,millis/1000.0,distinct==null?0:distinct,source);
     }
-    private static Map<String,Map<String,Object>> index(List<Map<String,Object>> rows){var map=new HashMap<String,Map<String,Object>>();for(var row:rows)map.put(row.get("day").toString(),row);return map;}
+    private static Map<String,Map<String,Object>> index(List<Map<String,Object>> rows){HashMap<String, Map<String, Object>> map=new HashMap<String,Map<String,Object>>();for(Map<String, Object> row:rows)map.put(row.get("day").toString(),row);return map;}
     private static long value(Map<String,Object> row,String name){return row==null || row.get(name)==null?0:((Number)row.get(name)).longValue();}
 
     /** Bounded report (<100 daily rows), completed before setting the download headers. */
     public byte[] workbook(Report report) {
-        var output=new ByteArrayOutputStream();
-        try(var writer=EasyExcel.write(output).autoCloseStream(false).build()) {
-            var summary=List.<List<Object>>of(
+        ByteArrayOutputStream output=new ByteArrayOutputStream();
+        try(ExcelWriter writer=EasyExcel.write(output).autoCloseStream(false).build()) {
+            List<List<Object>> summary=List.<List<Object>>of(
                 List.of("起始日期",report.from(),"趋势含起始日与结束日"),List.of("结束日期",report.to(),"Asia/Shanghai"),
                 List.of("生成时间",OffsetDateTime.parse(report.generatedAt()).atZoneSameInstant(ZoneId.of("Asia/Shanghai")).format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")),"北京时间；文章和等级分布为生成时的当前快照"),
                 List.of("数据范围",sourceLabel(report.source()),"按独立数据来源字段筛选；与账号是否禁用无关"),
@@ -84,7 +92,7 @@ public class AdminStatisticsService {
                 List.of("文章状态分布","当前快照","未公开、已发布、已下架互斥；排除删除文章"),
                 List.of("阅读等级分布","当前快照","已获等级与现行时长门槛的较高者，含禁用账号"));
             writer.write(summary,sheet(0,"统计说明",List.of("指标","值","口径")));
-            var daily=report.daily().stream().map(r->List.<Object>of(r.date(),r.newUsers(),r.newArticles(),r.readingSeconds(),r.readingUsers())).toList();
+            List<List<Object>> daily=report.daily().stream().map(r->List.<Object>of(r.date(),r.newUsers(),r.newArticles(),r.readingSeconds(),r.readingUsers())).toList();
             writer.write(daily,sheet(1,"每日趋势",List.of("日期","新增用户","首次发布文章","有效阅读秒数","有效阅读用户数")));
             writer.write(report.articles().stream().map(r->List.<Object>of(r.name(),r.count())).toList(),sheet(2,"文章状态",List.of("状态","文章数")));
             writer.write(report.levels().stream().map(r->List.<Object>of(r.name(),r.count())).toList(),sheet(3,"阅读等级",List.of("等级","用户数")));

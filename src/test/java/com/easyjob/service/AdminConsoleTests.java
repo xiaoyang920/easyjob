@@ -8,6 +8,8 @@ import com.easyjob.mapper.AdminConsoleMapper;
 import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
+import java.util.List;
+import java.util.Map;
 
 class AdminConsoleTests {
     final AdminConsoleMapper store=mock(AdminConsoleMapper.class);
@@ -17,7 +19,7 @@ class AdminConsoleTests {
     final AdminConsoleService service=new AdminConsoleService(store,access,mock(ReadingGrowthService.class),mock(RedisComponent.class),users,index);
     void admin(){when(access.isAdmin(7L)).thenReturn(true);}
     void article(int status,int level){
-        var row=List.of(Map.<String,Object>of("user_id",8L,"status",status,"required_level",level));
+        List<Map<String, Object>> row=List.of(Map.<String,Object>of("user_id",8L,"status",status,"required_level",level));
         when(store.findArticleOwner(42L)).thenReturn(row);
         when(store.lockArticle(42L)).thenReturn(row);
     }

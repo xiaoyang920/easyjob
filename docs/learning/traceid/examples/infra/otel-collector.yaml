@@ -1,0 +1,58 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 128
+    spike_limit_mib: 32
+  transform/safe:
+    error_mode: ignore
+    trace_statements:
+      - context: resource
+        statements:
+          - delete_key(attributes, "process.command_args")
+          - delete_key(attributes, "process.command_line")
+      - context: span
+        statements:
+          - delete_key(attributes, "db.statement")
+          - delete_key(attributes, "db.query.text")
+          - delete_key(attributes, "http.request.header.authorization")
+          - delete_key(attributes, "http.request.header.cookie")
+          - delete_key(attributes, "url.query")
+          - replace_pattern(attributes["url.full"], "\\?.*$", "") where attributes["url.full"] != nil
+          - replace_pattern(attributes["http.url"], "\\?.*$", "") where attributes["http.url"] != nil
+          - replace_pattern(attributes["http.target"], "\\?.*$", "") where attributes["http.target"] != nil
+      - context: spanevent
+        statements:
+          - delete_key(attributes, "exception.message")
+          - delete_key(attributes, "exception.stacktrace")
+  batch:
+    timeout: 1s
+    send_batch_size: 512
+
+exporters:
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+    sending_queue:
+      enabled: true
+      queue_size: 1024
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 10s
+      max_elapsed_time: 30s
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, transform/safe, batch]
+      exporters: [otlp/jaeger]

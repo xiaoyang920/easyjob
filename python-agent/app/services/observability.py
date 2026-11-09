@@ -1,4 +1,5 @@
 import logging
+import os
 
 log = logging.getLogger(__name__)
 def get_langfuse_callback():
@@ -10,6 +11,8 @@ def get_langfuse_callback():
 
         用于注入 LLM 调用链: llm.ainvoke(messages, config={"callbacks": [cb]})
         """
+    if os.getenv("EASYJOB_TRACING_LAB_ONLY", "false").lower() == "true":
+        return None
     try:
         from langfuse.langchain import CallbackHandler
         return CallbackHandler()
@@ -25,6 +28,8 @@ def trace_node(node_name: str):
     langfuse 未安装时静默返回原函数。
     """
     def decorator(func):
+        if os.getenv("EASYJOB_TRACING_LAB_ONLY", "false").lower() == "true":
+            return func
         try:
             from langfuse import observe
             # observe 的正确用法：作为装饰器工厂，name 必须用关键字参数

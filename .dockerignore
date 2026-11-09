@@ -6,6 +6,7 @@
 .aws
 target
 gateway/target
+auth-service/target
 frontend/node_modules
 frontend/dist
 python-agent/.venv
@@ -15,11 +16,13 @@ python-agent/.venv
 **/application.yml
 **/application-dev.yml
 **/application-prod.yml
+!auth-service/src/main/resources/application.yml
 logs
 temp
 tmp
 uploads
 backups
 deploy/.env
+deploy/secrets
 *.pem
 *.key

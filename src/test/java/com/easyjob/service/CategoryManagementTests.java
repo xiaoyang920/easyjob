@@ -8,6 +8,7 @@ import com.easyjob.mapper.AdminCategoryManagementMapper;
 import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
+import com.easyjob.mapper.ArticleRevisionMapper;
 
 class CategoryManagementTests {
     final AdminCategoryManagementMapper store=mock(AdminCategoryManagementMapper.class);
@@ -18,7 +19,7 @@ class CategoryManagementTests {
     @Test void staleVersionCannotOverwriteNewerCategory(){source(2);assertEquals(409,assertThrows(BusinessException.class,()->service.update(2L,3,new AdminCategoryManagementService.Update(1L,"后端",0,"",1))).getCode());assertTrue(mockingDetails(store).getInvocations().stream().noneMatch(i->Set.of("incrementVersion","redirectCategory","moveArticle","updateCategory","insertAudit").contains(i.getMethod().getName())));}
     @Test void parentWithEnabledChildrenCannotBeDisabled(){source(0);when(store.lockEnabledChildren(anyLong())).thenReturn(List.of(Map.of("category_id",4L)));assertEquals(409,assertThrows(BusinessException.class,()->service.update(2L,3,new AdminCategoryManagementService.Update(0L,"后端",0,"",0))).getCode());}
     @Test void categoryRedirectsUseCurrentReadsAndDetectCycles(){
-        var store=mock(com.easyjob.mapper.ArticleRevisionMapper.class);
+        ArticleRevisionMapper store=mock(com.easyjob.mapper.ArticleRevisionMapper.class);
         when(store.lockCategoryRedirect(3L)).thenReturn(List.of(Map.of("migrated_to",4L)));
         when(store.lockCategoryRedirect(4L)).thenReturn(List.of(Map.of("category_id",4L)));
         assertEquals(4L,CategoryRouting.resolve(store,3L));

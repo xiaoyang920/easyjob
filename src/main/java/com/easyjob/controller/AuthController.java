@@ -21,8 +21,10 @@ import org.springframework.web.bind.annotation.*;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
+import com.easyjob.service.AuthSessionService.Session;
 
 @RestController
+@org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(name="easyjob.auth.enabled",havingValue="false",matchIfMissing=true)
 @RequestMapping("/api/auth")
 public class AuthController {
 
@@ -65,7 +67,12 @@ public class AuthController {
             String token = jwtUtil.getTokenFromAuthorization(request.getHeader("Authorization"));
             try {
                 if (jwtUtil.parseToken(token).get("sid") != null) throw new BusinessException(401, "续签凭证不存在");
-                session = sessions.create(userMapper.selectById(jwtUtil.getUserIdFromToken(token)));
+                Long userId = jwtUtil.getUserIdFromToken(token);
+                User legacyUser = userMapper.selectById(userId);
+                if (legacyUser != null && legacyUser.getPassword() == null) {
+                    legacyUser = userMapper.credentialById(userId);
+                }
+                session = sessions.create(legacyUser);
             } catch (io.jsonwebtoken.JwtException | IllegalArgumentException e) {
                 throw new BusinessException(401, "登录已过期，请重新登录");
             }
@@ -109,6 +116,7 @@ public class AuthController {
         String password = authDTO.getPassword();
         // 根据邮箱查询用户
         User user = userMapper.selectOne(new LambdaQueryWrapper<User>().eq(User::getEmail, email));
+        if(user!=null&&user.getPassword()==null)user=userMapper.credentialById(user.getUserId());
         // 验证用户是否存在以及密码是否正确
         boolean passwordMatch;
         if (user == null ) {
@@ -125,6 +133,7 @@ public class AuthController {
                 String encoded=PasswordUtil.encode(password);
                 userMapper.upgradeLegacyPassword(user.getUserId(),user.getPassword(),encoded);
                 user=userMapper.selectById(user.getUserId());
+                if(user!=null&&user.getPassword()==null)user=userMapper.credentialById(user.getUserId());
                 if(user==null || !PasswordUtil.matches(password,user.getPassword()))
                     throw new BusinessException(401,"登录信息已变化，请重试");
             }
@@ -141,7 +150,7 @@ public class AuthController {
                               jakarta.servlet.http.HttpServletResponse response,
                               String message) {
         sessions.revoke(cookie(request));
-        var session = sessions.create(user);
+        Session session = sessions.create(user);
         sessions.track(session, request.getHeader("User-Agent"));
         sessionCookie(request, response, session.credential(), session.remainingSeconds());
         String token = jwtUtil.generateSessionToken(user.getUserId(), session.id());

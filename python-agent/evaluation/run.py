@@ -163,8 +163,9 @@ async def live(args, cases, record, manifest):
             if response.get("parsing_error") or response.get("parsed") is None:
                 raise ValueError("结构化决策解析失败")
             decision = response["parsed"]
-            return {"action": decision.action, "target": decision.retrieval.target if decision.retrieval else None,
-                    "allow_web": decision.retrieval.allow_web if decision.retrieval else None,
+            from app.models.main_tool import task_fields
+            return {"action": decision.action, "target": task_fields(decision.tool_call).get("retrieval_target") if decision.tool_call else None,
+                    "allow_web": task_fields(decision.tool_call).get("allow_web", False) if decision.tool_call else None,
                     "reply": decision.reply, "decision": decision.model_dump(mode="json")}
     else:
         if not settings.ZHIPUAI_API_KEY:

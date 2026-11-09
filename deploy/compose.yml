@@ -29,7 +29,7 @@ services:
       MYSQL_USER: easyjob
       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
       TZ: Asia/Shanghai
-    volumes: [mysql-data:/var/lib/mysql]
+    volumes: [mysql-data:/var/lib/mysql, mysql-socket:/var/run/mysqld]
     healthcheck:
       test: [CMD-SHELL, 'MYSQL_PWD="$$MYSQL_ROOT_PASSWORD" mysqladmin ping -h 127.0.0.1 -uroot --silent']
       interval: 5s
@@ -87,10 +87,24 @@ services:
     command: [sh, -c, 'mkdir -p /uploads /snapshots && chown 10001:10001 /uploads && chown 1000:0 /snapshots']
     volumes: [uploads:/uploads, es-snapshots:/snapshots]
     restart: "no"
+  database-permissions:
+    build: {context: .., dockerfile: deploy/Dockerfile.agent}
+    command: [python, database_permissions.py]
+    environment:
+      MYSQL_DB: easyjob
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD}
+      AUTH_DB_PASSWORD: ${AUTH_DB_PASSWORD:?Set separate AUTH_DB_PASSWORD}
+      BLOG_DB_PASSWORD: ${BLOG_DB_PASSWORD:?Set separate BLOG_DB_PASSWORD}
+      AGENT_DB_PASSWORD: ${AGENT_DB_PASSWORD:?Set separate AGENT_DB_PASSWORD}
+    volumes: [mysql-socket:/var/run/mysqld:ro]
+    depends_on: {migrate: {condition: service_completed_successfully}}
+    restart: "no"
   blog:
     build: {context: .., dockerfile: deploy/Dockerfile.java, target: blog}
     environment:
       <<: *app-env
+      MYSQL_USER: ej_blog_runtime
+      MYSQL_PASSWORD: ${BLOG_DB_PASSWORD}
       MYSQL_URL: jdbc:mysql://mysql:3306/easyjob?serverTimezone=GMT%2B8&useUnicode=true&characterEncoding=utf8&useSSL=false
       SPRING_CONFIG_ADDITIONAL_LOCATION: file:/app/config/container.yml
       SPRING_PROFILES_ACTIVE: container
@@ -99,36 +113,50 @@ services:
       RABBITMQ_USERNAME: easyjob
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?Set JWT_SECRET_KEY}
+      EASYJOB_AUTH_ENABLED: "true"
+      EASYJOB_AUTH_BASE_URL: http://auth:8081
+      EASYJOB_AUTH_SERVICE_KEY: ${AUTH_SERVICE_KEY:?Set AUTH_SERVICE_KEY}
+      EASYJOB_AUTH_GATEWAY_PUBLIC_KEY_FILE: /run/auth-keys/gateway-public.json
+      EASYJOB_AUTH_BLOG_PRIVATE_KEY_FILE: /run/auth-keys/blog-delegation-private.json
       BLOG_RPC_BIND: 0.0.0.0
       AGENT_RPC_TARGET: agent:50051
       SERVICE_ADVERTISE_HOST: blog
       MAIL_HOST: ${MAIL_HOST:-smtp.qq.com}
       MAIL_USERNAME: ${MAIL_USERNAME:-}
       MAIL_PASSWORD: ${MAIL_PASSWORD:-}
-    volumes: [uploads:/uploads, './blog.yml:/app/config/container.yml:ro']
+    volumes: [uploads:/uploads, './blog.yml:/app/config/container.yml:ro', './secrets/gateway-public.json:/run/auth-keys/gateway-public.json:ro', './secrets/blog-delegation-private.json:/run/auth-keys/blog-delegation-private.json:ro']
     depends_on:
       migrate: {condition: service_completed_successfully}
+      database-permissions: {condition: service_completed_successfully}
       upload-init: {condition: service_completed_successfully}
       redis: {condition: service_healthy}
       rabbitmq: {condition: service_healthy}
       elasticsearch: {condition: service_healthy}
       consul: {condition: service_healthy}
-    healthcheck: {test: [CMD, curl, -fsS, 'http://localhost:8080/api/category/list'], interval: 10s, timeout: 5s, retries: 30, start_period: 60s}
+    healthcheck: {test: [CMD, curl, -fsS, 'http://localhost:8080/actuator/health'], interval: 10s, timeout: 5s, retries: 30, start_period: 60s}
     restart: unless-stopped
     stop_grace_period: 330s
   agent:
     build: {context: .., dockerfile: deploy/Dockerfile.agent}
     environment:
       <<: *app-env
+      MYSQL_USER: ej_agent_runtime
+      MYSQL_PASSWORD: ${AGENT_DB_PASSWORD}
       AGENT_RPC_ENABLED: "true"
+      AUTH_DELEGATION_ENABLED: "true"
+      BLOG_DELEGATION_PUBLIC_KEY_FILE: /run/auth-keys/blog-delegation-public.json
+      GATEWAY_IDENTITY_PUBLIC_KEY_FILE: /run/auth-keys/gateway-public.json
+      AUTH_SERVICE_BASE_URL: http://auth:8081
+      AUTH_SERVICE_CHECK_KEY: ${AUTH_SERVICE_KEY:?Set AUTH_SERVICE_KEY}
       AGENT_RPC_BIND: 0.0.0.0:50051
       BLOG_RPC_TARGET: blog:20881
       SERVICE_ADVERTISE_HOST: agent
       AGENT_CHECKPOINT_SUCCESS_RETENTION_DAYS: ${AGENT_CHECKPOINT_SUCCESS_RETENTION_DAYS:-1}
       AGENT_CHECKPOINT_FAILURE_RETENTION_DAYS: ${AGENT_CHECKPOINT_FAILURE_RETENTION_DAYS:-7}
-    volumes: [uploads:/uploads:ro]
+    volumes: [uploads:/uploads:ro, './secrets/blog-delegation-public.json:/run/auth-keys/blog-delegation-public.json:ro', './secrets/gateway-public.json:/run/auth-keys/gateway-public.json:ro']
     depends_on:
       migrate: {condition: service_completed_successfully}
+      database-permissions: {condition: service_completed_successfully}
       upload-init: {condition: service_completed_successfully}
       redis: {condition: service_healthy}
       redis-stack: {condition: service_healthy}
@@ -142,14 +170,46 @@ services:
       start_period: 60s
     restart: unless-stopped
     stop_grace_period: 330s
+  auth:
+    build: {context: .., dockerfile: deploy/Dockerfile.java, target: auth}
+    environment:
+      <<: *app-env
+      MYSQL_USER: ej_auth_runtime
+      MYSQL_PASSWORD: ${AUTH_DB_PASSWORD}
+      AUTH_BIND: 0.0.0.0
+      MYSQL_URL: jdbc:mysql://mysql:3306/easyjob?serverTimezone=GMT%2B8&useUnicode=true&characterEncoding=utf8&useSSL=false
+      REDIS_DB: 0
+      CONSUL_HOST: consul
+      SERVICE_ADVERTISE_HOST: auth
+      AUTH_PRIVATE_KEY_FILE: /run/auth-keys/auth-private.json
+      GATEWAY_PUBLIC_KEY_FILE: /run/auth-keys/gateway-public.json
+      AUTH_SERVICE_KEY: ${AUTH_SERVICE_KEY:?Set AUTH_SERVICE_KEY}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-true}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USERNAME: easyjob
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      MAIL_HOST: ${MAIL_HOST:-smtp.qq.com}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+    volumes: ['./secrets/auth-private.json:/run/auth-keys/auth-private.json:ro', './secrets/gateway-public.json:/run/auth-keys/gateway-public.json:ro']
+    depends_on: {database-permissions: {condition: service_completed_successfully}, consul: {condition: service_healthy}, redis: {condition: service_healthy}, rabbitmq: {condition: service_healthy}}
+    healthcheck: {test: [CMD, curl, -fsS, 'http://localhost:8081/actuator/health'], interval: 10s, timeout: 5s, retries: 30, start_period: 30s}
+    restart: unless-stopped
   gateway:
     build: {context: .., dockerfile: deploy/Dockerfile.java, target: gateway}
     environment:
       JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      EASYJOB_AUTH_ENABLED: "true"
+      EASYJOB_AUTH_BASE_URL: http://auth:8081
+      EASYJOB_AUTH_JWKS_URI: http://auth:8081/api/auth/jwks
+      EASYJOB_AUTH_ISSUER: easyjob-auth
+      EASYJOB_AUTH_SERVICE_KEY: ${AUTH_SERVICE_KEY:?Set AUTH_SERVICE_KEY}
+      EASYJOB_AUTH_GATEWAY_PRIVATE_KEY_FILE: /run/auth-keys/gateway-private.json
       REDIS_HOST: redis
       CONSUL_HOST: consul
       GATEWAY_BIND: 0.0.0.0
-    depends_on: {blog: {condition: service_healthy}, consul: {condition: service_healthy}, redis: {condition: service_healthy}}
+    volumes: ['./secrets/gateway-private.json:/run/auth-keys/gateway-private.json:ro']
+    depends_on: {auth: {condition: service_healthy}, blog: {condition: service_healthy}, consul: {condition: service_healthy}, redis: {condition: service_healthy}}
     healthcheck: {test: [CMD, curl, -fsS, 'http://localhost:8090/actuator/health'], interval: 10s, timeout: 5s, retries: 30, start_period: 30s}
     restart: unless-stopped
   web:
@@ -165,6 +225,7 @@ services:
     entrypoint: [sh, -c]
 volumes:
   mysql-data:
+  mysql-socket:
   redis-data:
   checkpoint-data:
   rabbit-data:

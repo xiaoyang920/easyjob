@@ -27,6 +27,9 @@ public class ConversationController {
     
     @Autowired
     private MessageService messageService;
+    @Autowired private com.easyjob.service.SocialService social;
+    public record ReadCursor(Long lastReadMessageId) {}
+    @GetMapping("/message/{id}/context") public ResponseVO<?> context(@PathVariable Long id,@RequestParam Long conversationId){return ResponseVO.success(messageService.getMessageContext(conversationId,id));}
     
     /**
      * 获取会话列表
@@ -82,9 +85,8 @@ public class ConversationController {
      * POST /api/chat/conversation/{conversationId}/read
      */
     @PostMapping("/conversation/{conversationId}/read")
-    public ResponseVO<Void> markAsRead(@PathVariable Long conversationId) {
-        conversationService.markAsRead(conversationId);
-        return ResponseVO.success("");
+    public ResponseVO<?> markAsRead(@PathVariable Long conversationId,@RequestBody(required=false) ReadCursor body) {
+        return ResponseVO.success(social.read(conversationId,com.easyjob.utils.UserContext.getUserId(),body==null?null:body.lastReadMessageId()));
     }
 
     /**

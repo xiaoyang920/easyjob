@@ -45,6 +45,13 @@ config = {
 deepseek_key = local_values.get("DEEPSEEK_API_KEY") or values.get("DEEPSEEK_API_KEY")
 if deepseek_key:
     config['spring']['ai'] = {'deepseek': {'api-key': deepseek_key}}
+config['deepseek'] = {'balance-alert': {
+    'enabled': (local_values.get('DEEPSEEK_BALANCE_ALERT_ENABLED') or values.get('DEEPSEEK_BALANCE_ALERT_ENABLED') or 'false').lower() in ('true', '1', 'yes'),
+    'currency': local_values.get('DEEPSEEK_BALANCE_ALERT_CURRENCY') or values.get('DEEPSEEK_BALANCE_ALERT_CURRENCY') or 'CNY',
+    'threshold': local_values.get('DEEPSEEK_BALANCE_ALERT_THRESHOLD') or values.get('DEEPSEEK_BALANCE_ALERT_THRESHOLD') or '2.00',
+    'recipient': local_values.get('DEEPSEEK_BALANCE_ALERT_RECIPIENT') or values.get('DEEPSEEK_BALANCE_ALERT_RECIPIENT') or '',
+    'interval-seconds': int(local_values.get('DEEPSEEK_BALANCE_ALERT_INTERVAL_SECONDS') or values.get('DEEPSEEK_BALANCE_ALERT_INTERVAL_SECONDS') or '600'),
+}}
 config['agent'] = {'web-search': {
     'base-url': local_values.get('DEEPSEEK_TOOLS_BASE_URL') or values.get('DEEPSEEK_TOOLS_BASE_URL') or 'https://api.deepseek.com/v1',
     'enabled': (local_values.get('AGENT_WEB_SEARCH_ENABLED') or values.get('AGENT_WEB_SEARCH_ENABLED') or 'true').lower() in ('true', '1', 'yes'),
@@ -61,3 +68,5 @@ if not jwt or len(str(jwt).encode()) < 64:
     raise SystemExit('Set the existing Java JWT_SECRET_KEY (at least 64 bytes) before starting the gateway.')
 (root / 'temp/gateway-runtime.yml').write_text(yaml.safe_dump({'easyjob': {'jwt': {'secret-key': jwt}}}), encoding='utf-8')
 print("Prepared local runtime configuration. Secrets stored only in ignored local files.")
+import runpy
+runpy.run_path(str(root/'scripts/prepare-auth.py'),run_name='__main__')

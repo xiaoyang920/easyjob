@@ -26,6 +26,11 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.*;
+import com.easyjob.entity.User;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 /** Working drafts and frozen review snapshots; article_info is the published projection. */
 @Service @RequiredArgsConstructor
@@ -50,13 +55,13 @@ public class ArticleRevisionService {
         if(admin && !access.isAdmin(uid) && !access.hasPermission(uid,"reviews.read")) throw new BusinessException(403,"只有管理员可以审核文章");
         // An unpublished article has no info row. Always lock owner -> info -> revision,
         // including first publication, so creation and review cannot race on a missing row.
-        var owners=store.findOwners(aid);
+        List<Map<String, Object>> owners=store.findOwners(aid);
         if(owners.isEmpty() || (!admin && !Objects.equals(number(owners.getFirst(),"user_id"),uid)))
             throw new BusinessException(404,"文章不存在或无权操作");
         long owner=number(owners.getFirst(),"user_id");lockOwner(owner);
-        var rows=store.lockPublishedArticle(aid);
+        List<Map<String, Object>> rows=store.lockPublishedArticle(aid);
         if(!rows.isEmpty() && (Boolean.TRUE.equals(rows.getFirst().get("deleted")) || rows.getFirst().get("deleted") instanceof Number n && n.intValue()!=0))throw new BusinessException(404,"文章已删除");
-        var heads=store.lockCurrentRevision(aid);
+        List<Map<String, Object>> heads=store.lockCurrentRevision(aid);
         Map<String,Object> a;
         if(!rows.isEmpty())a=new HashMap<>(rows.getFirst());
         else {
@@ -71,12 +76,12 @@ public class ArticleRevisionService {
         return a;
     }
     private Map<String,Object> revision(long rid) {
-        var rows=store.lockRevision(rid);
+        List<Map<String, Object>> rows=store.lockRevision(rid);
         if(rows.isEmpty()) throw new BusinessException(404,"版本不存在");
         return rows.getFirst();
     }
     private long revisionArticle(long rid) {
-        var rows=store.findRevisionArticle(rid);
+        List<Map<String, Object>> rows=store.findRevisionArticle(rid);
         if(rows.isEmpty())throw new BusinessException(404,"版本不存在");
         return number(rows.getFirst(),"article_id");
     }
@@ -112,18 +117,18 @@ public class ArticleRevisionService {
         if(dto.getCategoryId()!=null && !dto.getCategoryId().isBlank()) {
             try{category=Long.valueOf(dto.getCategoryId());}catch(Exception e){throw new BusinessException(400,"分类无效");}
             category=CategoryRouting.resolve(store,category);
-            var selected=store.lockCategory(category);
+            List<Map<String, Object>> selected=store.lockCategory(category);
             if(selected.isEmpty() || number(selected.getFirst(),"status")!=1)
                 throw new BusinessException(400,"请选择有效分类");
             long parent=number(selected.getFirst(),"parent_id");
-            if(parent>0){var parents=store.lockParentCategory(parent);if(parents.isEmpty() || number(parents.getFirst(),"status")!=1)throw new BusinessException(400,"请选择有效分类");}
+            if(parent>0){List<Map<String, Object>> parents=store.lockParentCategory(parent);if(parents.isEmpty() || number(parents.getFirst(),"status")!=1)throw new BusinessException(400,"请选择有效分类");}
         } else if(submitting) throw new BusinessException(400,"提交审核前请选择分类");
-        var names=dto.getTagNames()==null?(dto.getTags()==null?List.<String>of():Arrays.asList(dto.getTags().split(","))):dto.getTagNames();
+        List<String> names=dto.getTagNames()==null?(dto.getTags()==null?List.<String>of():Arrays.asList(dto.getTags().split(","))):dto.getTagNames();
         if(names.size()>10 || names.stream().anyMatch(s->s==null || s.strip().isEmpty() || s.length()>30))
             throw new BusinessException(400,"最多10个标签，每个标签1至30字");
         if(dto.getIsOriginal()==null || (dto.getIsOriginal()!=0 && dto.getIsOriginal()!=1)) throw new BusinessException(400,"原创标识无效");
         if(dto.getCoverImage()!=null && dto.getCoverImage().length()>500) throw new BusinessException(400,"封面地址过长");
-        var result=new LinkedHashMap<String,Object>();
+        LinkedHashMap<String, Object> result=new LinkedHashMap<String,Object>();
         result.put("title",dto.getTitle().strip());result.put("summary",dto.getSummary());result.put("content",content);
         result.put("contentType",dto.getContentType());result.put("categoryId",category==null?null:category.toString());
         result.put("coverImage",dto.getCoverImage());result.put("isOriginal",dto.getIsOriginal());
@@ -133,7 +138,7 @@ public class ArticleRevisionService {
     private ArticleCreateDTO dto(Map<String,Object> p) {return json.convertValue(p,ArticleCreateDTO.class);}
     private Map<String,Object> displayPayload(Map<String,Object> p) {
         if(p.get("categoryId")!=null)p.put("categoryId",CategoryRouting.resolve(store,Long.valueOf(p.get("categoryId").toString())).toString());
-        if(p.get("categoryId")!=null){var names=store.findCategoryName(Long.valueOf(p.get("categoryId").toString()));p.put("categoryName",names.isEmpty()?"分类已删除":names.getFirst().get("category_name"));}
+        if(p.get("categoryId")!=null){List<Map<String, Object>> names=store.findCategoryName(Long.valueOf(p.get("categoryId").toString()));p.put("categoryName",names.isEmpty()?"分类已删除":names.getFirst().get("category_name"));}
         return p;
     }
     private long append(Map<String,Object> a,Map<String,Object> p,int state) {
@@ -141,7 +146,7 @@ public class ArticleRevisionService {
         int version=store.nextVersion(aid);
         String serialized=encode(new TreeMap<>(p));
         store.clearCurrentRevision(aid);
-        var row=ArticleRevisionInsert.builder()
+        ArticleRevisionInsert row=ArticleRevisionInsert.builder()
             .clientRequestId((String)a.get("client_request_id"))
             .articleId(aid).version(version).authorId(number(a,"user_id"))
             .baseRevisionId(number(a,"published_revision_id")).state(state)
@@ -159,9 +164,9 @@ public class ArticleRevisionService {
         if(requestId!=null){
             try{if(!java.util.UUID.fromString(requestId).toString().equalsIgnoreCase(requestId))throw new IllegalArgumentException();}
             catch(IllegalArgumentException invalid){throw new BusinessException(400,"草稿请求标识无效");}
-            var previous=store.findCreateRequest(uid,requestId);
+            List<Map<String, Object>> previous=store.findCreateRequest(uid,requestId);
             if(!previous.isEmpty()){
-                var r=previous.getFirst();long existing=number(r,"article_id");
+                Map<String, Object> r=previous.getFirst();long existing=number(r,"article_id");
                 if(number(r,"deleted")!=0 || number(r,"is_current")!=1)
                     throw new BusinessException(409,"这次保存已完成，请从草稿箱打开当前内容");
                 boolean submitting=Integer.valueOf(1).equals(dto.getStatus());
@@ -179,18 +184,18 @@ public class ArticleRevisionService {
         }
         if(!store.findExistingIdentity(aid).isEmpty())
             throw new BusinessException(409,"文章标识已存在");
-        var a=new HashMap<String,Object>();a.put("article_id",aid);a.put("user_id",uid);
+        HashMap<String, Object> a=new HashMap<String,Object>();a.put("article_id",aid);a.put("user_id",uid);
         a.put("client_request_id",requestId);
         a.put("published_revision_id",0L);a.put("latest_revision_id",0L);a.put("status",0);
         boolean submitting=Integer.valueOf(1).equals(dto.getStatus());
-        var result=metadata(revision(append(a,payload(dto,submitting),submitting?PENDING:DRAFT)));
+        Map<String, Object> result=metadata(revision(append(a,payload(dto,submitting),submitting?PENDING:DRAFT)));
         result.put("articleId",Long.toString(aid));return result;
     }
     private Map<String,Object> legacyPayload(long aid) {
-        var detail=articles.selectArticleAndUser(aid);if(detail==null) throw new BusinessException(404,"文章不存在");
-        var dto=BeanUtil.copyProperties(detail,ArticleCreateDTO.class,"tags");
+        ArticleDetailVO detail=articles.selectArticleAndUser(aid);if(detail==null) throw new BusinessException(404,"文章不存在");
+        ArticleCreateDTO dto=BeanUtil.copyProperties(detail,ArticleCreateDTO.class,"tags");
         dto.setTagNames(tags.getTagsByArticleId(aid).stream().map(TagVO::getTagName).toList());
-        var p=new LinkedHashMap<String,Object>();
+        LinkedHashMap<String, Object> p=new LinkedHashMap<String,Object>();
         p.put("title",dto.getTitle());p.put("summary",dto.getSummary());p.put("content",dto.getContent());p.put("contentType",dto.getContentType());
         p.put("categoryId",dto.getCategoryId());p.put("coverImage",dto.getCoverImage());p.put("isOriginal",dto.getIsOriginal());p.put("tagNames",dto.getTagNames());return p;
     }
@@ -208,16 +213,16 @@ public class ArticleRevisionService {
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization(){@Override public void afterCommit(){redis.deleteArticleDetail(aid);redis.deleteUserSpaceVO(uid);}});
     }
     @Transactional public Map<String,Object> save(Long uid,long aid,ArticleCreateDTO dto) {
-        var a=article(aid,uid,false);expected(a,dto.getExpectedRevisionId());
+        Map<String, Object> a=article(aid,uid,false);expected(a,dto.getExpectedRevisionId());
         if(number(a,"status")==2)throw new BusinessException(409,"下架文章不能编辑，请联系管理员");
-        boolean submitting=Integer.valueOf(1).equals(dto.getStatus());var p=payload(dto,submitting);
+        boolean submitting=Integer.valueOf(1).equals(dto.getStatus());Map<String, Object> p=payload(dto,submitting);
         if(number(a,"latest_revision_id")!=0) {
-            var current=revision(number(a,"latest_revision_id"));
+            Map<String, Object> current=revision(number(a,"latest_revision_id"));
             if(number(current,"state")==PENDING)throw new BusinessException(409,"当前版本审核中，请先撤回再编辑");
             expectedLock(current,dto.getExpectedLockVersion());
         }
         snapshotLegacy(a);
-        var current=revision(number(a,"latest_revision_id"));long id;
+        Map<String, Object> current=revision(number(a,"latest_revision_id"));long id;
         if(number(current,"state")==DRAFT) {
             id=number(current,"revision_id");String serialized=encode(new TreeMap<>(p));
             if(submitting || !hash(serialized).equals(current.get("content_hash"))) {
@@ -229,8 +234,8 @@ public class ArticleRevisionService {
     }
     private void projection(Map<String,Object> a,Map<String,Object> p,boolean publish) {
         long aid=number(a,"article_id");
-        var content=dto(p);
-        var projection=PublishedArticleProjection.builder()
+        ArticleCreateDTO content=dto(p);
+        PublishedArticleProjection projection=PublishedArticleProjection.builder()
             .articleId(aid).userId(number(a,"user_id")).revisionId(number(a,"latest_revision_id"))
             .title(content.getTitle()).summary(content.getSummary()).content(content.getContent())
             .contentType(content.getContentType())
@@ -245,13 +250,13 @@ public class ArticleRevisionService {
     }
     @Transactional public Map<String,Object> submit(Long uid,long aid,String expected) {return submit(uid,aid,expected,null);}
     @Transactional public Map<String,Object> submit(Long uid,long aid,String expected,Long lockVersion) {
-        var a=article(aid,uid,false);expected(a,expected);
+        Map<String, Object> a=article(aid,uid,false);expected(a,expected);
         if(number(a,"status")==2)throw new BusinessException(409,"下架文章不能提交审核");
-        snapshotLegacy(a);var head=revision(number(a,"latest_revision_id"));
+        snapshotLegacy(a);Map<String, Object> head=revision(number(a,"latest_revision_id"));
         if(number(head,"state")==PENDING)return metadata(head);
         if(number(head,"state")==APPROVED)throw new BusinessException(409,"请先保存修改版本再提交审核");
         expectedLock(head,lockVersion);
-        var p=payload(dto(decode(head.get("payload"))),true);
+        Map<String, Object> p=payload(dto(decode(head.get("payload"))),true);
         long id;
         if(number(head,"state")==DRAFT) {
             id=number(head,"revision_id");String serialized=encode(new TreeMap<>(p));
@@ -261,13 +266,13 @@ public class ArticleRevisionService {
         return metadata(revision(id));
     }
     @Transactional public void withdraw(Long uid,long aid,long rid) {
-        var a=article(aid,uid,false);var r=revision(rid);
+        Map<String, Object> a=article(aid,uid,false);Map<String, Object> r=revision(rid);
         if(number(a,"latest_revision_id")!=rid || number(r,"article_id")!=aid || number(r,"state")!=PENDING)
             throw new BusinessException(409,"该版本已处理，请刷新后重试");
         store.withdrawRevision(rid);log(a,rid,uid,"withdraw","");
     }
     @Transactional public void discard(Long uid,long aid,long rid) {
-        var a=article(aid,uid,false);var r=revision(rid);
+        Map<String, Object> a=article(aid,uid,false);Map<String, Object> r=revision(rid);
         if(number(a,"published_revision_id")==0 || number(a,"latest_revision_id")!=rid || number(r,"article_id")!=aid || !List.of(0L,3L,4L).contains(number(r,"state")))
             throw new BusinessException(409,"只能丢弃未提交的修改版本");
         store.supersedeRevision(rid);
@@ -276,7 +281,7 @@ public class ArticleRevisionService {
         store.restorePublishedHead(aid);log(a,rid,uid,"discard","");
     }
     @Transactional public void delete(Long uid,long aid) {
-        var a=article(aid,uid,false);
+        Map<String, Object> a=article(aid,uid,false);
         if(number(a,"latest_revision_id")!=0)log(a,number(a,"latest_revision_id"),uid,"delete","");
         tags.removeArticleTags(aid);
         store.deleteRevisions(aid);
@@ -287,39 +292,39 @@ public class ArticleRevisionService {
         invalidate(a);
     }
     private Map<String,Object> metadata(Map<String,Object> r) {
-        var result=new LinkedHashMap<String,Object>();result.put("revisionId",r.get("revision_id").toString());
+        LinkedHashMap<String, Object> result=new LinkedHashMap<String,Object>();result.put("revisionId",r.get("revision_id").toString());
         result.put("version",r.get("version_no"));result.put("state",r.get("state"));result.put("reason",r.get("review_reason"));
         result.put("lockVersion",r.get("lock_version"));result.put("updatedAt",r.get("updated_at"));
         result.put("createdAt",r.get("created_at"));result.put("submittedAt",r.get("submitted_at"));result.put("reviewedAt",r.get("reviewed_at"));return result;
     }
     @Transactional public ArticleDetailVO editable(Long uid,long aid) {
-        var a=article(aid,uid,false);if(number(a,"status")==2)throw new BusinessException(409,"文章已下架，暂时无法编辑");
-        var detail=articles.selectArticleAndUser(aid);
+        Map<String, Object> a=article(aid,uid,false);if(number(a,"status")==2)throw new BusinessException(409,"文章已下架，暂时无法编辑");
+        ArticleDetailVO detail=articles.selectArticleAndUser(aid);
         if(detail==null){detail=new ArticleDetailVO();detail.setArticleId(Long.toString(aid));detail.setUserId(Long.toString(number(a,"user_id")));detail.setStatus(0);}
         detail.setTags(tags.getTagsByArticleId(aid));detail.setLockVersion(0L);
         long head=number(a,"latest_revision_id");detail.setRevisionId(Long.toString(head));detail.setHasPublishedVersion(number(a,"status")==1);
         detail.setRevisionState(DRAFT);detail.setReviewReason("");
-        if(head!=0){var r=revision(head);var p=displayPayload(decode(r.get("payload")));
+        if(head!=0){Map<String, Object> r=revision(head);Map<String, Object> p=displayPayload(decode(r.get("payload")));
             BeanUtil.copyProperties(dto(p),detail,"tags","status","expectedRevisionId","expectedLockVersion");
             detail.setLockVersion(number(r,"lock_version"));
-            detail.setTags(dto(p).getTagNames().stream().map(name->{var tag=new TagVO();tag.setTagName(name);return tag;}).toList());
+            detail.setTags(dto(p).getTagNames().stream().map(name->{TagVO tag=new TagVO();tag.setTagName(name);return tag;}).toList());
             detail.setRevisionState((int)number(r,"state"));detail.setReviewReason(r.get("review_reason").toString());}
         return detail;
     }
     @Transactional public List<Map<String,Object>> history(Long uid,long aid) {
-        var a=article(aid,uid,false);
+        Map<String, Object> a=article(aid,uid,false);
         return store.findHistory(aid).stream().map(this::metadata).toList();
     }
     @Transactional public Map<String,Object> authorDetail(Long uid,long aid,long rid) {
-        article(aid,uid,false);var r=revision(rid);
+        article(aid,uid,false);Map<String, Object> r=revision(rid);
         if(number(r,"article_id")!=aid)throw new BusinessException(404,"版本不存在");
-        var result=metadata(r);result.put("payload",decode(r.get("payload")));return result;
+        Map<String, Object> result=metadata(r);result.put("payload",decode(r.get("payload")));return result;
     }
     @Transactional public Map<String,Object> restore(Long uid,long aid,long rid,String expected) {return restore(uid,aid,rid,expected,null);}
     @Transactional public Map<String,Object> restore(Long uid,long aid,long rid,String expected,Long lockVersion) {
-        article(aid,uid,false);var r=revision(rid);
+        article(aid,uid,false);Map<String, Object> r=revision(rid);
         if(number(r,"article_id")!=aid)throw new BusinessException(404,"版本不存在");
-        var request=dto(decode(r.get("payload")));request.setStatus(0);request.setExpectedRevisionId(expected);
+        ArticleCreateDTO request=dto(decode(r.get("payload")));request.setStatus(0);request.setExpectedRevisionId(expected);
         request.setExpectedLockVersion(lockVersion);
         return save(uid,aid,request);
     }
@@ -331,14 +336,14 @@ public class ArticleRevisionService {
         return store.findOwnDrafts(uid,pattern);
     }
     @Transactional public Map<String,Object> ownDraft(Long uid,long aid) {
-        var a=article(aid,uid,false);
+        Map<String, Object> a=article(aid,uid,false);
         if(number(a,"status")==2)throw new BusinessException(404,"草稿不可读取");
         long rid=number(a,"latest_revision_id");
         Map<String,Object> p;
         int state=DRAFT;
         if(rid==0){if(number(a,"status")!=0)throw new BusinessException(404,"没有修改草稿");p=legacyPayload(aid);}
-        else {var r=revision(rid);state=(int)number(r,"state");if(!List.of(DRAFT,PENDING,REJECTED,WITHDRAWN).contains(state))throw new BusinessException(404,"没有修改草稿");p=decode(r.get("payload"));}
-        var result=new LinkedHashMap<String,Object>();
+        else {Map<String, Object> r=revision(rid);state=(int)number(r,"state");if(!List.of(DRAFT,PENDING,REJECTED,WITHDRAWN).contains(state))throw new BusinessException(404,"没有修改草稿");p=decode(r.get("payload"));}
+        LinkedHashMap<String, Object> result=new LinkedHashMap<String,Object>();
         result.put("articleId",Long.toString(aid));result.put("revisionId",Long.toString(rid));
         result.put("lockVersion",rid==0?0L:number(revision(rid),"lock_version"));result.put("state",state);
         result.put("editable",state!=PENDING);result.put("payload",p);
@@ -348,10 +353,10 @@ public class ArticleRevisionService {
         updateAgentDraft(uid,aid,expected,null,title,summary,html);
     }
     @Transactional public void updateAgentDraft(Long uid,long aid,String expected,Long lockVersion,String title,String summary,String html) {
-        var source=ownDraft(uid,aid);
+        Map<String, Object> source=ownDraft(uid,aid);
         if(!Boolean.TRUE.equals(source.get("editable")))throw new BusinessException(409,"当前版本审核中，请先撤回");
-        @SuppressWarnings("unchecked") var p=(Map<String,Object>)source.get("payload");
-        var request=dto(p);request.setTitle(title);request.setSummary(summary);request.setContent(html);
+        @SuppressWarnings("unchecked") Map<String, Object> p=(Map<String,Object>)source.get("payload");
+        ArticleCreateDTO request=dto(p);request.setTitle(title);request.setSummary(summary);request.setContent(html);
         request.setContentType(1);request.setStatus(0);request.setExpectedRevisionId(expected);
         request.setExpectedLockVersion(lockVersion);
         save(uid,aid,request);
@@ -359,7 +364,7 @@ public class ArticleRevisionService {
     public PageVO<Map<String,Object>> work(Long uid,Integer state,int page,int size) {
         bounds(page,size);if(state!=null && !List.of(0,1,3,4).contains(state))throw new BusinessException(400,"版本状态无效");
         long total=store.countWorkspace(uid,state);
-        var rows=store.findWorkspace(uid,state,size,(page-1)*size);
+        List<Map<String, Object>> rows=store.findWorkspace(uid,state,size,(page-1)*size);
         return new PageVO<>(rows,total,(long)size,(long)page,(total+size-1)/size);
     }
     static void bounds(int page,int size){if(page<1 || page>10000 || size<1 || size>100)throw new BusinessException(400,"分页参数无效");}
@@ -367,14 +372,14 @@ public class ArticleRevisionService {
         if(!access.isAdmin(uid) && !access.hasPermission(uid,"reviews.read"))throw new BusinessException(403,"没有文章审核权限");bounds(page,size);
         if(state==null)state=PENDING;if(!List.of(1,2,3,4).contains(state))throw new BusinessException(400,"审核状态无效");
         long total=store.countReviewQueue(state);
-        var rows=store.findReviewQueue(state,size,(page-1)*size);
+        List<Map<String, Object>> rows=store.findReviewQueue(state,size,(page-1)*size);
         return new PageVO<>(rows,total,(long)size,(long)page,(total+size-1)/size);
     }
     @Transactional public Map<String,Object> reviewDetail(Long uid,long rid) {
         if(!access.isAdmin(uid) && !access.hasPermission(uid,"reviews.read"))throw new BusinessException(403,"没有文章审核权限");
         // Look up the relation first, then always acquire locks in article -> revision order.
-        var a=article(revisionArticle(rid),uid,true);var r=revision(rid);
-        var result=metadata(r);result.put("articleId",r.get("article_id").toString());result.put("payload",displayPayload(decode(r.get("payload"))));
+        Map<String, Object> a=article(revisionArticle(rid),uid,true);Map<String, Object> r=revision(rid);
+        Map<String, Object> result=metadata(r);result.put("articleId",r.get("article_id").toString());result.put("payload",displayPayload(decode(r.get("payload"))));
         long base=number(r,"base_revision_id");
         result.put("publicPayload",base!=0?displayPayload(decode(revision(base).get("payload"))):null);
         result.put("hasPublishedVersion",base!=0);result.put("contentHash",r.get("content_hash"));
@@ -384,21 +389,21 @@ public class ArticleRevisionService {
         if(!access.isAdmin(uid) && !access.hasPermission(uid,"reviews.manage"))throw new BusinessException(403,"没有文章审核权限");
         if(!List.of("approve","reject").contains(decision==null?"":decision))throw new BusinessException(400,"审核操作无效");
         reason=reason==null?"":reason.strip();if(reason.length()>1000 || (decision.equals("reject") && reason.isEmpty()))throw new BusinessException(400,"驳回需填写原因，最多1000字");
-        var a=article(revisionArticle(rid),uid,true);var r=revision(rid);
+        Map<String, Object> a=article(revisionArticle(rid),uid,true);Map<String, Object> r=revision(rid);
         if(number(r,"state")!=PENDING || number(a,"latest_revision_id")!=rid)throw new BusinessException(409,"该版本已处理或已撤回，请刷新");
         if(decision.equals("approve")) {
             if(number(a,"status")==2)throw new BusinessException(409,"文章已下架，请先处理下架状态");
             if(number(r,"base_revision_id")!=number(a,"published_revision_id"))throw new BusinessException(409,"公开版本已变化，请重新提交审核");
-            var stored=decode(r.get("payload"));
+            Map<String, Object> stored=decode(r.get("payload"));
             if(!hash(encode(new TreeMap<>(stored))).equals(r.get("content_hash")))throw new BusinessException(409,"审核内容校验失败，请重新提交");
-            var p=payload(dto(stored),true);projection(a,p,true);
+            Map<String, Object> p=payload(dto(stored),true);projection(a,p,true);
             if(number(a,"status")==0)users.changeArticleCount(number(a,"user_id"),1);
             store.publishRevision(rid,number(a,"article_id"));
             index.publish(number(a,"article_id"),"UPDATE",RabbitMqConstants.ROUTING_KEY_UPDATE);
         }
         store.reviewRevision(decision.equals("approve")?APPROVED:REJECTED,reason,uid,rid);
         log(a,rid,uid,decision,reason);
-        var reviewer=users.selectById(uid);
+        User reviewer=users.selectById(uid);
         String preview=reason;
         if(preview.codePointCount(0,preview.length())>200)
             preview=preview.substring(0,preview.offsetByCodePoints(0,197))+"…";

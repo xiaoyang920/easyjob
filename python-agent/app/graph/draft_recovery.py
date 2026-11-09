@@ -7,6 +7,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.exceptions import OutputParserException
 
 from app.config import settings
+from app.models.main_tool import call_from_retrieval
 from app.graph.delivery_recovery import DeliveryLookup
 from app.services.agent_events import activity, publish_route
 from app.services.grounding import retrievable_gaps
@@ -68,12 +69,12 @@ async def plan_draft_lookup(state):
         # of any task identifier supplied by the model.
         task_id = 'draft_lookup_' + hashlib.sha256(state['task_id'].encode()).hexdigest()[:12]
         request = choice.retrieval.model_copy(update={'task_id': task_id})
-        update = main.validate_action(current, main.MainDecision(action='retrieve', retrieval=request), round_number)
+        update = main.validate_action(current, main.MainDecision(action='call_tool', tool_call=call_from_retrieval(request)), round_number)
         if update.get('stop_reason'):
             fallback['delivery_review']['lookup_status'] = 'budget_or_repeat_limit'
             await activity(state, 'draft_lookup', '采用已有资料修正草稿', 'done')
             return fallback
-        await publish_route(state, 'retrieve', update)
+        await publish_route(state, 'call_tool', update)
         await activity(state, 'draft_lookup', '已安排补充检索', 'done')
         return {'main_round': round_number, 'action_history': update['action_history'],
             'draft_lookup_plan': update['plan'], 'delivery_review': {
@@ -87,9 +88,9 @@ async def plan_draft_lookup(state):
 
 
 async def lookup_draft_evidence(state):
-    from app.graph.action_runtime import main_retrieve_node
-    context = {**lookup_state(state), 'plan': state['draft_lookup_plan'], 'main_action': 'retrieve'}
-    update = await main_retrieve_node(context)
+    from app.graph.action_runtime import execute_tool_node
+    context = {**lookup_state(state), 'plan': state['draft_lookup_plan'], 'main_action': 'call_tool'}
+    update = await execute_tool_node(context)
     result = update['task_results'][state['delivery_review']['task_id']]
     citations = {str(c['id']): c for c in state.get('citations', [])}
     contents = dict(state.get('evidence_contents') or {})

@@ -8,9 +8,11 @@ from langchain_core.utils.json import parse_partial_json
 # headers are deliberately buffered: they could still arrive after reply.
 DIRECT_HEADER = {
     'action': 'answer', 'evidence_assessment': None, 'artifacts': [],
-    'answer_dependencies': [], 'reuse_previous_results': [], 'retrieval': None,
+    'answer_dependencies': [], 'reuse_previous_results': [], 'tool_call': None,
+    'editor_edits': [],
     'draft_request': None, 'plan': None, 'delegation_reason': '',
     'memory_changes': [], 'constraint_overrides': [],
+    'task_context_patch': None,
 }
 
 
@@ -20,7 +22,7 @@ def can_stream_direct_answer(state):
         and state.get('correction_count', 0) == 0
         and not any(state.get(key) for key in (
             'task_results', 'citations', 'article_cards', 'article_context',
-            'origin_article_id', 'delivery_evidence', 'delivery_review',
+            'origin_article_id', 'editor_context', 'editor_edits', 'delivery_evidence', 'delivery_review',
             'business_complete', 'memory_write_status', 'pending_memory_changes',
             'active_workers', 'observations', 'backend_boundary')))
 

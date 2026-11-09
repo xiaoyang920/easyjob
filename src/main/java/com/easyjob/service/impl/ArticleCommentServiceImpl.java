@@ -20,6 +20,7 @@ import com.easyjob.mapper.UserMapper;
 import com.easyjob.service.ArticleCommentService;
 import com.easyjob.service.ArticleCommentAnchorService;
 import com.easyjob.service.ArticleAccessService;
+import com.easyjob.service.FileStorageService;
 import com.easyjob.entity.Article;
 import com.easyjob.utils.UserContext;
 import com.easyjob.vo.ArticleCommentVO;
@@ -32,6 +33,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
+import com.easyjob.dto.CommentQuote;
 
 
 @Service
@@ -50,6 +52,8 @@ public class ArticleCommentServiceImpl extends ServiceImpl<ArticleCommentMapper,
     private ArticleCommentAnchorService anchors;
     @Autowired
     private ArticleAccessService access;
+    @Autowired
+    private FileStorageService files;
     /**
      * 获取文章评论列表
      * @param articleId
@@ -83,7 +87,7 @@ public class ArticleCommentServiceImpl extends ServiceImpl<ArticleCommentMapper,
     @Override
     public PageVO getQuoteComments(Long articleId, Integer page, Integer size) {
         requireReadable(articleMapper.selectById(articleId));
-        var result = anchors.page(articleId,safePage(page),safeSize(size));
+        IPage<ArticleComment> result = anchors.page(articleId,safePage(page),safeSize(size));
         return PageVO.fromIPage(result,views(result.getRecords()));
     }
     @Override
@@ -91,7 +95,7 @@ public class ArticleCommentServiceImpl extends ServiceImpl<ArticleCommentMapper,
         requireReadable(articleMapper.selectById(articleId));
         if(ids == null || ids.isEmpty() || ids.size()>50 || ids.stream().anyMatch(id->id == null || id<=0))
             throw new BusinessException(400,"评论定位参数无效");
-        var result=anchors.selectedPage(articleId,safePage(page),safeSize(size),ids.stream().distinct().toList());
+        IPage<ArticleComment> result=anchors.selectedPage(articleId,safePage(page),safeSize(size),ids.stream().distinct().toList());
         return PageVO.fromIPage(result,views(result.getRecords()));
     }
     @Override
@@ -159,7 +163,7 @@ public class ArticleCommentServiceImpl extends ServiceImpl<ArticleCommentMapper,
      */
     @Override
     public PageVO getReplies(Long commentId, Integer page, Integer size) {
-        var parent = articleCommentMapper.selectById(commentId);
+        ArticleComment parent = articleCommentMapper.selectById(commentId);
         if(parent == null || !Integer.valueOf(0).equals(parent.getStatus())) throw new BusinessException(404,"评论不存在");
         requireReadable(articleMapper.selectById(parent.getArticleId()));
         Page<ArticleComment> pageParam = new Page<>(safePage(page),safeSize(size));
@@ -225,16 +229,19 @@ public class ArticleCommentServiceImpl extends ServiceImpl<ArticleCommentMapper,
         if (!commentCreateDTO.isContentValid()) {
             throw new BusinessException("评论内容无效");
         }
+        String image = commentCreateDTO.getImgPath();
+        if (image != null && !image.isBlank()) files.requireCommentImage(image, UserContext.getUserId());
+        else image = null;
         Article liveArticle = requireReadable(anchors.lockArticle(commentCreateDTO.getArticleId()));
         if(!commentCreateDTO.isTopLevelComment() && commentCreateDTO.getQuote() != null)
             throw new BusinessException(400,"回复沿用所属评论的原文，不另建引用");
-        var quote = anchors.validate(commentCreateDTO.getQuote(),liveArticle.getContent());
+        CommentQuote quote = anchors.validate(commentCreateDTO.getQuote(),liveArticle.getContent());
         ArticleComment articleComment = new ArticleComment();
         //传入dto中的属性
         articleComment.setArticleUserId(liveArticle.getUserId());
         articleComment.setArticleId(commentCreateDTO.getArticleId());
-        articleComment.setContent(commentCreateDTO.getContent());
-        articleComment.setImgPath(commentCreateDTO.getImgPath());
+        articleComment.setContent(Optional.ofNullable(commentCreateDTO.getContent()).orElse("").trim());
+        articleComment.setImgPath(image);
         articleComment.setReplyCount(0);
         articleComment.setStatus(0);
         articleComment.setLikeCount(0);
@@ -287,7 +294,7 @@ public class ArticleCommentServiceImpl extends ServiceImpl<ArticleCommentMapper,
         // ---- 发通知 ----
         // 查文章标题（冗余进通知）
         String articleTitle = liveArticle.getTitle();
-        String preview = truncate(commentCreateDTO.getContent(), 100);
+        String preview = commentPreview(articleComment);
 
         // 给文章作者（评论了你的文章）
         notificationService.send(NotificationMessage.builder()
@@ -321,7 +328,7 @@ public class ArticleCommentServiceImpl extends ServiceImpl<ArticleCommentMapper,
                     .build()
             );
         }
-        var created = convertToVO(articleComment);
+        ArticleCommentVO created = convertToVO(articleComment);
         created.setQuote(quote);
         return created;
     }
@@ -458,7 +465,7 @@ public class ArticleCommentServiceImpl extends ServiceImpl<ArticleCommentMapper,
                     .articleId(comment.getArticleId())
                     .articleTitle(articleForNotify != null ? articleForNotify.getTitle() : null)
                     .targetId(comment.getCommentId())
-                    .targetPreview(truncate(comment.getContent(), 100))
+                    .targetPreview(commentPreview(comment))
                     .content("赞了你的评论")
                     .build()
             );
@@ -521,5 +528,8 @@ public class ArticleCommentServiceImpl extends ServiceImpl<ArticleCommentMapper,
     private static String truncate(String s, int max) {
         if (s == null) return null;
         return s.length() <= max ? s : s.substring(0, max);
+    }
+    private static String commentPreview(ArticleComment comment) {
+        return comment.getContent() == null || comment.getContent().isBlank() ? "[图片]" : truncate(comment.getContent(), 100);
     }
 }

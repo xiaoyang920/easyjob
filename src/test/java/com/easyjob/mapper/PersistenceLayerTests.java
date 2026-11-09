@@ -12,12 +12,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 import static org.junit.jupiter.api.Assertions.*;
+import java.io.InputStream;
+import java.util.stream.Stream;
+import org.apache.ibatis.mapping.MappedStatement;
 
 class PersistenceLayerTests {
     private Configuration mapper(String name) throws Exception {
-        var config=new Configuration();
+        Configuration config=new Configuration();
         String resource="mapper/"+name+".xml";
-        try(var input=Resources.getResourceAsStream(resource)) {
+        try(InputStream input=Resources.getResourceAsStream(resource)) {
             new XMLMapperBuilder(input,config,resource,config.getSqlFragments()).parse();
         }
         return config;
@@ -27,18 +30,18 @@ class PersistenceLayerTests {
             .getBoundSql(params).getSql().replaceAll("\\s+"," ").trim();
     }
     @Test void javaBusinessCodeCannotReintroduceJdbcOrSqlAnnotations() throws Exception {
-        var forbidden=Pattern.compile("JdbcTemplate|ConnectionCallback|prepareStatement\\s*\\(|@(org\\.apache\\.ibatis\\.annotations\\.)?(Select|Update|Insert|Delete)\\s*\\(|\\.last\\s*\\(");
-        var violations=new ArrayList<String>();
-        try(var files=Files.walk(Path.of("src/main/java"))) {
-            for(var file:files.filter(p->p.toString().endsWith(".java")).toList())
+        Pattern forbidden=Pattern.compile("JdbcTemplate|ConnectionCallback|prepareStatement\\s*\\(|@(org\\.apache\\.ibatis\\.annotations\\.)?(Select|Update|Insert|Delete)\\s*\\(|\\.last\\s*\\(");
+        ArrayList<String> violations=new ArrayList<String>();
+        try(Stream<Path> files=Files.walk(Path.of("src/main/java"))) {
+            for(Path file:files.filter(p->p.toString().endsWith(".java")).toList())
                 if(forbidden.matcher(Files.readString(file)).find())violations.add(file.toString());
         }
         assertEquals(List.of(),violations,"Use Mapper XML for handwritten persistence statements");
     }
     @Test void operationQueuesOnlyUseLiteralTablesAndStateValuesRemainBound() throws Exception {
-        String name="AdminBlogOperationsMapper";var config=mapper(name);
-        for(var queue:List.of("article")) {
-            var params=new HashMap<String,Object>();params.put("queue",queue);params.put("state","dead");params.put("size",20);params.put("offset",0);
+        String name="AdminBlogOperationsMapper";Configuration config=mapper(name);
+        for(String queue:List.of("article")) {
+            HashMap<String, Object> params=new HashMap<String,Object>();params.put("queue",queue);params.put("state","dead");params.put("size",20);params.put("offset",0);
             String table=queue.equals("article")?"article_index_outbox":"agent_background_job";
             assertTrue(sql(config,name,"findJobs",params).contains("FROM "+table+" WHERE status=?"));
             assertTrue(sql(config,name,"countJobs",params).contains("FROM "+table+" WHERE status=?"));
@@ -48,7 +51,7 @@ class PersistenceLayerTests {
         }
     }
     @Test void searchEmptyIdsNeverTurnIntoAnUnrestrictedArticleQuery() throws Exception {
-        var config=mapper("ArticleSearchMapper");
+        Configuration config=mapper("ArticleSearchMapper");
         assertTrue(sql(config,"ArticleSearchMapper","findCurrentArticles",Map.of("ids",List.of())).endsWith("AND 1=0"));
         String sql=sql(config,"ArticleSearchMapper","findCurrentArticles",Map.of("ids",List.of(42L,43L)));
         assertTrue(sql.contains("status=1 AND deleted=0"));assertTrue(sql.contains("article_id IN"));
@@ -59,9 +62,9 @@ class PersistenceLayerTests {
         assertTrue(query.contains("c.status=0"));assertTrue(query.contains("a.status=1 AND a.deleted=0 AND a.required_level=0"));
     }
     @Test void advisoryLocksBypassBothQueryCaches() throws Exception {
-        var config=mapper("ArticleIndexLockMapper");
-        for(var method:List.of("acquire","release")) {
-            var statement=config.getMappedStatement("com.easyjob.mapper.ArticleIndexLockMapper."+method);
+        Configuration config=mapper("ArticleIndexLockMapper");
+        for(String method:List.of("acquire","release")) {
+            MappedStatement statement=config.getMappedStatement("com.easyjob.mapper.ArticleIndexLockMapper."+method);
             assertFalse(statement.isUseCache());assertTrue(statement.isFlushCacheRequired());
         }
     }

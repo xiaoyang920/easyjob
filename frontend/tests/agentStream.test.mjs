@@ -1,6 +1,29 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { SseDecoder, readSse, createAgentState, applyAgentEvent, applyAnswerChunk, setRunStatus, restoreAgentState } from '../src/utils/agentStream.ts'
+import { SseDecoder, readSse, createAgentState, applyAgentEvent, applyAnswerChunk, setRunStatus, restoreAgentState, deliveryReviewWarning } from '../src/utils/agentStream.ts'
+
+test('an unresolved citation remains a citation warning after refresh', () => {
+  const state = restoreAgentState({ runStatus: 'succeeded', agentEvents: [
+    { version: 1, kind: 'activity', id: 'main/round_1/grounding', label: '部分引用待确认', status: 'error' },
+  ] })
+  assert.equal(deliveryReviewWarning(state), '回答已生成，部分引用待确认')
+})
+
+test('a settled answer retains its incomplete audit warning after history restoration', () => {
+  const events = [{version:1,kind:'activity',id:'main/round_1/grounding',label:'自动核验未完成',status:'error'}]
+  const state = createAgentState()
+  applyAgentEvent(state, events[0])
+  assert.equal(deliveryReviewWarning(state), undefined)
+  setRunStatus(state, 'complete')
+  assert.equal(deliveryReviewWarning(state), '回答已生成，核验未完成')
+  assert.equal(deliveryReviewWarning(restoreAgentState({runStatus:'succeeded',agentEvents:events})), '回答已生成，核验未完成')
+  applyAgentEvent(state, {version:1,kind:'activity',id:'main/round_2/grounding',label:'依据核验完成',status:'done'})
+  assert.equal(deliveryReviewWarning(state), undefined)
+  applyAgentEvent(state, {version:1,kind:'activity',id:'main/round_2/grounding',label:'依据核验未通过',status:'error'})
+  assert.equal(deliveryReviewWarning(state), '回答已生成，部分内容未通过核验')
+  setRunStatus(state, 'error')
+  assert.equal(deliveryReviewWarning(state), undefined)
+})
 
 test('settled incomplete requests restore as unfinished and keep successful retrieval activities', () => {
   const state=restoreAgentState({runStatus:'succeeded',deliveryStatus:'incomplete',agentEvents:[
@@ -23,6 +46,31 @@ test('failed history restores completed work and failure without restarting the 
   assert.equal(restored.activities[0].finishedAt - restored.activities[0].startedAt, 3000)
   assert.deepEqual(restoreAgentState(message), restored)
   assert.equal(restoreAgentState({ content: '普通历史' }), undefined)
+})
+
+test('successful history restores original timing and terminal activity states', () => {
+  const state = restoreAgentState({ runStatus: 'succeeded',
+    runStartedAt: '2026-10-11T01:00:00Z', runFinishedAt: '2026-10-11T01:00:22Z', agentEvents: [
+      { version: 1, kind: 'activity', id: 'main', label: '理解请求', status: 'active', timestamp: '2026-10-11T01:00:01Z' },
+      { version: 1, kind: 'activity', id: 'main', label: '理解请求', status: 'done', timestamp: '2026-10-11T01:00:21Z' },
+      { version: 1, kind: 'status', status: 'complete' },
+    ] })
+  assert.equal(state.status, 'complete')
+  assert.equal(state.finishedAt - state.startedAt, 22000)
+  assert.equal(state.activities.length, 1)
+  assert.equal(state.activities[0].finishedAt - state.activities[0].startedAt, 20000)
+})
+
+test('missing or invalid historical timing stays unknown instead of starting a new clock', () => {
+  for (const runStatus of ['succeeded', 'failed', 'expired', 'cancelled', 'awaiting_approval']) {
+    const state = restoreAgentState({ runStatus, runStartedAt: 'invalid', agentEvents: [] })
+    assert.equal(state.startedAt, undefined)
+    assert.equal(state.finishedAt, undefined)
+    assert.equal(state.activities.length, 0)
+  }
+  const partial = restoreAgentState({ runStatus: 'succeeded', runStartedAt: '2026-10-11T01:00:00Z' })
+  assert.equal(partial.startedAt, Date.parse('2026-10-11T01:00:00Z'))
+  assert.equal(partial.finishedAt, undefined)
 })
 
 test('approval conflict shows the server message rather than a generic HTTP error', async () => {

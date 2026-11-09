@@ -16,6 +16,11 @@ load_dotenv(_env_dir / ".env")
 
 class Settings:
     AGENT_SERVICE_KEY: str = os.getenv("AGENT_SERVICE_KEY", "")
+    AUTH_DELEGATION_ENABLED: bool = os.getenv("AUTH_DELEGATION_ENABLED", "false").lower() == "true"
+    BLOG_DELEGATION_PUBLIC_KEY_FILE: str = os.getenv("BLOG_DELEGATION_PUBLIC_KEY_FILE", "")
+    GATEWAY_IDENTITY_PUBLIC_KEY_FILE: str = os.getenv("GATEWAY_IDENTITY_PUBLIC_KEY_FILE", "")
+    AUTH_SERVICE_BASE_URL: str = os.getenv("AUTH_SERVICE_BASE_URL", "http://127.0.0.1:8081")
+    AUTH_SERVICE_CHECK_KEY: str = os.getenv("AUTH_SERVICE_CHECK_KEY", "")
     JAVA_AGENT_URL: str = os.getenv("JAVA_AGENT_URL", "http://localhost:8080")
     INTERNAL_TRANSPORT: str = os.getenv("AGENT_INTERNAL_TRANSPORT", "triple").strip().lower()
     AGENT_RPC_ENABLED: bool = os.getenv("AGENT_RPC_ENABLED", "true").lower() in ("true", "1", "yes")
@@ -41,18 +46,26 @@ class Settings:
     TASK_RESULT_MAX_CHARS: int = max(1000, int(os.getenv("AGENT_TASK_RESULT_MAX_CHARS", "131072")))
     DEPENDENCY_MAX_CHARS: int = max(1000, int(os.getenv("AGENT_DEPENDENCY_MAX_CHARS", "524288")))
     # Application budgets, deliberately below the provider's maximum context.
-    MAIN_CONTEXT_MAX_TOKENS: int = max(4096, int(os.getenv("AGENT_MAIN_CONTEXT_MAX_TOKENS", "131072")))
+    MAIN_CONTEXT_MAX_TOKENS: int = max(4096, int(os.getenv("AGENT_MAIN_CONTEXT_MAX_TOKENS", "262144")))
     MAIN_OUTPUT_MAX_TOKENS: int = max(256, int(os.getenv("AGENT_MAIN_OUTPUT_MAX_TOKENS", "8192")))
     WORKER_OUTPUT_MAX_TOKENS: int = max(256, int(os.getenv("AGENT_WORKER_OUTPUT_MAX_TOKENS", "16384")))
     CONTEXT_SAFETY_TOKENS: int = max(256, int(os.getenv("AGENT_CONTEXT_SAFETY_TOKENS", "8192")))
-    CONTEXT_COMPACT_TRIGGER_TOKENS: int = max(1024, int(os.getenv("AGENT_CONTEXT_COMPACT_TRIGGER_TOKENS", "98304")))
+    CONTEXT_COMPACT_TRIGGER_TOKENS: int = max(1024, int(os.getenv("AGENT_CONTEXT_COMPACT_TRIGGER_TOKENS", "196608")))
     CONTEXT_COMPACT_TARGET_TOKENS: int = max(512, int(os.getenv("AGENT_CONTEXT_COMPACT_TARGET_TOKENS", "65536")))
     CONTEXT_COMPACT_MIN_SAVING_TOKENS: int = max(1, int(os.getenv("AGENT_CONTEXT_COMPACT_MIN_SAVING_TOKENS", "4096")))
     AUXILIARY_HISTORY_MAX_TOKENS: int = max(512, int(os.getenv("AGENT_AUXILIARY_HISTORY_MAX_TOKENS", "32768")))
     HISTORY_RECENT_TOKENS: int = max(256, int(os.getenv("AGENT_HISTORY_RECENT_TOKENS", "24576")))
-    ARTICLE_CONTEXT_MAX_TOKENS: int = max(256, min(32768, int(os.getenv("AGENT_ARTICLE_CONTEXT_MAX_TOKENS", "8192"))))
+    CONTEXT_TOOL_INLINE_TOKENS: int = max(1024, int(os.getenv('AGENT_CONTEXT_TOOL_INLINE_TOKENS', '32768')))
+    CONTEXT_TOOL_ADAPTIVE_INLINE: bool = os.getenv('AGENT_CONTEXT_TOOL_ADAPTIVE_INLINE', 'true').lower() in ('true', '1', 'yes')
+    CONTEXT_RESULT_ACCESS_ENABLED: bool = os.getenv('AGENT_CONTEXT_RESULT_ACCESS_ENABLED', 'true').lower() in ('true', '1', 'yes')
+    CONTEXT_RESULT_SMALL_TOKENS: int = max(512, int(os.getenv('AGENT_CONTEXT_RESULT_SMALL_TOKENS', '8192')))
+    CONTEXT_BUILD_CACHE_ENABLED: bool = os.getenv('AGENT_CONTEXT_BUILD_CACHE_ENABLED', 'true').lower() in ('true', '1', 'yes')
+    CONTEXT_RESULT_PREFETCH_ENABLED: bool = os.getenv('AGENT_CONTEXT_RESULT_PREFETCH_ENABLED', 'false').lower() in ('true', '1', 'yes')
+    CONTEXT_READ_MAX_CALLS: int = max(1, min(12, int(os.getenv('AGENT_CONTEXT_READ_MAX_CALLS', '6'))))
+    HISTORY_LOAD_MAX_TOKENS: int = max(1024, int(os.getenv('AGENT_HISTORY_LOAD_MAX_TOKENS', '196608')))
+    ARTICLE_CONTEXT_MAX_TOKENS: int = max(256, min(32768, int(os.getenv("AGENT_ARTICLE_CONTEXT_MAX_TOKENS", "32768"))))
     SUMMARY_MAX_TOKENS: int = max(128, int(os.getenv("AGENT_SUMMARY_MAX_TOKENS", "4096")))
-    SUMMARY_INPUT_MAX_TOKENS: int = max(1024, int(os.getenv("AGENT_SUMMARY_INPUT_MAX_TOKENS", "32768")))
+    SUMMARY_INPUT_MAX_TOKENS: int = max(1024, int(os.getenv("AGENT_SUMMARY_INPUT_MAX_TOKENS", "262144")))
     SUMMARY_MAX_CALLS: int = max(1, min(16, int(os.getenv("AGENT_SUMMARY_MAX_CALLS", "8"))))
     SUMMARY_TIMEOUT_SECONDS: int = max(1, int(os.getenv("AGENT_SUMMARY_TIMEOUT_SECONDS", "45")))
     SUBAGENT_CONCURRENCY: int = max(1, min(8, int(os.getenv("AGENT_SUBAGENT_CONCURRENCY", "3"))))
@@ -115,13 +128,18 @@ class Settings:
     MYSQL_USER: str = os.getenv("MYSQL_USER", "root")
     MYSQL_PASSWORD: str = os.getenv("MYSQL_PASSWORD", "")
     MYSQL_DB: str = os.getenv("MYSQL_DB", "easyjob")
+    AGENT_MYSQL_USER: str = os.getenv("AGENT_MYSQL_USER", "")
+    AGENT_MYSQL_PASSWORD: str = os.getenv("AGENT_MYSQL_PASSWORD", "")
 
     MCP_SERVERS_JSON: str = os.getenv("MCP_SERVERS_JSON", "{}")
     @property
     def mysql_url(self) -> str:
         """databases 库用的连接字符串"""
+        runtime=os.getenv('EASYJOB_AGENT_RUNTIME','false').lower()=='true'
+        user=self.AGENT_MYSQL_USER if runtime and self.AGENT_MYSQL_USER else self.MYSQL_USER
+        password=self.AGENT_MYSQL_PASSWORD if runtime and self.AGENT_MYSQL_USER else self.MYSQL_PASSWORD
         return (
-            f"mysql+aiomysql://{self.MYSQL_USER}:{self.MYSQL_PASSWORD}"
+            f"mysql+aiomysql://{user}:{password}"
             f"@{self.MYSQL_HOST}:{self.MYSQL_PORT}/{self.MYSQL_DB}"
             "?charset=utf8mb4"
         )

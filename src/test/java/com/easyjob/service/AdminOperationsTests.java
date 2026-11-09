@@ -39,7 +39,7 @@ class AdminOperationsTests {
         verify(store).insertRetryAudit(1L,"article",42L,id);
     }
     @Test void retiredExtractionCannotBeRevived() {
-        var mid="a".repeat(64);
+        String mid="a".repeat(64);
         doThrow(new BusinessException(409,"任务类型已停用")).when(store).retryMemory(1L,mid);
         assertThrows(BusinessException.class,()->service.retry(1L,"memory",mid));
         verify(store,never()).retryJob(anyString(),anyString());

@@ -12,6 +12,7 @@ import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
 from langchain_core.messages import HumanMessage
+from app.services import main_tools
 from app.config import settings
 from app.graph.state_factory import create_initial_state
 from app.utils.token_utils import count_tokens, truncate_to_token_budget
@@ -130,6 +131,15 @@ class WindowTests(unittest.TestCase):
 
 
 class MainBudgetTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        window = patch.multiple(settings, MAIN_CONTEXT_MAX_TOKENS=131072,
+            CONTEXT_COMPACT_TRIGGER_TOKENS=98304)
+        window.start(); self.addCleanup(window.stop)
+        projection = patch.object(settings, 'CONTEXT_TOOL_INLINE_TOKENS', 1000000)
+        projection.start(); self.addCleanup(projection.stop)
+        selection = patch.object(settings, 'CONTEXT_RESULT_ACCESS_ENABLED', False)
+        selection.start(); self.addCleanup(selection.stop)
+
     async def test_request_reclaims_history_budget_before_dropping_necessary_context(self):
         history = [{'role': 'system', 'content': '[之前的对话摘要] 文章确定面向初学者。'}]
         for i in range(8):
@@ -164,10 +174,10 @@ class MainBudgetTests(unittest.IsolatedAsyncioTestCase):
         history = [{'role': 'system', 'content': '[之前的对话摘要] 缓存一致性'}]
         history += [{'role': 'user' if i % 2 == 0 else 'assistant', 'content': str(i)} for i in range(24)]
         state = create_initial_state(1, '找资料', history)
-        state.update(main_action='retrieve', plan={'tasks': [{'task_id': 'lookup', 'kind': 'search', 'actor': 'main',
+        state.update(main_action='call_tool', plan={'tasks': [{'task_id': 'lookup', 'kind': 'search', 'actor': 'main',
                                                            'instruction': '查资料', 'requires_evidence': False}]})
         retrieve = AsyncMock(return_value={'status': 'succeeded', 'result': '找到资料', 'citations': [], 'article_cards': []})
-        with patch.object(action_runtime, 'retrieve_evidence', retrieve), \
+        with patch.object(main_tools, 'retrieve_evidence', retrieve), \
              patch.object(action_runtime.runtime, 'assert_run', AsyncMock()), patch.object(action_runtime, 'activity', AsyncMock()):
             await action_runtime.main_retrieve_node(state)
         self.assertEqual(retrieve.call_args.args[0]['history_messages'], history)

@@ -1,6 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.easyjob.mapper.AgentBlogQueryMapper">
+  <select id="writingMetadata" resultType="map">
+    SELECT r.article_id,JSON_UNQUOTE(JSON_EXTRACT(r.payload,'$.title')) AS title
+    FROM article_revision r LEFT JOIN article_info a ON a.article_id=r.article_id
+    WHERE r.author_id=#{uid} AND r.is_current=1 AND r.deleted=0
+      AND (a.article_id IS NULL OR (a.deleted=0 AND a.status&lt;&gt;2))
+      AND r.article_id IN <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+  </select>
   <select id="userSources" resultType="map">SELECT user_id,data_source FROM user_info WHERE user_id IN <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach></select>
   <select id="published" resultType="map">
     SELECT a.article_id,a.title,a.content,a.content_type,a.update_time,a.cover_image,a.view_count,a.like_count,

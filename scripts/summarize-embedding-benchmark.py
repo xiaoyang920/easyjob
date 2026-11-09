@@ -186,6 +186,6 @@ def summarize(source, destination):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source', default=str(ROOT/'logs/embedding-pool-benchmark.json'))
-    parser.add_argument('--destination', default=str(ROOT/'docs/embedding-pool.md'))
+    parser.add_argument('--destination', default=str(ROOT/'docs/operations/embedding-pool.md'))
     args = parser.parse_args()
     summarize(args.source, args.destination)

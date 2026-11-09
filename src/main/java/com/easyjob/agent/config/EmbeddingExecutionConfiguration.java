@@ -12,7 +12,7 @@ public class EmbeddingExecutionConfiguration {
     @Bean("articleEmbeddingExecutor")
     public ThreadPoolTaskExecutor articleEmbeddingExecutor(EmbeddingExecutionProperties properties) {
         properties.validate();
-        var executor = new ThreadPoolTaskExecutor();
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         executor.setCorePoolSize(properties.getCorePoolSize());
         executor.setMaxPoolSize(properties.getMaxPoolSize());
         executor.setQueueCapacity(properties.getQueueCapacity());

@@ -6,5 +6,7 @@ RUN pip install --no-cache-dir -r requirements.txt && useradd -u 10001 -m app
 COPY python-agent/app ./app
 COPY python-agent/migrations ./migrations
 COPY deploy/bootstrap.py ./bootstrap.py
+COPY deploy/database_permissions.py ./database_permissions.py
+COPY scripts/auth_database_grants.py ./auth_database_grants.py
 USER 10001
 CMD ["uvicorn","app.main:app","--host","0.0.0.0","--port","8000"]

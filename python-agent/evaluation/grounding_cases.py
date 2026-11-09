@@ -51,6 +51,7 @@ def cases():
         {'id': 'review-timeout', 'category': 'auditor_failure', 'query': '解释资料', 'source': '重试不保证强一致性。',
          'candidate': '重试不保证强一致性。[retrieve_1:1]', 'simulate_timeout': True, 'expected': 'verification_unavailable', 'web': 'not_requested'},
         {'id': 'wrong-source', 'category': 'citation_binding', 'query': '演示环境内存是多少？',
+         'scripted_bound_source_missing': True,
          'source': '本资料只介绍超时30秒。', 'extra_source': '演示环境内存为12GB。',
          'candidate': '演示环境内存为12GB。[retrieve_1:1]',
          'repair': '演示环境内存为12GB。[retrieve_1:2]',

@@ -8,6 +8,18 @@ from app.rpc.codec import encode
 from app.services.service_queries import query
 
 class DeliveryObservabilityTests(unittest.IsolatedAsyncioTestCase):
+    async def test_completion_metrics_include_explicit_and_legacy_incomplete_deliveries(self):
+        database=SimpleNamespace(fetch_all=AsyncMock(return_value=[]))
+        for kind in ('metric_states','metric_daily'):
+            request=SimpleNamespace(kind=kind,source='business',start='2026-10-01T00:00:00',end='2026-10-08T00:00:00')
+            await query(request,7,database)
+            sql,values=database.fetch_all.call_args.args
+            self.assertIn('$.delivery_status',sql)
+            self.assertIn('$.progress.decision_contract_audit.last_outcome',sql)
+            self.assertIn('COALESCE',sql)
+            self.assertEqual(values['source'],'business')
+            if kind=='metric_states': self.assertIn('AS incomplete',sql)
+            else: self.assertIn("'cancelled','expired'",sql)
     def request(self, **values):
         return SimpleNamespace(kind='delivery_metrics',name=str(uuid4()),edit=encode({'first_answer_ms':1250}).object,**values)
     async def test_only_owner_can_report_and_sample_is_first_write_wins(self):

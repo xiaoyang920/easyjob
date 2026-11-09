@@ -6,6 +6,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import java.util.UUID;
+import java.util.List;
+import java.util.Map;
 
 /** Durable delivery intent. Broker acknowledgement is not indexing completion. */
 @Component
@@ -31,12 +33,12 @@ public class ArticleIndexOutbox {
     }
 
     public Job claim() {
-        var candidates = store.findCandidates();
-        for (var candidate : candidates) {
+        List<Map<String, Object>> candidates = store.findCandidates();
+        for (Map<String, Object> candidate : candidates) {
             Job claimed = transactions.execute(status -> {
-                var rows = store.lockAvailableJob(candidate.get("job_id").toString());
+                List<Map<String, Object>> rows = store.lockAvailableJob(candidate.get("job_id").toString());
                 if (rows.isEmpty()) return null;
-                var row = rows.getFirst();
+                Map<String, Object> row = rows.getFirst();
                 String id = (String) row.get("job_id"), token = UUID.randomUUID().toString();
                 int attempts = ((Number) row.get("attempts")).intValue();
                 if (attempts >= MAX_ATTEMPTS) {

@@ -9,6 +9,7 @@ import json
 import logging
 import random
 from uuid import uuid4
+from contextlib import asynccontextmanager
 
 from fastapi import HTTPException
 from pymysql.err import OperationalError
@@ -44,9 +45,19 @@ class RunRepository:
             ORDER BY created_at DESC,run_id DESC LIMIT 1''', {'cid': cid, 'uid': uid})
         return dict(row._mapping) if row else None
 
+    async def latest_context_view(self, cid, uid):
+        # Only the last numeric measurement; never load prompts or Redis checkpoints.
+        row = await self.db.fetch_one('''SELECT
+            JSON_EXTRACT(result_json, '$.metrics.context_views[last]') AS context_view
+            FROM agent_run WHERE conversation_id=:cid AND user_id=:uid
+            AND JSON_LENGTH(JSON_EXTRACT(result_json, '$.metrics.context_views')) > 0
+            ORDER BY created_at DESC,run_id DESC LIMIT 1''', {'cid': cid, 'uid': uid})
+        return row._mapping['context_view'] if row else None
+
     async def overview(self, uid):
         rows = await self.db.fetch_all('''SELECT r.run_id,r.conversation_id,r.user_id,r.status,
-            r.execution_token,r.draft_article_id,r.deadline,r.executor_lease_until,r.updated_at,c.title FROM agent_run r
+            r.execution_token,r.draft_article_id,r.deadline,r.executor_lease_until,r.updated_at,c.title,
+            c.is_writing,c.origin_article_id,r.recovery_count FROM agent_run r
             JOIN ai_conversation c ON c.conversation_id=r.conversation_id
             WHERE r.user_id=:uid AND c.user_id=:uid AND c.status=1
             AND NOT EXISTS (SELECT 1 FROM agent_run newer WHERE newer.conversation_id=r.conversation_id
@@ -137,7 +148,15 @@ class RunRepository:
                         TIMESTAMPADD(SECOND,:ttl,UTC_TIMESTAMP(6)),TIMESTAMPADD(SECOND,:lease,UTC_TIMESTAMP(6)),:source)""",
                 {"rid": run_id, "cid": cid, "uid": uid, "req": request_id,
                  "hash": input_hash, "token": token, "ttl": settings.RUN_TIMEOUT_SECONDS, "lease": settings.EXECUTOR_LEASE_SECONDS, "source":source})
+            await self.bind_auth(run_id,uid)
             return await self.get(run_id), True
+
+    async def bind_auth(self,run_id,uid):
+        if not settings.AUTH_DELEGATION_ENABLED:return
+        from app.security.delegation import current_identity
+        identity=current_identity.get()
+        if not identity or int(identity['user_id'])!=uid:raise HTTPException(401,'缺少用户执行授权')
+        await self.db.execute('UPDATE agent_run SET auth_sid=:sid,auth_version=:version WHERE run_id=:rid AND user_id=:uid',{'sid':identity['sid'],'version':identity['version'],'rid':run_id,'uid':uid})
 
     async def assert_executor(self, run_id, token):
         row = await self.db.fetch_one("""SELECT run_id FROM agent_run WHERE run_id=:rid
@@ -166,6 +185,7 @@ class RunRepository:
             await self.db.execute("""UPDATE agent_run SET status='running',execution_token=:token,
                 deadline=TIMESTAMPADD(SECOND,:ttl,UTC_TIMESTAMP(6)),executor_lease_until=TIMESTAMPADD(SECOND,:lease,UTC_TIMESTAMP(6)),updated_at=UTC_TIMESTAMP(6)
                 WHERE run_id=:rid""", {"rid": run_id, "token": token, "ttl": settings.RUN_TIMEOUT_SECONDS, "lease": settings.EXECUTOR_LEASE_SECONDS})
+            await self.bind_auth(run_id,uid)
             return await self.get(run_id)
 
     async def persist_metrics(self, run_id, token, metrics):
@@ -200,6 +220,22 @@ class RunRepository:
             AND draft_article_id IS NULL AND JSON_EXTRACT(result_json,'$.draft_commit') IS NULL''',
             {'rid': run_id, 'token': token, 'audit': json.dumps(audit, ensure_ascii=False), 'notice': notice})
 
+    async def has_memory_write(self, rid):
+        import hashlib
+        job_id = hashlib.sha256(f'memory-write:{rid}'.encode()).hexdigest()
+        return bool(await self.db.fetch_val('SELECT job_id FROM agent_background_job WHERE job_id=:id', {'id': job_id}))
+
+    @asynccontextmanager
+    async def checkpoint_writer(self, rid, token):
+        # Serialize Redis writes with claim/cancel/expiry. Checking a token and
+        # releasing the lock before Redis I/O would still leave a stale-write race.
+        async with self.db.transaction():
+            row = await self.db.fetch_one('SELECT execution_token,status FROM agent_run WHERE run_id=:rid FOR UPDATE', {'rid': rid})
+            if (not row or row._mapping['execution_token'] != token
+                    or row._mapping['status'] in ('failed', 'expired', 'cancelled')):
+                raise HTTPException(409, '检查点执行代次已失效')
+            yield
+
     async def claim_recovery(self, cid, uid, rid):
         async with self.db.transaction():
             await self._lock_conversation(cid, uid)
@@ -209,8 +245,9 @@ class RunRepository:
             run = dict(row._mapping)
             latest = await self.latest(cid, uid)
             active = await self.db.fetch_val('SELECT run_id FROM agent_run WHERE active_conversation_id=:cid', {'cid': cid})
-            if (run['status'] not in ('failed', 'expired') or run.get('draft_article_id')
-                    or run.get('recovery_count', 0) >= 1 or active or not latest or latest['run_id'] != rid):
+            result = json.loads(run.get('result_json') or '{}')
+            if (run['status'] not in ('failed', 'expired', 'cancelled') or run.get('draft_article_id') or result.get('draft_commit')
+                    or active or not latest or latest['run_id'] != rid):
                 raise HTTPException(409, '该运行不能恢复，请重新提问')
             token = str(uuid4())
             await self.db.execute('''UPDATE agent_run SET status='running',execution_token=:token,
@@ -218,6 +255,7 @@ class RunRepository:
                 executor_lease_until=TIMESTAMPADD(SECOND,:lease,UTC_TIMESTAMP(6)),updated_at=UTC_TIMESTAMP(6)
                 WHERE run_id=:rid''', {'rid': rid, 'token': token, 'ttl': settings.RUN_TIMEOUT_SECONDS,
                                      'lease': settings.EXECUTOR_LEASE_SECONDS})
+            await self.bind_auth(rid,uid)
             return await self.get(rid)
 
     async def settle(self, cid, uid, run_id, token, status, result, append_message=None):
@@ -290,7 +328,7 @@ class RunRepository:
                                       {"rid": run["run_id"]})
                 await self.release_admission(run['run_id'])
             return {"status": "cancelled" if run["status"] in ("running", "awaiting_approval") else run["status"],
-                    "runId": run["run_id"]}
+                    "runId": run["run_id"], "_execution_token": run['execution_token']}
 
     async def event(self, run_id, node, status, duration_ms=None):
         await self.db.execute("""INSERT INTO agent_run_event (run_id,node,status,duration_ms)

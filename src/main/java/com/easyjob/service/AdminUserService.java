@@ -13,10 +13,14 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import java.util.*;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 /** Explicit management fields; account credentials are never read or returned here. */
 @Service @RequiredArgsConstructor @Slf4j
 public class AdminUserService {
+    @org.springframework.beans.factory.annotation.Value("${easyjob.auth.enabled:false}")private boolean unified;
     private final AdminUserMapper store;
     private final AdminConsoleService admin;
     private final ReadingGrowthService growth;
@@ -29,26 +33,27 @@ public class AdminUserService {
 
     public Map<String,Object> detail(Long actor, Long id) {
         admin.requireAdmin(actor); validateId(id);
-        var rows=store.findProfile(id);
+        List<Map<String, Object>> rows=store.findProfile(id);
         if(rows.isEmpty()) throw new BusinessException(404,"用户不存在");
-        var result=new LinkedHashMap<>(rows.getFirst());
-        var progress=store.findProgress(id);
+        LinkedHashMap<String, Object> result=new LinkedHashMap<>(rows.getFirst());
+        List<Map<String, Object>> progress=store.findProgress(id);
         long millis=progress.isEmpty()?0:((Number)progress.getFirst().get("total_millis")).longValue();
         int earned=progress.isEmpty()?0:((Number)progress.getFirst().get("earned_level")).intValue();
-        var rules=growth.rules();
+        List<Map<String, Object>> rules=growth.rules();
         result.put("readingMillis",Long.toString(millis)); result.put("readingSeconds",millis/1000);
-        result.put("readingLevel",ReadingGrowthService.levelFor(millis/1000,earned,rules)); result.put("rules",rules);
+        long purchased=progress.isEmpty()?0:((Number)progress.getFirst().getOrDefault("purchased_millis",0L)).longValue();
+        result.put("purchasedSeconds",purchased/1000);result.put("readingLevel",ReadingGrowthService.levelFor((millis+purchased)/1000,earned,rules)); result.put("rules",rules);
         return result;
     }
 
     @Transactional public void update(Long actor, Long id, Update body) {
         admin.requireAdmin(actor); validateId(id); validate(body);
         // Stable ordering also prevents crossed administrator edits from taking inverse locks.
-        var locked=store.lockActorAndUser(actor,id);
-        var operator=locked.stream().filter(r->actor.toString().equals(r.get("userId"))).findFirst().orElse(null);
+        List<Map<String, Object>> locked=store.lockActorAndUser(actor,id);
+        Map<String, Object> operator=locked.stream().filter(r->actor.toString().equals(r.get("userId"))).findFirst().orElse(null);
         if(operator==null || number(operator,"role")!=2 || number(operator,"status")!=1)
             throw new BusinessException(403,"管理员权限已变化，请重新登录");
-        var current=locked.stream().filter(r->id.toString().equals(r.get("userId"))).findFirst()
+        Map<String, Object> current=locked.stream().filter(r->id.toString().equals(r.get("userId"))).findFirst()
                 .orElseThrow(()->new BusinessException(404,"用户不存在"));
         Profile before=profile(current);
         if(!before.equals(body.expectedProfile())) throw new BusinessException(409,"用户资料已变化，请重新加载后再修改");
@@ -56,29 +61,34 @@ public class AdminUserService {
             throw new BusinessException(409,"不能取消自己的管理员身份或禁用自己的账号");
         Profile after=new Profile(body.nickName().strip(),body.personIntroduction(),body.role(),body.status());
         boolean authChanged=!before.role().equals(after.role()) || !before.status().equals(after.status());
-        var oldValues=new LinkedHashMap<String,Object>(); oldValues.put("profile",before);
-        var newValues=new LinkedHashMap<String,Object>(); newValues.put("profile",after);
+        if(unified&&authChanged)throw new BusinessException(409,"角色与账号状态请通过账号安全设置保存");
+        LinkedHashMap<String, Object> oldValues=new LinkedHashMap<String,Object>(); oldValues.put("profile",before);
+        LinkedHashMap<String, Object> newValues=new LinkedHashMap<String,Object>(); newValues.put("profile",after);
         boolean readingChanged=false;
         if(body.readingSeconds()!=null) {
             store.ensureProgress(id);
-            var progress=store.lockProgress(id);
+            Map<String, Object> progress=store.lockProgress(id);
             long millis=((Number)progress.get("total_millis")).longValue();
             if(!Long.toString(millis).equals(body.expectedReadingMillis()))
                 throw new BusinessException(409,"阅读时长已变化，请重新加载后再校正");
             int oldLevel=((Number)progress.get("earned_level")).intValue();
-            int newLevel=ReadingGrowthService.levelFor(body.readingSeconds(),0,growth.rules());
+            long purchased=((Number)progress.getOrDefault("purchased_millis",0L)).longValue();
+            int newLevel=ReadingGrowthService.levelFor(body.readingSeconds()+purchased/1000,0,growth.rules());
             readingChanged=millis!=body.readingSeconds()*1000 || oldLevel!=newLevel;
             oldValues.put("readingMillis",Long.toString(millis)); oldValues.put("readingLevel",oldLevel);
             newValues.put("readingMillis",Long.toString(body.readingSeconds()*1000)); newValues.put("readingLevel",newLevel);
             if(readingChanged) store.correctProgress(body.readingSeconds()*1000,newLevel,id);
         }
         if(before.equals(after) && !readingChanged) return;
-        if(!before.equals(after)) store.updateProfile(after.nickName(),after.personIntroduction(),after.role(),after.status(),authChanged?1:0,id);
+        if(!before.equals(after)) {
+            if(unified)store.updatePublicProfile(after.nickName(),after.personIntroduction(),id);
+            else store.updateProfile(after.nickName(),after.personIntroduction(),after.role(),after.status(),authChanged?1:0,id);
+        }
         String oldLabel=label(before),newLabel=label(after);
         if(readingChanged) {oldLabel+=" · 校正前 "+oldValues.get("readingMillis")+"ms";newLabel+=" · 校正后 "+newValues.get("readingMillis")+"ms";}
         store.insertAudit(actor,id,shorten(oldLabel),shorten(newLabel),body.reason().strip(),JSON.toJSONString(Map.of("before",oldValues,"after",newValues)));
         boolean nameChanged=!Objects.equals(before.nickName(),after.nickName());
-        var articles=nameChanged?store.findArticleIds(id):List.<Long>of();
+        List<Long> articles=nameChanged?store.findArticleIds(id):List.<Long>of();
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override public void afterCommit() {
                 // The SQL change and auth version are committed even if cache invalidation is unavailable.

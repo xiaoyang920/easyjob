@@ -1,5 +1,6 @@
 """Cross-process admission. Short transactions lock one existing control row."""
 import asyncio
+from contextlib import asynccontextmanager
 from uuid import uuid4
 from fastapi import HTTPException
 from app.clients.mysql_client import db
@@ -9,6 +10,24 @@ from app.config import settings
 class ExecutionAdmission:
     def __init__(self, database=db):
         self.db = database
+
+    @asynccontextmanager
+    async def idle_restart(self):
+        """Fence new admissions across the idle check and process restart.
+
+        A lease can precede its run row, so both must be checked while holding
+        the same gate used by acquire(). Do not use executor expiry as proof
+        that a running process is idle.
+        """
+        async with self.db.transaction():
+            gate = await self.db.fetch_val('SELECT gate_id FROM agent_execution_gate WHERE gate_id=1 FOR UPDATE')
+            if gate != 1:
+                raise RuntimeError('Agent admission gate is unavailable; restart refused')
+            runs = await self.db.fetch_val("SELECT COUNT(*) FROM agent_run WHERE status IN ('running','queued')")
+            leases = await self.db.fetch_val('SELECT COUNT(*) FROM agent_execution_lease WHERE expires_at>UTC_TIMESTAMP(6)')
+            if runs or leases:
+                raise RuntimeError('Agent has running, preparing or queued requests; restart refused')
+            yield
 
     async def acquire(self, uid):
         ticket = str(uuid4())

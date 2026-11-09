@@ -1,7 +1,6 @@
 package com.easyjob.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
-import com.easyjob.entity.AiMessage;
 import com.easyjob.entity.Conversation;
 import com.easyjob.vo.ConversationVO;
 

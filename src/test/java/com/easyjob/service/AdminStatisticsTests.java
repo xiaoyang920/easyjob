@@ -9,6 +9,8 @@ import java.time.*;
 import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
+import com.easyjob.service.AdminStatisticsService.Report;
+import org.apache.poi.xssf.usermodel.XSSFSheet;
 
 class AdminStatisticsTests {
     final AdminStatisticsMapper store=mock(AdminStatisticsMapper.class);
@@ -33,7 +35,7 @@ class AdminStatisticsTests {
     }
     @Test void sourceSelectionIsValidatedBeforeAnyQuery(){for(String source:new String[]{"other","business' OR 1=1", ""})assertEquals(400,assertThrows(BusinessException.class,()->service.statistics(7L,7,source)).getCode());verifyNoInteractions(store);}
     @Test void rangeIncludesShanghaiTodayAndFillsMissingDaysWithZero(){
-        data();var report=service.statistics(7L,7);
+        data();Report report=service.statistics(7L,7);
         assertEquals("2026-10-01",report.from());assertEquals("2026-10-07",report.to());assertEquals(7,report.daily().size());
         assertEquals(2,report.daily().getFirst().newUsers());assertEquals(0,report.daily().get(1).newUsers());
         assertEquals(3,report.daily().getLast().newArticles());assertEquals(0,report.daily().getLast().newUsers());
@@ -44,18 +46,18 @@ class AdminStatisticsTests {
         assertEquals(new AdminStatisticsService.Distribution("L1",0),report.levels().get(1));
     }
     @Test void emptyDatabaseProducesValidZeroChartsAndExactRange(){
-        var report=service.statistics(7L,90);assertEquals(90,report.daily().size());
+        Report report=service.statistics(7L,90);assertEquals(90,report.daily().size());
         assertEquals(0,report.periodNewUsers());assertEquals(0,report.periodReadingSeconds());assertEquals(0,report.periodReadingUsers());
     }
     @Test void realEasyExcelWorkbookIsReadableAndPreservesNumbersAndEmptyDays() throws Exception {
-        data();var report=service.statistics(7L,7);byte[] bytes=service.workbook(report);
+        data();Report report=service.statistics(7L,7);byte[] bytes=service.workbook(report);
         assertEquals('P',bytes[0]);assertEquals('K',bytes[1]);
-        try(var workbook=new XSSFWorkbook(new ByteArrayInputStream(bytes))){
+        try(XSSFWorkbook workbook=new XSSFWorkbook(new ByteArrayInputStream(bytes))){
             assertEquals(4,workbook.getNumberOfSheets());
             assertEquals("统计说明",workbook.getSheetName(0));assertEquals("每日趋势",workbook.getSheetName(1));
             assertEquals("2026-10-07 01:00:00",workbook.getSheetAt(0).getRow(3).getCell(1).getStringCellValue());
             assertEquals("数据范围",workbook.getSheetAt(0).getRow(4).getCell(0).getStringCellValue());
-            var daily=workbook.getSheetAt(1);assertEquals(7,daily.getLastRowNum());
+            XSSFSheet daily=workbook.getSheetAt(1);assertEquals(7,daily.getLastRowNum());
             assertEquals("2026-10-01",daily.getRow(1).getCell(0).getStringCellValue());
             assertEquals(2,daily.getRow(1).getCell(1).getNumericCellValue());assertEquals(1.001,daily.getRow(1).getCell(3).getNumericCellValue());
             assertEquals(0,daily.getRow(2).getCell(1).getNumericCellValue());

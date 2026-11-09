@@ -2,9 +2,11 @@
 import logging
 import json
 import asyncio
+import re
 
 from fastapi import HTTPException
 
+from app.config import settings
 from app.graph.state_factory import create_initial_state
 from app.services.multimodal import validate_current_images
 from app.services.run_repository import run_repository, digest
@@ -42,7 +44,7 @@ def public_run_result(raw):
     if raw is None:
         return None
     result = json.loads(raw) if isinstance(raw, str) else raw
-    public = {key: value for key, value in result.items() if key not in ('progress', 'user_message_id', 'draft_commit')}
+    public = {key: value for key, value in result.items() if key not in ('progress', 'user_message_id', 'draft_commit', 'task_context', 'context_usage')}
     if incomplete_delivery(result):
         public['delivery_status'] = 'incomplete'
     return public
@@ -57,6 +59,23 @@ class RunService:
         self.articles = articles
         self.history = history
 
+    async def continuation_target(self, request):
+        """A bare control command resumes the latest run, never asks Main to guess."""
+        if (request.conversation_id is None or request.image_paths
+                or getattr(request, 'editor_context', None) is not None
+                or getattr(request, 'writing_context', None) is not None
+                or not re.fullmatch(r'(?:继续|重试|继续上次任务|继续上次未完成任务)[。.!！\s]*', request.message.strip())):
+            return None
+        await self.conversations.require_owner(request.conversation_id, request.user_id)
+        await self.conversations.resolve_origin(request.conversation_id, request.user_id, request.origin_article_id)
+        run = await self.repository.latest(request.conversation_id, request.user_id)
+        if not run:
+            return None
+        run = await self.reconcile_saved(run)
+        if run['status'] == 'awaiting_approval':
+            raise HTTPException(409, '上次任务正在等待草稿确认，请使用确认或拒绝按钮。')
+        return run if run['status'] in ('running', 'failed', 'expired', 'cancelled') else None
+
     async def prepare_chat(self, request, graph, admission_ticket=None):
         for image in request.image_paths or []:
             normalized = image.replace("\\", "/")
@@ -68,6 +87,15 @@ class RunService:
         origin = request.origin_article_id
         if not is_new:
             origin = await self.conversations.resolve_origin(conv_id, request.user_id, origin)
+        writing = getattr(request, 'writing_context', None)
+        if writing is not None:
+            if origin is not None:
+                raise HTTPException(422, '草稿写作不能使用公开文章问答的来源')
+            from app.services.writing_conversations import bind_writing, require_writing_article
+            if is_new:
+                await require_writing_article(request.user_id, writing.article_id)
+            else:
+                await bind_writing(conv_id, request.user_id, writing)
         # Validate current visibility before creating a conversation or appending
         # user messages. This read is repeated on every new execution, not cached
         # in history or trusted from a browser-supplied article body.
@@ -82,8 +110,13 @@ class RunService:
                 if is_new or exc.status_code != 404:
                     raise
         inputs = {"message": request.message, "images": request.image_paths or []}
+        editor = getattr(request, 'editor_context', None)
+        if editor:
+            inputs['editor_context'] = editor.model_dump(mode='json')
         if origin is not None:
             inputs["origin_article_id"] = origin
+        if writing is not None:
+            inputs['writing_context'] = writing.model_dump(mode='json')
         input_hash = digest(inputs)
         previous = await self.repository.find_request(request.user_id, request_id)
         if previous:
@@ -95,7 +128,8 @@ class RunService:
                 raise HTTPException(409, "请求正在执行或已失败，请查询运行状态")
             return previous["conversation_id"], self.config(previous, replay=True), None
         if is_new:
-            conv_id = await self.conversations.create_conversation(request.user_id, origin_article_id=origin)
+            extra = {'is_writing': True, 'writing_article_id': writing.article_id} if writing is not None else {}
+            conv_id = await self.conversations.create_conversation(request.user_id, origin_article_id=origin, **extra)
         run, created = await self.repository.create(conv_id, request.user_id, request_id, input_hash)
         if not created:
             raise HTTPException(409, "请求已经存在")
@@ -122,10 +156,14 @@ class RunService:
             await self.repository.fail(run["run_id"], run["execution_token"])
             raise
         state = create_initial_state(request.user_id, message, context)
+        state['user_message_id'] = str(message_id) if message_id else None
+        if not is_new and hasattr(self.history, 'task_context'):
+            state['task_context'] = await self.history.task_context(conv_id, request.user_id, run['run_id'])
         state.update(run_id=run["run_id"], execution_token=run["execution_token"],
                      conversation_id=conv_id, memory_source_message=request.message, **memory_context)
         state['user_image_paths'] = list(request.image_paths or [])
         state["origin_article_id"] = origin
+        state['editor_context'] = inputs.get('editor_context', {})
         state['previous_run'] = {**previous_run, 'reusable_results': reusable} if previous_run else {}
         if origin is not None and article is None:
             state["article_context"] = {"article_id": str(origin), "availability": "unavailable",
@@ -139,10 +177,15 @@ class RunService:
 
     @staticmethod
     def config(run, replay=False, repository=None):
+        if settings.AUTH_DELEGATION_ENABLED and run.get('auth_sid'):
+            from app.security.delegation import current_identity
+            if current_identity.get() is None:
+                current_identity.set({'user_id':run['user_id'],'sid':run['auth_sid'],'version':run['auth_version']})
         previous = json.loads(run.get('result_json') or '{}').get('metrics')
         persist = (lambda metrics: repository.persist_metrics(run['run_id'], run['execution_token'], metrics)) \
                   if repository and hasattr(repository, 'persist_metrics') else None
         return {"configurable": {"thread_id": f"run_{run['run_id']}", "run_id": run["run_id"],
+                                 "recovery_generation": run.get('recovery_count', 0),
                                  "execution_token": run["execution_token"], "replay": replay},
                 "callbacks": [] if replay else [RunMetrics(previous, persist=persist)],
                 "recursion_limit": 80}
@@ -151,22 +194,24 @@ class RunService:
     def recovery_candidate(run):
         result = run.get('result_json') or '{}'
         result = json.loads(result) if isinstance(result, str) else result
-        return (run['status'] in ('failed', 'expired') and not run.get('draft_article_id')
-                and not run.get('recovery_count', 0) and result.get('recovery_node') == 'main_delegate')
+        return (run['status'] in ('failed', 'expired', 'cancelled') and not run.get('draft_article_id')
+                and not result.get('draft_commit'))
 
     async def recovery_snapshot(self, run, graph):
         if not self.recovery_candidate(run):
             return None
-        snapshot = await graph.aget_state(self.config(run))
-        if (tuple(snapshot.next) != ('main_delegate',) or snapshot.values.get('cancelled')
-                or snapshot.values.get('business_complete') or interrupt_payload(snapshot)):
-            return None
-        from app.graph.staged_plan import load_execution_plan
         try:
-            plan = load_execution_plan(snapshot.values['plan'], 'subagent')
-        except (KeyError, ValueError):
-            return None
-        if any(task.kind not in ('search', 'analysis') for task in plan.tasks):
+            snapshot = await graph.aget_state(self.config(run))
+            from app.services.checkpoint_recovery import validate_snapshot
+            if not await validate_snapshot(snapshot, run, self.repository):
+                return None
+            if 'user_profile' in snapshot.values or 'active_constraints' in snapshot.values:
+                current = await self.memory.load_context(run['user_id'], run['conversation_id'])
+                if any(snapshot.values.get(key) != current.get(key) for key in ('user_profile', 'active_constraints')):
+                    return None
+        except Exception as exc:
+            # A missing/incompatible/unavailable checkpoint must not break history polling.
+            log.info('Checkpoint recovery unavailable: %s', type(exc).__name__)
             return None
         return snapshot
 
@@ -175,8 +220,15 @@ class RunService:
         if not run or run['user_id'] != uid:
             raise HTTPException(404, '运行不存在')
         await self.conversations.require_owner(run['conversation_id'], uid)
+        if run['status'] == 'running':
+            await self.repository.expire_existing(run['conversation_id'], uid, rid)
+            run = await self.repository.get(rid)
+            if run['status'] == 'running':
+                config = self.config(run, replay=True)
+                config['configurable']['reconnect'] = True
+                return run['conversation_id'], config
         if await self.recovery_snapshot(run, graph) is None:
-            raise HTTPException(409, '只支持恢复未完成的只读委派任务')
+            raise HTTPException(409, '上次任务的检查点已失效或不支持恢复，请重新描述任务后再发送。')
         run = await self.repository.claim_recovery(run['conversation_id'], uid, rid)
         try:
             await self.repository.bind_admission(rid, run['execution_token'], ticket)
@@ -185,7 +237,22 @@ class RunService:
             raise
         config = self.config(run, repository=self.repository)
         config['configurable']['admission_ticket'] = run['execution_token']
+        config['configurable']['checkpoint_recovery'] = True
+        config['configurable']['recovery_generation'] = run.get('recovery_count', 0)
+        config['configurable']['recovery_input_id'] = json.loads(run.get('result_json') or '{}').get('user_message_id')
         return run['conversation_id'], config
+
+    async def reconnect_config(self, rid, uid):
+        """A live producer needs no new execution admission or graph invocation."""
+        run = await self.repository.get(rid)
+        if not run or run['user_id'] != uid:
+            raise HTTPException(404, '运行不存在')
+        await self.conversations.require_owner(run['conversation_id'], uid)
+        if run['status'] != 'running':
+            return None
+        await self.repository.expire_existing(run['conversation_id'], uid, rid)
+        run = await self.repository.get(rid)
+        return self.config(run, replay=True) if run['status'] == 'running' else None
 
     async def approval_conflict(self, rid, detail):
         try:
@@ -237,13 +304,17 @@ class RunService:
 
     async def finish(self, conv_id: int, user_id: int, snapshot, config=None) -> dict:
         values = snapshot.values
+        from app.models.task_context import update_task_context
         result = {
             "reply": values.get("final_reply") or "",
+            "editor_edits": values.get('editor_edits') or [],
             "articles": unique_items(values.get("article_cards"), "articleId"),
             "citations": unique_items(values.get("citations"), "id"),
             "draft_article_id": values.get("draft_article_id"),
             "interrupted": interrupt_payload(snapshot),
             "cancelled": bool(values.get("cancelled")),
+            "task_context": update_task_context(values),
+            "context_usage": (values.get('context_compaction') or {}).get('breakdown', {}),
         }
         if metrics := metrics_from(config):
             result['metrics'] = metrics

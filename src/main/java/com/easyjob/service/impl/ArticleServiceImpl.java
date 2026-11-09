@@ -42,6 +42,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import com.easyjob.service.ArticleAccessService.Reader;
 
 @Service
 public class ArticleServiceImpl extends ServiceImpl<ArticleMapper,Article> implements ArticleService {
@@ -156,7 +157,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper,Article> imple
         validateStatus(article.getStatus());
         if(!article.isTitleValid() || article.getContent()==null) throw new BusinessException(400,"标题或正文无效");
         long articleId=com.baomidou.mybatisplus.core.toolkit.IdWorker.getId();
-        var created=revisions.create(UserContext.getUserId(),articleId,article);
+        Map<String, Object> created=revisions.create(UserContext.getUserId(),articleId,article);
         return Long.valueOf(created.get("articleId").toString());
     }
 
@@ -255,8 +256,8 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper,Article> imple
      */
     @Override
     public Map<String,Object> getDrafts(Integer page, Integer size) {
-        var result=revisions.work(UserContext.getUserId(),null,page,size);
-        var map=new HashMap<String,Object>();map.put("records",result.getRecords());map.put("total",result.getTotal());
+        PageVO<Map<String, Object>> result=revisions.work(UserContext.getUserId(),null,page,size);
+        HashMap<String, Object> map=new HashMap<String,Object>();map.put("records",result.getRecords());map.put("total",result.getTotal());
         map.put("pages",result.getPages());map.put("current",result.getCurrent());return map;
     }
     /**
@@ -290,7 +291,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper,Article> imple
         
         // 调用 Mapper 查询
         List<Long> tags = tagIds == null ? List.of() : tagIds.stream().filter(id -> id != null && id > 0).distinct().limit(8).toList();
-        var reader = articleAccess.reader(viewerId);
+        Reader reader = articleAccess.reader(viewerId);
         IPage<ArticleListVO> articlePage = articleMapper.listArticles(pageParam, sort, categoryId, keyword, tags, viewerId, reader.level(), reader.admin(), readableOnly);
         
         // 转换为 PageVO
