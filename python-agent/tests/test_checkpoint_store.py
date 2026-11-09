@@ -271,4 +271,5 @@ class RedisRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertGreater(report['full']['snapshots'], 10)
         self.assertLess(report['latest']['snapshot_bytes'], report['full']['snapshot_bytes'] / 5)
         output = Path(__file__).resolve().parents[2] / 'logs/checkpoint-storage-comparison.json'
+        output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(json.dumps(report, indent=2), encoding='utf-8')
