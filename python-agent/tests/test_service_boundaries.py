@@ -1,6 +1,8 @@
 import json
+import re
 import time
 import unittest
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -113,8 +115,26 @@ class OwnershipTests(unittest.IsolatedAsyncioTestCase):
             await service_queries.query(SimpleNamespace(kind='metric_rows',source='all',start='2020-01-01',end='2026-01-01'),7,database)
         database.fetch_all.assert_not_awaited()
 
-    def test_java_mappers_do_not_access_agent_owned_tables(self):
-        import re
-        root=Path(__file__).resolve().parents[2]/'src/main/resources/mapper'
-        forbidden=re.compile(r'\b(?:FROM|JOIN|UPDATE|INTO)\s+(?:agent_run|agent_background_job|ai_message|ai_conversation|user_profile|user_memory)\b',re.I)
-        self.assertEqual([p.name for p in root.glob('*.xml') if forbidden.search(p.read_text(encoding='utf-8'))],[])
+    def test_java_mappers_only_read_agent_run_for_authorization(self):
+        root = Path(__file__).resolve().parents[2] / 'src/main/resources/mapper'
+        authorization_mapper = root / 'AgentRunMapper.xml'
+        # Blog checks the run owner and execution token before accepting Agent writes.
+        # Pin the two existing reads so this exception cannot expand to other SQL.
+        statements = list(ET.parse(authorization_mapper).getroot())
+        self.assertEqual(
+            [(statement.tag, statement.get('id'), ' '.join((statement.text or '').split()), len(statement))
+             for statement in statements],
+            [
+                ('select', 'findRun',
+                 'SELECT auth_sid,auth_version,execution_token FROM agent_run WHERE run_id=#{runId} AND user_id=#{uid}', 0),
+                ('select', 'findExecutingRun',
+                 'SELECT auth_sid,auth_version FROM agent_run WHERE run_id=#{runId} AND user_id=#{uid} AND execution_token=#{token}', 0),
+            ],
+        )
+        forbidden = re.compile(
+            r'\b(?:FROM|JOIN|UPDATE|INTO|TRUNCATE(?:\s+TABLE)?)\s+(?:`?\w+`?\.)?`?'
+            r'(?:agent_run|agent_background_job|ai_message|ai_conversation|user_profile|user_memory)\b',
+            re.I,
+        )
+        self.assertEqual([path.name for path in root.glob('*.xml')
+                          if path != authorization_mapper and forbidden.search(path.read_text(encoding='utf-8'))], [])

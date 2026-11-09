@@ -10,7 +10,15 @@ import org.springframework.web.socket.WebSocketSession;
 
 class ChatMultiSessionTests {
     ChatWebSocketHandler handler=new ChatWebSocketHandler();List<WebSocketSession> sockets=new ArrayList<>();
-    WebSocketSession socket(long uid,String sid)throws Exception{WebSocketSession s=mock(WebSocketSession.class);when(s.getAttributes()).thenReturn(Map.of("userId",uid,"authSessionId",sid));when(s.isOpen()).thenReturn(true);sockets.add(s);handler.afterConnectionEstablished(s);return s;}
+    WebSocketSession socket(long uid, String sid) throws Exception {
+        WebSocketSession session = mock(WebSocketSession.class);
+        Map<String, Object> attributes = new HashMap<>(Map.of("userId", uid, "authSessionId", sid));
+        when(session.getAttributes()).thenReturn(attributes);
+        when(session.isOpen()).thenReturn(true);
+        sockets.add(session);
+        handler.afterConnectionEstablished(session);
+        return session;
+    }
     @AfterEach void close(){for(WebSocketSession s:sockets)handler.afterConnectionClosed(s,CloseStatus.NORMAL);ChatWebSocketHandler.relay=null;ChatWebSocketHandler.revokeRelay=null;ChatWebSocketHandler.presenceAudience=null;}
     @Test void allTabsReceiveAndClosingOneTabKeepsAnotherOnline()throws Exception{
         WebSocketSession a=socket(7,"device-a");WebSocketSession b=socket(7,"device-b");clearInvocations(a,b);
