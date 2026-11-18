@@ -1,0 +1,26 @@
+server:
+  port: ${EXCEL_PORT:8083}
+  address: ${EXCEL_BIND_ADDRESS:127.0.0.1}
+spring:
+  application:
+    name: easyjob-excel
+  datasource:
+    url: ${EXCEL_DB_URL}
+    username: ${EXCEL_DB_USER}
+    password: ${EXCEL_DB_PASSWORD}
+    hikari:
+      maximum-pool-size: 5
+mybatis-plus:
+  mapper-locations: classpath:/mapper/*.xml
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+easyjob:
+  excel:
+    service-key: ${EASYJOB_EXCEL_SERVICE_KEY}
+    blog-url: ${EASYJOB_EXCEL_BLOG_URL:http://127.0.0.1:8080}
+    output-dir: ${EASYJOB_EXCEL_OUTPUT_DIR:./temp/excel-exports}
+    page-size: ${EASYJOB_EXCEL_PAGE_SIZE:10}
+    scan-delay-ms: ${EASYJOB_EXCEL_SCAN_DELAY_MS:1000}

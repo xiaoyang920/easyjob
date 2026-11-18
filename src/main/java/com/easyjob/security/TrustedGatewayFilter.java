@@ -18,7 +18,8 @@ public class TrustedGatewayFilter extends OncePerRequestFilter {
     public static final String ATTRIBUTE=TrustedGatewayFilter.class.getName()+".identity";
     private final JwtDecoder decoder;
     public TrustedGatewayFilter(@Value("${easyjob.auth.gateway-public-key-file}")String file){decoder=IdentityTokens.decoder(IdentityTokens.key(file),"easyjob-gateway","easyjob-blog",IdentityTokens.INTERNAL);}
-    @Override protected boolean shouldNotFilter(HttpServletRequest request){String p=request.getRequestURI();return p.equals("/actuator/health")||p.equals("/error")||p.equals("/internal/agent/ready")||p.equals("/internal/agent/drafts")||p.startsWith("/internal/agent/drafts/");}
+    @Override protected boolean shouldNotFilter(HttpServletRequest request){String p=request.getRequestURI();return p.equals("/actuator/health")||p.equals("/error")||p.equals("/internal/agent/ready")||p.equals("/internal/agent/drafts")||p.startsWith("/internal/agent/drafts/")
+            ||p.equals("/internal/excel/community-daily")||p.equals("/internal/excel/job-finished")||p.equals("/internal/excel/ready");}
     @Override protected boolean shouldNotFilterAsyncDispatch(){return false;}
     @Override protected void doFilterInternal(HttpServletRequest request,HttpServletResponse response,FilterChain chain)throws ServletException,IOException{
         IdentityTokens.Principal principal=(IdentityTokens.Principal)request.getAttribute(ATTRIBUTE);

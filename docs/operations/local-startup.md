@@ -23,6 +23,8 @@ Checkpoint 容器为 `easyjob-checkpoint-redis`，数据卷为 `easyjob-checkpoi
 
 Java 后端需要重建时，启动器会对专用构建目录 `target/local-launcher` 执行 `clean package`，再复制生成的 JAR。删除 RPC 协议消息或 Java 源文件后，普通增量 `package` 可能保留旧的生成代码和类文件，导致编译错误或把已删除的类打入 JAR；清理专用构建目录可避免这类残留。源码、上传文件和数据库数据不受影响。
 
+本机启动器默认启动 Excel。若数据库还没有 `excel_export_job` 表，先停止本机的 Blog、Agent 和 Excel，再从仓库根目录执行带迁移的命令。 [Excel 导出](excel-service.md)
+
 ## 本次数据库升级
 
 全库备份：`temp/backups/20261001-173447/easyjob.sql`。

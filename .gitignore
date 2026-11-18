@@ -10,6 +10,8 @@
 !python-agent/docs/main-evidence-assessment.md
 !/docs/
 /docs/*
+!/docs/operations/
+!/docs/operations/excel-service.md
 !/docs/service-boundaries.md
 !/docs/runtime-quality.md
 !/docs/chinese-search.md

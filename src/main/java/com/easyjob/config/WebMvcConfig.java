@@ -58,6 +58,7 @@ public class WebMvcConfig implements WebMvcConfigurer {
                 // Dedicated service-key authentication inside this exact endpoint.
                 .excludePathPatterns("/internal/agent/drafts", "/internal/agent/drafts/**")
                 .excludePathPatterns("/internal/agent/ready")
+                .excludePathPatterns("/internal/excel/community-daily", "/internal/excel/job-finished", "/internal/excel/ready")
                 .excludePathPatterns("/api/user/space/**")
                 .excludePathPatterns("/test/**")
                 // 排除文章详情（公开看）

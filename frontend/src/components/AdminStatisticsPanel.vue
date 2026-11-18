@@ -1,6 +1,7 @@
 <template>
   <section class="statistics-panel" aria-label="社区数据统计">
     <div class="statistics-heading"><div><h2>社区数据</h2><p>以下图表与导出按所选来源筛选；上方管理概览为全部记录。</p></div><div class="statistics-controls"><AppSelect v-model="source" aria-label="统计数据来源" :disabled="exporting" @change="reload"><AppSelectOption value="business">真实业务</AppSelectOption><AppSelectOption value="evaluation">评测样例</AppSelectOption><AppSelectOption value="all">全部数据</AppSelectOption></AppSelect><div class="statistics-range" role="group" aria-label="统计日期范围"><button v-for="value in [7,30,90]" :key="value" :aria-pressed="days===value" :class="{selected:days===value}" :disabled="exporting" @click="selectRange(value)">近 {{ value }} 天</button></div><button class="statistics-export" :disabled="loading || exporting || !report || !!error" @click="download"><Download />{{ exporting?'正在导出…':'导出 Excel' }}</button></div></div>
+    <p v-if="exportProgress" class="statistics-stamp" role="status">{{ exportProgress }}</p>
     <ContentState v-if="loading" kind="loading" title="正在统计社区数据" />
     <ContentState v-else-if="error" kind="error" title="统计暂时无法加载" :description="error" @retry="reload" />
     <template v-else-if="report">
@@ -11,7 +12,7 @@
         <article class="statistics-card"><header><h3>文章状态</h3><span>当前 {{ articleTotal }} 篇</span></header><div v-for="(item,i) in report.articles" :key="item.name" class="distribution-row"><div><span><i :style="{background:colors[i%colors.length]}"></i>{{ item.name }}</span><strong>{{ item.count }}<small> · {{ percent(item.count,articleTotal) }}%</small></strong></div><div class="distribution-track"><span :style="{width:`${percent(item.count,articleTotal)}%`,background:colors[i%colors.length]}"></span></div></div><p class="statistics-note">未公开、已发布与已下架互斥；不统计已删除文章。</p></article>
         <article class="statistics-card"><header><h3>阅读等级</h3><span>当前 {{ userTotal }} 人</span></header><div v-for="item in report.levels" :key="item.name" class="distribution-row"><div><span>{{ item.name }}</span><strong>{{ item.count }}<small> · {{ percent(item.count,userTotal) }}%</small></strong></div><div class="distribution-track"><span :style="{width:`${percent(item.count,userTotal)}%`,background:'#a0bc61'}"></span></div></div><p class="statistics-note">所选来源内的账号，含禁用账号；无阅读记录计入 L0。</p></article>
       </div>
-      <p class="statistics-stamp">生成于 {{ report.generatedAt.replace('T',' ').slice(0,19) }} · 北京时间。Excel 含统计说明及四个工作表。</p>
+      <p class="statistics-stamp">生成于 {{ report.generatedAt.replace('T',' ').slice(0,19) }} · 北京时间。Excel 导出每日统计。</p>
     </template>
   </section>
 </template>
@@ -25,8 +26,19 @@ import AdminTrendChart from './AdminTrendChart.vue'
 import request from '@/utils/request'
 import { latestRequest } from '@/utils/latestRequest'
 import { readingDuration } from '@/utils/readingGrowth'
-import { spreadsheetBlob,type StatisticsReport } from '@/utils/statistics'
+import { subscribeChatEvents } from '@/utils/chatRealtime'
+import { spreadsheetBlob, waitForStatisticsExport, type ExportJob, type StatisticsReport } from '@/utils/statistics'
 const days=ref(30),source=ref<'business'|'evaluation'|'all'>('business'),report=ref<StatisticsReport>(),loading=ref(false),exporting=ref(false),error=ref(''),gate=latestRequest()
+type ExportAttempt = {
+  requestId: string
+  days: number
+  source: StatisticsReport['source']
+  userId: string | null
+  jobNo?: string
+}
+const exportProgress = ref('')
+let attempt: ExportAttempt | undefined
+let exportController: AbortController | undefined
 let disposed=false
 const colors=['#a69a84','#a0bc61','#e29a86']
 const growthRows=computed(()=>report.value?.daily.map(r=>({date:r.date,values:[r.newUsers,r.newArticles]})) || [])
@@ -43,18 +55,68 @@ async function reload(){
 function selectRange(value:number){if(days.value===value)return;days.value=value;void reload()}
 async function download(){
   if(!report.value || exporting.value)return
-  exporting.value=true
-  const range=days.value
-  try{
-    const result:unknown=await request.get('/admin/statistics/export',{params:{days:range,source:source.value},responseType:'blob',timeout:30000})
-    const blob=await spreadsheetBlob(result);if(disposed)return
-    const url=URL.createObjectURL(blob),link=document.createElement('a')
-    link.href=url;link.download=`EasyJob统计_${{business:'真实业务',evaluation:'评测样例',all:'全部数据'}[source.value]}_近${range}天.xlsx`;document.body.appendChild(link);link.click();link.remove()
-    setTimeout(()=>URL.revokeObjectURL(url),1000);ElMessage.success('Excel 已导出')
-  }catch(e){if(!disposed)ElMessage.error(message(e))}finally{if(!disposed)exporting.value=false}
+  const userId = localStorage.getItem('userId')
+  if (attempt?.days !== days.value || attempt.source !== source.value || attempt.userId !== userId) {
+    attempt = { requestId: crypto.randomUUID(), days: days.value, source: source.value, userId }
+  }
+  const current = attempt
+  const controller = new AbortController()
+  exportController = controller
+  const { signal } = controller
+  const endpoint = '/admin/statistics/export-jobs'
+  exporting.value = true
+  exportProgress.value = '正在提交导出任务…'
+  try {
+    const read = async (jobNo: string) =>
+      (await request.get<unknown, {data: ExportJob}>(`${endpoint}/${jobNo}`, { signal })).data
+    const job = await waitForStatisticsExport({
+      subscribe: subscribeChatEvents,
+      signal,
+      read,
+      start: async () => {
+        if (current.jobNo) return read(current.jobNo)
+        const { requestId, days, source } = current
+        const result = (await request.post<unknown, {data: ExportJob}>(endpoint, { requestId, days, source }, { signal })).data
+        current.jobNo = result.jobNo
+        return result
+      },
+      progress: currentJob => {
+        exportProgress.value = currentJob.status === 'pending' ? '导出任务排队中…' : '正在生成 Excel…'
+      },
+    })
+    if (job.status === 'failed') {
+      attempt = undefined
+      throw new Error(job.error === 'permission_denied' ? '统计权限已变更，导出已停止' : '导出失败，请重新导出')
+    }
+    if (job.status !== 'succeeded') throw new Error('导出任务状态异常，请重试')
+    exportProgress.value = '正在下载 Excel…'
+    const result: unknown = await request.get(`${endpoint}/${job.jobNo}/file`, { responseType: 'blob', signal, timeout: 30000 })
+    const blob = await spreadsheetBlob(result)
+    signal.throwIfAborted()
+    if (localStorage.getItem('userId') !== current.userId) {
+      throw new Error('登录账号已改变，请重新操作')
+    }
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `EasyJob社区每日统计_近${current.days}天.xlsx`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+    attempt = undefined
+    ElMessage.success('Excel 已导出')
+  } catch (e) {
+    if (typeof e === 'object' && e !== null && 'code' in e && e.code === 404) attempt = undefined
+    if (!signal.aborted) ElMessage.error(message(e))
+  } finally {
+    exporting.value = false
+    exportProgress.value = ''
+    exportController = undefined
+  }
 }
 defineExpose({reload})
-onMounted(reload);onUnmounted(()=>{disposed=true;gate.cancel()})
+onMounted(reload);onUnmounted(()=>{disposed=true;gate.cancel();exportController?.abort()})
 </script>
 
 <style scoped>

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {chartCeiling,chartPoints,spreadsheetBlob} from '../src/utils/statistics.ts'
+import {chartCeiling,chartPoints,spreadsheetBlob,waitForStatisticsExport} from '../src/utils/statistics.ts'
 
 test('empty and zero charts use a finite scale',()=>{
   assert.equal(chartCeiling([]),1);assert.equal(chartCeiling([0,0]),1)
@@ -21,4 +21,65 @@ test('JSON permission and backend errors are never downloaded as Excel',async()=
 test('xlsx ZIP signature is accepted without copying the full file',async()=>{
   const blob=new Blob([new Uint8Array([0x50,0x4b,0x03,0x04,0,0])],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'})
   assert.equal(await spreadsheetBlob(blob),blob)
+})
+
+test('export catches a completion pushed before the submit response', async () => {
+  let emit, stopped = false
+  const result = await waitForStatisticsExport({
+    subscribe(listener) { emit = listener; return () => { stopped = true } },
+    async start() {
+      emit({type:'excel_export_finished', jobNo:'job'})
+      return {jobNo:'job', status:'pending'}
+    },
+    async read(jobNo) {
+      assert.equal(jobNo, 'job')
+      return {jobNo, status:'succeeded'}
+    },
+    progress() {},
+    signal: new AbortController().signal,
+  })
+  assert.equal(result.status, 'succeeded')
+  assert.equal(stopped, true)
+})
+
+test('export ignores other jobs, then checks immediately on disconnect and reconnect', async () => {
+  let emit, reads = 0
+  const pending = waitForStatisticsExport({
+    subscribe(listener) { emit = listener; return () => {} },
+    async start() { return {jobNo:'job', status:'running'} },
+    async read(jobNo) {
+      reads++
+      return {jobNo, status: reads === 3 ? 'succeeded' : 'running'}
+    },
+    progress() {},
+    signal: new AbortController().signal,
+  })
+  const tick = () => new Promise(resolve => setImmediate(resolve))
+  emit({type:'connected'})
+  await tick()
+  emit({type:'excel_export_finished', jobNo:'other'})
+  await tick()
+  assert.equal(reads, 1)
+  emit({type:'disconnected'})
+  await tick()
+  assert.equal(reads, 2)
+  emit({type:'connected'})
+  assert.equal((await pending).status, 'succeeded')
+  assert.equal(reads, 3)
+})
+
+test('leaving the export page stops waiting and unsubscribes', async () => {
+  const controller = new AbortController()
+  let stopped = false
+  const pending = waitForStatisticsExport({
+    subscribe() { return () => { stopped = true } },
+    async start() { return {jobNo:'job', status:'pending'} },
+    async read() { assert.fail('aborted export must not read status') },
+    progress() {},
+    signal: controller.signal,
+  })
+  await new Promise(resolve => setImmediate(resolve))
+  controller.abort()
+  await assert.rejects(pending, {name:'AbortError'})
+  assert.equal(stopped, true)
 })

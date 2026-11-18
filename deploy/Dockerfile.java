@@ -37,3 +37,16 @@ ENTRYPOINT ["java","-jar","/app/app.jar"]
 FROM runtime AS auth
 COPY --from=auth-build /build/auth-service/target/easyjob-auth-0.0.1-SNAPSHOT.jar /app/app.jar
 ENTRYPOINT ["java","-jar","/app/app.jar"]
+
+FROM maven:3.9.9-eclipse-temurin-21 AS excel-build
+WORKDIR /build/excel-service
+COPY excel-service/pom.xml ./pom.xml
+COPY excel-service/src ./src
+RUN mvn -B -DskipTests package
+
+FROM runtime AS excel
+USER root
+RUN install -d -o 10001 -g 10001 /app/exports
+USER 10001
+COPY --from=excel-build /build/excel-service/target/easyjob-excel-0.0.1-SNAPSHOT.jar /app/app.jar
+ENTRYPOINT ["java","-jar","/app/app.jar"]

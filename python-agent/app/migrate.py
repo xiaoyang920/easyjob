@@ -540,7 +540,8 @@ async def main():
         await apply_product_features(db,'029_auth_service.sql')
         await apply_product_features(db,'030_auth_audit_reason.sql')
         await apply_product_features(db,'031_growth_seckill.sql')
-        print("001..024: applied (legacy data preserved)")
+        await apply_product_features(db,'032_excel_export_job.sql')
+        print("Applied database migrations through 032 (legacy data preserved)")
     finally:
         await db.disconnect()
 

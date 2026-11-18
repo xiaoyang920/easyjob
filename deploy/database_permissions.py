@@ -7,7 +7,7 @@ from auth_database_grants import provision, verify
 def main():
     database = os.environ['MYSQL_DB']
     accounts = {role: {'name': f'ej_{role}_runtime', 'password': os.environ[role.upper() + '_DB_PASSWORD']}
-                for role in ('auth', 'blog', 'agent')}
+                for role in ('auth', 'blog', 'agent', 'excel')}
     if any(len(account['password']) < 32 for account in accounts.values()):
         raise ValueError('Runtime database passwords must have at least 32 characters')
     with pymysql.connect(unix_socket='/var/run/mysqld/mysqld.sock', user='root',

@@ -49,6 +49,26 @@ class AdminStatisticsTests {
         Report report=service.statistics(7L,90);assertEquals(90,report.daily().size());
         assertEquals(0,report.periodNewUsers());assertEquals(0,report.periodReadingSeconds());assertEquals(0,report.periodReadingUsers());
     }
+    @Test void exportReadsOnlyTheRequestedDatesAndKeepsTheOriginalSource() {
+        LocalDate from = LocalDate.of(2026, 10, 1);
+        LocalDate to = from.plusDays(6);
+        List<AdminStatisticsService.Daily> page = service.exportPage(7L, from, to, "evaluation", 5, 3);
+        assertEquals(List.of("2026-10-06", "2026-10-07"), page.stream().map(AdminStatisticsService.Daily::date).toList());
+        verify(admin).requirePermission(7L, "statistics.read");
+        java.sql.Timestamp start = java.sql.Timestamp.valueOf(from.plusDays(5).atStartOfDay());
+        java.sql.Timestamp end = java.sql.Timestamp.valueOf(to.plusDays(1).atStartOfDay());
+        verify(store).dailyUsers(start, end, "evaluation");
+        verify(store).dailyPublications(start, end, "evaluation");
+        verify(store).dailyReading(java.sql.Date.valueOf(from.plusDays(5)), java.sql.Date.valueOf(to.plusDays(1)), "evaluation");
+        verifyNoMoreInteractions(store);
+    }
+    @Test void revocationPreventsFurtherExportPages() {
+        doThrow(new BusinessException(403, "无权限")).when(admin).requirePermission(9L, "statistics.read");
+        LocalDate from = LocalDate.of(2026, 10, 1);
+        assertEquals(403, assertThrows(BusinessException.class,
+                () -> service.exportPage(9L, from, from.plusDays(29), "all", 10, 10)).getCode());
+        verifyNoInteractions(store);
+    }
     @Test void realEasyExcelWorkbookIsReadableAndPreservesNumbersAndEmptyDays() throws Exception {
         data();Report report=service.statistics(7L,7);byte[] bytes=service.workbook(report);
         assertEquals('P',bytes[0]);assertEquals('K',bytes[1]);

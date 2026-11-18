@@ -39,6 +39,7 @@ def init_env():
     target=DEPLOY/'.env'
     values={'MYSQL_ROOT_PASSWORD':secrets.token_urlsafe(32),'MYSQL_PASSWORD':secrets.token_urlsafe(32),
             'AUTH_DB_PASSWORD':secrets.token_urlsafe(32),'BLOG_DB_PASSWORD':secrets.token_urlsafe(32),'AGENT_DB_PASSWORD':secrets.token_urlsafe(32),
+            'EXCEL_DB_PASSWORD':secrets.token_urlsafe(32),'EASYJOB_EXCEL_SERVICE_KEY':secrets.token_urlsafe(48),
             'RABBITMQ_PASSWORD':secrets.token_urlsafe(32),'AGENT_SERVICE_KEY':secrets.token_urlsafe(48),
             'JWT_SECRET_KEY':base64.b64encode(secrets.token_bytes(64)).decode(),'AUTH_SERVICE_KEY':secrets.token_urlsafe(48)}
     text=(DEPLOY/'.env.example').read_text(encoding='utf-8')
@@ -53,7 +54,7 @@ def init_env():
 def validate():
     # Validate the complete graph without loading or printing local credentials.
     env={**os.environ,**{key:'validation-placeholder-not-a-real-secret' for key in
-        ['MYSQL_ROOT_PASSWORD','MYSQL_PASSWORD','AUTH_DB_PASSWORD','BLOG_DB_PASSWORD','AGENT_DB_PASSWORD','RABBITMQ_PASSWORD','JWT_SECRET_KEY','AUTH_SERVICE_KEY','AGENT_SERVICE_KEY','DEEPSEEK_API_KEY','ZHIPUAI_API_KEY']}}
+        ['MYSQL_ROOT_PASSWORD','MYSQL_PASSWORD','AUTH_DB_PASSWORD','BLOG_DB_PASSWORD','AGENT_DB_PASSWORD','EXCEL_DB_PASSWORD','EASYJOB_EXCEL_SERVICE_KEY','RABBITMQ_PASSWORD','JWT_SECRET_KEY','AUTH_SERVICE_KEY','AGENT_SERVICE_KEY','DEEPSEEK_API_KEY','ZHIPUAI_API_KEY']}}
     subprocess.run([docker(),'compose','--env-file',str(DEPLOY/'.env.example'),'-f',str(DEPLOY/'compose.yml'),'--profile','tools','config','--quiet'],env=env,check=True)
     print('Compose configuration is valid; no services were started.')
 
@@ -65,7 +66,7 @@ def es(project, method, path, body=None):
 def backup(project, output):
     directory=Path(output).resolve();directory.mkdir(parents=True,exist_ok=False)
     running=run(project,'ps','--status','running','--services').stdout.decode().split()
-    writers=[s for s in ('web','gateway','blog','agent','auth') if s in running]
+    writers=[s for s in ('web','gateway','excel','blog','agent','auth') if s in running]
     if not {'mysql','redis-stack','elasticsearch'}.issubset(running):raise RuntimeError('Backup requires healthy MySQL, Redis Stack and ES')
     locks=ROOT/'backups';locks.mkdir(exist_ok=True)
     lock=locks/('.'+project+'.backup.lock')
@@ -80,10 +81,10 @@ def backup(project, output):
         response=es(project,'PUT',f'_snapshot/easyjob-portable/{snapshot}?wait_for_completion=true',{'include_global_state':False})
         if response.get('snapshot',{}).get('state')!='SUCCESS':raise RuntimeError('ES snapshot did not complete')
         with (directory/'assets.tar.gz').open('wb') as stream:
-            run(project,'run','--rm','--no-deps','-T','backup','tar -czf - -C /data uploads checkpoint/dump.rdb es-snapshots/'+snapshot,stdout=stream)
+            run(project,'run','--rm','--no-deps','-T','backup','tar -czf - -C /data uploads checkpoint/dump.rdb excel-exports es-snapshots/'+snapshot,stdout=stream)
         metadata={'format':1,'project':project,'created_at':datetime.now(timezone.utc).isoformat(),
                   'snapshot':snapshot,'files':{name:sha(directory/name) for name in FILES},
-                  'scope':'quiesced SQL, uploads, checkpoint RDB, Elasticsearch snapshot; Redis cache and MQ rebuilt'}
+                  'scope':'quiesced SQL, uploads, Excel exports, checkpoint RDB, Elasticsearch snapshot; Redis cache and MQ rebuilt'}
         (directory/'manifest.json').write_text(json.dumps(metadata,indent=2),encoding='utf-8')
         verify_backup(directory)
         es(project,'DELETE',f'_snapshot/easyjob-portable/{snapshot}')
@@ -109,7 +110,7 @@ def verify_backup(directory):
             if path.is_absolute() or '..' in path.parts or '\\' in member.name or ':' in member.name:
                 raise ValueError('Unsafe archive path')
             if not member.isfile() and not member.isdir():raise ValueError('Links and special files are not allowed')
-            if not (path.parts and path.parts[0] in ('uploads','checkpoint','es-snapshots')):raise ValueError('Unexpected archive content')
+            if not (path.parts and path.parts[0] in ('uploads','checkpoint','es-snapshots','excel-exports')):raise ValueError('Unexpected archive content')
             total+=member.size
             if total>200*1024**3:raise ValueError('Backup exceeds the 200 GiB restore limit')
     return manifest
@@ -123,7 +124,7 @@ def restore(project, directory):
         if found:raise ValueError('Restore target already has '+resource+'; choose a new project')
     directory=Path(directory).resolve()
     with (directory/'assets.tar.gz').open('rb') as stream:
-        run(project,'run','--rm','--no-deps','-T','backup','tar -xzf - -C /data && chown -R 10001:10001 /data/uploads && chown -R 1000:0 /data/es-snapshots',stdin=stream)
+        run(project,'run','--rm','--no-deps','-T','backup','tar -xzf - -C /data && chown -R 10001:10001 /data/uploads /data/excel-exports && chown -R 1000:0 /data/es-snapshots',stdin=stream)
     run(project,'up','-d','--wait','--wait-timeout','240','mysql','redis-stack','elasticsearch','redis','rabbitmq','consul')
     with (directory/'database.sql').open('rb') as stream:
         run(project,'exec','-T','mysql','sh','-c','MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot',stdin=stream)

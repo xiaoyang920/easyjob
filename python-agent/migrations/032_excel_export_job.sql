@@ -1,0 +1,23 @@
+CREATE TABLE IF NOT EXISTS excel_export_job (
+    job_no CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    owner_id BIGINT NOT NULL,
+    request_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    days SMALLINT UNSIGNED NOT NULL,
+    source VARCHAR(16) NOT NULL,
+    from_day DATE NOT NULL,
+    to_day DATE NOT NULL,
+    status VARCHAR(16) NOT NULL DEFAULT 'pending',
+    attempts SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+    available_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    lease_until DATETIME(6) NULL,
+    lease_token CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    row_count SMALLINT UNSIGNED NULL,
+    file_name VARCHAR(80) NULL,
+    last_error VARCHAR(64) NULL,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (job_no),
+    UNIQUE KEY uk_excel_owner_request (owner_id, request_id),
+    KEY idx_excel_ready (status, available_at, created_at),
+    KEY idx_excel_lease (status, lease_until)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

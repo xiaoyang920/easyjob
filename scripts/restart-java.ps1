@@ -32,7 +32,11 @@ if ($Build) {
         if ($LASTEXITCODE -ne 0) { throw 'Java package failed; service not restarted.' }
     } finally { Pop-Location }
 }
-$started = Start-Process -FilePath $java -ArgumentList ($javaTracingArguments + @('-jar', 'target\easyjob-0.0.1-SNAPSHOT.jar', '--server.address=127.0.0.1', '--spring.profiles.include=tracing', '--spring.config.additional-location=file:./temp/application-runtime.yml')) `
+$runtimeArgument = '--spring.config.additional-location=file:./temp/application-runtime.yml'
+if (Test-Path -LiteralPath (Join-Path $root 'temp\excel-runtime.yml')) {
+    $runtimeArgument += ',file:./temp/excel-runtime.yml'
+}
+$started = Start-Process -FilePath $java -ArgumentList ($javaTracingArguments + @('-jar', 'target\easyjob-0.0.1-SNAPSHOT.jar', '--server.address=127.0.0.1', '--spring.profiles.include=tracing', $runtimeArgument)) `
     -WorkingDirectory $root -WindowStyle Hidden -RedirectStandardOutput (Join-Path $root 'logs/java.out.log') `
     -RedirectStandardError (Join-Path $root 'logs/java.err.log') -PassThru
 for ($attempt = 0; $attempt -lt 25; $attempt++) {

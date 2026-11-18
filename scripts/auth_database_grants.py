@@ -10,7 +10,8 @@ def identifier(value):
 
 
 def provision(connection, database, accounts, host='localhost'):
-    if set(accounts) != {'auth', 'blog', 'agent'} or host not in ('localhost', '%'):
+    roles = set(accounts)
+    if roles not in ({'auth', 'blog', 'agent'}, {'auth', 'blog', 'agent', 'excel'}) or host not in ('localhost', '%'):
         raise ValueError('Unexpected runtime account scope')
     database = identifier(database)
     with connection.cursor() as cursor:
@@ -31,6 +32,9 @@ def provision(connection, database, accounts, host='localhost'):
             cursor.execute('CREATE USER IF NOT EXISTS ' + user + ' IDENTIFIED BY %s', (account['password'],))
             cursor.execute('ALTER USER ' + user + ' IDENTIFIED BY %s', (account['password'],))
             cursor.execute('REVOKE ALL PRIVILEGES, GRANT OPTION FROM ' + user)
+            if role == 'excel':
+                cursor.execute(f'GRANT SELECT,INSERT,UPDATE ON {database}.excel_export_job TO {user}')
+                continue
             if role == 'auth':
                 cursor.execute(f'GRANT SELECT, INSERT ON {database}.user_info TO {user}')
                 cursor.execute(f'GRANT UPDATE ({",".join(map(identifier, sorted(auth_owned)))}) ON {database}.user_info TO {user}')
@@ -41,7 +45,7 @@ def provision(connection, database, accounts, host='localhost'):
             if role == 'blog':
                 cursor.execute(f'GRANT UPDATE ({",".join(map(identifier, profile))}) ON {database}.user_info TO {user}')
             for table in tables:
-                if table == 'user_info' or table.startswith('auth_'):
+                if table in ('user_info', 'excel_export_job') or table.startswith('auth_'):
                     continue
                 writable = (role == 'blog' and table != 'agent_schema_migration') or table in agent_owned
                 privileges = 'SELECT,INSERT,UPDATE,DELETE' if writable else 'SELECT'
@@ -60,6 +64,12 @@ def verify(connection, role):
             else:
                 raise RuntimeError(f'{role} passed a forbidden database operation')
 
+        if role == 'excel':
+            probe.execute('SELECT job_no FROM excel_export_job LIMIT 0')
+            probe.execute('UPDATE excel_export_job SET status=status WHERE 1=0')
+            denied('DELETE FROM excel_export_job WHERE 1=0')
+            denied('SELECT user_id FROM user_info LIMIT 0')
+            return
         probe.execute('SELECT user_id FROM user_info LIMIT 0')
         if role == 'auth':
             probe.execute('SELECT password FROM user_info LIMIT 0')

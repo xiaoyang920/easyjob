@@ -11,6 +11,7 @@ import java.io.ByteArrayOutputStream;
 import java.sql.Timestamp;
 import java.time.*;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 import com.alibaba.excel.ExcelWriter;
 import com.easyjob.service.AdminStatisticsService.Daily;
@@ -33,6 +34,7 @@ public class AdminStatisticsService {
         public double readingSeconds(){return readingMillis/1000.0;}
     }
     public record Distribution(String name,long count) {}
+    public record DateRange(LocalDate from, LocalDate to) {}
     public record Report(int days,String from,String to,String generatedAt,List<Daily> daily,
                          List<Distribution> articles,List<Distribution> levels,long periodNewUsers,
                          long periodNewArticles,double periodReadingSeconds,long periodReadingUsers,String source) {}
@@ -43,20 +45,13 @@ public class AdminStatisticsService {
     }
     @Transactional(readOnly=true,isolation=Isolation.REPEATABLE_READ)
     public Report statistics(Long actor,int days,String source) {
-        admin.requirePermission(actor,"statistics.read");
-        if(source==null || !List.of("business","evaluation","all").contains(source))throw new BusinessException(400,"数据来源无效");
-        if(days!=7 && days!=30 && days!=90)throw new BusinessException(400,"统计范围仅支持7、30或90天");
-        LocalDate to=LocalDate.now(clock),from=to.minusDays(days-1);
-        Timestamp start=Timestamp.valueOf(from.atStartOfDay()),end=Timestamp.valueOf(to.plusDays(1).atStartOfDay());
-        Map<String, Map<String, Object>> users=index(store.dailyUsers(start,end,source));
-        Map<String, Map<String, Object>> publications=index(store.dailyPublications(start,end,source));
-        Map<String, Map<String, Object>> reading=index(store.dailyReading(java.sql.Date.valueOf(from),java.sql.Date.valueOf(to.plusDays(1)),source));
-        ArrayList<Daily> daily=new ArrayList<Daily>(days);
-        long newUsers=0,newArticles=0,millis=0;
-        for(LocalDate date=from;!date.isAfter(to);date=date.plusDays(1)) {
-            String day=date.toString();long u=value(users.get(day),"amount"),a=value(publications.get(day),"amount"),m=value(reading.get(day),"millis");
-            daily.add(new Daily(day,u,a,m,value(reading.get(day),"readers")));newUsers+=u;newArticles+=a;millis+=m;
-        }
+        DateRange range = exportRange(actor, days, source);
+        LocalDate from = range.from();
+        LocalDate to = range.to();
+        List<Daily> daily = readDaily(from, to, source);
+        long newUsers = daily.stream().mapToLong(Daily::newUsers).sum();
+        long newArticles = daily.stream().mapToLong(Daily::newArticles).sum();
+        long millis = daily.stream().mapToLong(Daily::readingMillis).sum();
         Long distinct=store.distinctReaders(java.sql.Date.valueOf(from),java.sql.Date.valueOf(to.plusDays(1)),source);
         List<Map<String, Object>> articleCounts=store.articleDistribution(source);
         Long unpublished=store.countUnpublished(source);
@@ -73,6 +68,57 @@ public class AdminStatisticsService {
         for(Map<String, Object> row:levelRows)levelCounts.put(value(row,"level"),value(row,"amount"));
         List<Distribution> levels=levelCounts.entrySet().stream().map(e->new Distribution("L"+e.getKey(),e.getValue())).toList();
         return new Report(days,from.toString(),to.toString(),ZonedDateTime.now(clock).toOffsetDateTime().toString(),List.copyOf(daily),List.copyOf(articles),levels,newUsers,newArticles,millis/1000.0,distinct==null?0:distinct,source);
+    }
+
+    public void requireExportPermission(Long actor) {
+        admin.requirePermission(actor, "statistics.read");
+    }
+
+    public DateRange exportRange(Long actor, int days, String source) {
+        requireExportPermission(actor);
+        validateFilters(days, source);
+        LocalDate to = LocalDate.now(clock);
+        return new DateRange(to.minusDays(days - 1), to);
+    }
+
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public List<Daily> exportPage(Long actor, LocalDate from, LocalDate to, String source, int offset, int limit) {
+        requireExportPermission(actor);
+        long days = ChronoUnit.DAYS.between(from, to) + 1;
+        validateFilters(days, source);
+        if (offset < 0 || limit < 1 || limit > 50) {
+            throw new BusinessException(400, "导出分页参数无效");
+        }
+        if (offset >= days) return List.of();
+        LocalDate pageFrom = from.plusDays(offset);
+        LocalDate pageTo = from.plusDays(Math.min(days, (long) offset + limit) - 1);
+        return readDaily(pageFrom, pageTo, source);
+    }
+
+    private static void validateFilters(long days, String source) {
+        if (source == null || !List.of("business", "evaluation", "all").contains(source)) {
+            throw new BusinessException(400, "数据来源无效");
+        }
+        if (days != 7 && days != 30 && days != 90) {
+            throw new BusinessException(400, "统计范围仅支持7、30或90天");
+        }
+    }
+
+    private List<Daily> readDaily(LocalDate from, LocalDate to, String source) {
+        LocalDate endDay = to.plusDays(1);
+        Timestamp start = Timestamp.valueOf(from.atStartOfDay());
+        Timestamp end = Timestamp.valueOf(endDay.atStartOfDay());
+        Map<String, Map<String, Object>> users = index(store.dailyUsers(start, end, source));
+        Map<String, Map<String, Object>> publications = index(store.dailyPublications(start, end, source));
+        Map<String, Map<String, Object>> reading = index(store.dailyReading(
+                java.sql.Date.valueOf(from), java.sql.Date.valueOf(endDay), source));
+        List<Daily> daily = new ArrayList<>();
+        for (LocalDate date = from; !date.isAfter(to); date = date.plusDays(1)) {
+            String day = date.toString();
+            daily.add(new Daily(day, value(users.get(day), "amount"), value(publications.get(day), "amount"),
+                    value(reading.get(day), "millis"), value(reading.get(day), "readers")));
+        }
+        return daily;
     }
     private static Map<String,Map<String,Object>> index(List<Map<String,Object>> rows){HashMap<String, Map<String, Object>> map=new HashMap<String,Map<String,Object>>();for(Map<String, Object> row:rows)map.put(row.get("day").toString(),row);return map;}
     private static long value(Map<String,Object> row,String name){return row==null || row.get(name)==null?0:((Number)row.get(name)).longValue();}

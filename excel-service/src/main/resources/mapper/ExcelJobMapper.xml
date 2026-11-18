@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.easyjob.excel.ExcelJobMapper">
+    <sql id="columns">
+        job_no AS jobNo, owner_id AS ownerId, days, source, from_day AS fromDay, to_day AS toDay,
+        status, attempts, row_count AS rowCount, file_name AS fileName, last_error AS lastError
+    </sql>
+    <sql id="ready">
+        ((status = 'pending' AND available_at &lt;= UTC_TIMESTAMP(6))
+          OR (status = 'running' AND lease_until &lt;= UTC_TIMESTAMP(6)))
+    </sql>
+    <sql id="ownedLease">
+        job_no = #{jobNo} AND status = 'running' AND lease_token = #{token}
+          AND lease_until &gt; UTC_TIMESTAMP(6)
+    </sql>
+    <select id="probeQueue" resultType="String">
+        SELECT job_no FROM excel_export_job LIMIT 1
+    </select>
+    <insert id="enqueue">
+        INSERT INTO excel_export_job
+            (job_no, owner_id, request_id, days, source, from_day, to_day, available_at, created_at, updated_at)
+        VALUES (#{jobNo}, #{ownerId}, #{requestId}, #{days}, #{source}, #{fromDay}, #{toDay},
+                UTC_TIMESTAMP(6), UTC_TIMESTAMP(6), UTC_TIMESTAMP(6))
+        ON DUPLICATE KEY UPDATE job_no = excel_export_job.job_no
+    </insert>
+    <select id="byRequest" resultType="com.easyjob.excel.ExcelJob">
+        SELECT <include refid="columns"/> FROM excel_export_job
+        WHERE owner_id = #{ownerId} AND request_id = #{requestId}
+    </select>
+    <select id="byOwner" resultType="com.easyjob.excel.ExcelJob">
+        SELECT <include refid="columns"/> FROM excel_export_job
+        WHERE job_no = #{jobNo} AND owner_id = #{ownerId}
+    </select>
+    <select id="byLease" resultType="com.easyjob.excel.ExcelJob">
+        SELECT <include refid="columns"/> FROM excel_export_job WHERE <include refid="ownedLease"/>
+    </select>
+    <select id="candidates" resultType="String">
+        SELECT job_no FROM excel_export_job
+        WHERE attempts &lt; #{maxAttempts} AND <include refid="ready"/>
+        ORDER BY available_at, created_at, job_no LIMIT 16
+    </select>
+    <update id="claim">
+        UPDATE excel_export_job SET status = 'running', attempts = attempts + 1, lease_token = #{token},
+            lease_until = TIMESTAMPADD(SECOND, #{leaseSeconds}, UTC_TIMESTAMP(6)),
+            last_error = NULL, updated_at = UTC_TIMESTAMP(6)
+        WHERE job_no = #{jobNo} AND attempts &lt; #{maxAttempts} AND <include refid="ready"/>
+    </update>
+    <update id="renew">
+        UPDATE excel_export_job SET lease_until = TIMESTAMPADD(SECOND, #{leaseSeconds}, UTC_TIMESTAMP(6)),
+            updated_at = UTC_TIMESTAMP(6) WHERE <include refid="ownedLease"/>
+    </update>
+    <update id="succeed">
+        UPDATE excel_export_job SET status = 'succeeded', row_count = #{rowCount}, file_name = #{fileName},
+            lease_until = NULL, lease_token = NULL, last_error = NULL, updated_at = UTC_TIMESTAMP(6)
+        WHERE <include refid="ownedLease"/>
+    </update>
+    <update id="fail">
+        UPDATE excel_export_job SET status = #{state}, last_error = #{error},
+            available_at = TIMESTAMPADD(SECOND, #{delay}, UTC_TIMESTAMP(6)),
+            lease_until = NULL, lease_token = NULL, updated_at = UTC_TIMESTAMP(6)
+        WHERE <include refid="ownedLease"/>
+    </update>
+    <select id="exhaustedCandidates" resultType="com.easyjob.excel.ExcelJob">
+        SELECT <include refid="columns"/> FROM excel_export_job
+        WHERE attempts &gt;= #{maxAttempts} AND <include refid="ready"/>
+        ORDER BY available_at, created_at, job_no LIMIT 16
+    </select>
+    <update id="exhaust">
+        UPDATE excel_export_job SET status = 'failed', last_error = 'attempts_exhausted',
+            lease_until = NULL, lease_token = NULL, updated_at = UTC_TIMESTAMP(6)
+        WHERE job_no = #{jobNo} AND attempts &gt;= #{maxAttempts} AND <include refid="ready"/>
+    </update>
+</mapper>

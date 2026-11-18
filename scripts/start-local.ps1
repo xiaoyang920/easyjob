@@ -12,15 +12,21 @@ param(
     [string]$Maven = 'D:\IntelliJ IDEA Community Edition 2025.1.3\plugins\maven\lib\maven3\bin\mvn.cmd',
     [string]$Node = 'D:\applications\nodejs\node.exe',
     [string]$ElasticsearchHome = 'D:\applications\ES\elasticsearch-9.2.4-windows-x86_64\elasticsearch-9.2.4',
-    [string]$RabbitHome = 'D:\applications\rabbitmq\rabbitmq_server-4.1.8'
+    [string]$RabbitHome = 'D:\applications\rabbitmq\rabbitmq_server-4.1.8',
+    [switch]$Excel,
+    [switch]$SkipExcel
 )
 
 $ErrorActionPreference = 'Stop'
+if ($Excel -and $SkipExcel) { throw 'Use -Excel or -SkipExcel, not both.' }
+# Keep explicit -Excel and -Excel:$false compatible with existing PowerShell callers.
+$startExcel = !$SkipExcel -and (!$PSBoundParameters.ContainsKey('Excel') -or $Excel.IsPresent)
 $root = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'java-tracing.ps1')
 [string[]]$authTracingArguments = @(Get-JavaTracingArguments -ProjectRoot $root -ServiceName 'easyjob-auth')
 [string[]]$blogTracingArguments = @(Get-JavaTracingArguments -ProjectRoot $root -ServiceName 'easyjob-blog')
 [string[]]$gatewayTracingArguments = @(Get-JavaTracingArguments -ProjectRoot $root -ServiceName 'easyjob-gateway')
+[string[]]$excelTracingArguments = if ($startExcel) { Get-JavaTracingArguments -ProjectRoot $root -ServiceName 'easyjob-excel' }
 $logs = Join-Path $root 'logs'
 $python = Join-Path $root 'python-agent\.venv\Scripts\python.exe'
 $docker = 'C:\Program Files\Docker\Docker\resources\bin\docker.exe'
@@ -30,6 +36,9 @@ $jar = Join-Path $root 'target\easyjob-0.0.1-SNAPSHOT.jar'
 $runtime = Join-Path $root 'temp\application-runtime.yml'
 $gatewayJar = Join-Path $root 'gateway\target\easyjob-gateway-0.0.1-SNAPSHOT.jar'
 $gatewayRuntime = Join-Path $root 'temp\gateway-runtime.yml'
+$excelRoot = Join-Path $root 'excel-service'
+$excelJar = Join-Path $excelRoot 'target\easyjob-excel-0.0.1-SNAPSHOT.jar'
+$excelRuntime = Join-Path $root 'temp\excel-runtime.yml'
 $consulImage = 'hashicorp/consul@sha256:200471c74bc0965cd20c81eacc31a209873d5d9e599fe637ceb856b0cbbc518d'
 
 function Write-Step([string]$Message) { Write-Host ('[{0:HH:mm:ss}] {1}' -f (Get-Date), $Message) }
@@ -163,6 +172,14 @@ function Test-JarFresh {
     return @($sources | Where-Object { $_.LastWriteTimeUtc -gt $modified }).Count -eq 0
 }
 
+function Test-ExcelJarFresh {
+    if (!(Test-Path -LiteralPath $excelJar -PathType Leaf)) { return $false }
+    $modified = (Get-Item -LiteralPath $excelJar).LastWriteTimeUtc
+    $files = @(Get-ChildItem -LiteralPath (Join-Path $excelRoot 'src\main') -File -Recurse)
+    $files += Get-Item -LiteralPath (Join-Path $excelRoot 'pom.xml')
+    return @($files | Where-Object { $_.LastWriteTimeUtc -gt $modified }).Count -eq 0
+}
+
 function Check-Prerequisites {
     $required = @($python, "$JavaHome\bin\java.exe", $Node,
         "$ElasticsearchHome\bin\elasticsearch.bat", "$RabbitHome\sbin\rabbitmq-server.bat",
@@ -176,7 +193,8 @@ function Check-Prerequisites {
     if ($Build -and $SkipBuild) { throw 'Use -Build or -SkipBuild, not both.' }
     if ($SkipBuild -and !(Test-Path -LiteralPath $jar)) { throw 'No existing Java JAR. Run without -SkipBuild first.' }
     if (($Build -or $Reindex) -and (Test-Port 8080)) { throw 'Java is already running. Stop the verified project Java process before -Build/-Reindex.' }
-    if ($Migrate -and ((Test-Port 8080) -or (Test-Port 8000))) { throw 'Stop Java and Agent before requesting -Migrate.' }
+    if ($startExcel -and $Build -and (Test-Port 8083)) { throw 'Excel is already running. Stop the verified project Excel process before -Build.' }
+    if ($Migrate -and ((Test-Port 8080) -or (Test-Port 8000) -or (Test-Port 8083))) { throw 'Stop Blog, Agent, and Excel before requesting -Migrate.' }
 }
 
 # Serialize launchers for this checkout; repeated double-clicks never launch competing stacks.
@@ -191,8 +209,10 @@ try {
     Check-Prerequisites
     if ($Check) {
         Write-Host 'Prerequisites found. Check mode does not start services, build, or change database/configuration.'
-        foreach ($port in @(3306,6379,6380,5672,9200,8500,8090,8080,8000,20881,50051,3000)) { Write-Host (':{0} listening={1}' -f $port,(Test-Port $port)) }
+        foreach ($port in @(3306,6379,6380,5672,9200,8500,8090,8080,8083,8000,20881,50051,3000)) { Write-Host (':{0} listening={1}' -f $port,(Test-Port $port)) }
         Write-Host ('Java build needed when stopped: ' + !(Test-JarFresh))
+        Write-Host "Excel startup enabled: $startExcel"
+        if ($startExcel) { Write-Host ('Excel build needed when stopped: ' + !(Test-ExcelJarFresh)) }
         return
     }
     New-Item -ItemType Directory -Path $logs -Force | Out-Null
@@ -217,6 +237,10 @@ try {
     if (!(Test-Path -LiteralPath $runtime) -or !(Test-Path -LiteralPath $gatewayRuntime)) {
         Write-Step 'Preparing missing local runtime configuration (secrets are not printed).'
         Invoke-Logged 'prepare-local' $python @('scripts\prepare-local.py') $root
+    }
+
+    if ($startExcel) {
+        Invoke-Logged 'prepare-excel' $python @('scripts\prepare-local.py','--excel') $root
     }
 
     Write-Step '2/7 Starting cache Redis and Checkpoint Redis.'
@@ -245,6 +269,13 @@ try {
     if ($Migrate) {
         Write-Step 'Applying explicitly requested database migrations.'
         Invoke-Logged 'database-migration' $python @('-m','app.migrate') (Join-Path $root 'python-agent')
+    }
+
+    if ($startExcel) {
+        try { Invoke-Logged 'excel-db-check' $python @('scripts\prepare-local.py','--check-excel-db') $root }
+        catch {
+            throw "$($_.Exception.Message) If migration 032 is missing, stop Blog, Agent, and Excel and start the launcher with -Migrate."
+        }
     }
 
     Write-Step '3/7 Starting Elasticsearch.'
@@ -289,9 +320,39 @@ try {
             Copy-Item -LiteralPath (Join-Path $root 'target\local-launcher\easyjob-0.0.1-SNAPSHOT.jar') -Destination $jar -Force
         }
         $arguments = ($blogTracingArguments -join ' ') + ' -jar target\easyjob-0.0.1-SNAPSHOT.jar --server.address=127.0.0.1 --spring.profiles.include=tracing --spring.config.additional-location=file:./temp/application-runtime.yml'
+        if (Test-Path -LiteralPath $excelRuntime) { $arguments += ',file:./temp/excel-runtime.yml' }
         if ($Reindex) { $arguments += ' --rag.reindex.enabled=true' }
         $javaProcess = Start-Hidden 'java' "$JavaHome\bin\java.exe" $arguments $root
         Wait-Ready 'java' { Test-Java } $javaProcess
+    }
+
+    if ($startExcel) {
+        Write-Step 'Starting Excel export service.'
+        try { Invoke-Logged 'excel-blog-check' $python @('scripts\prepare-local.py','--check-excel-blog') $root }
+        catch {
+            throw "$($_.Exception.Message) If the existing Blog has not loaded the Excel configuration, run scripts/restart-java.ps1, then run the launcher again."
+        }
+        $excelProcess = $null
+        if (!(Test-Port 8083)) {
+            if ($Build -or (!$SkipBuild -and !(Test-ExcelJarFresh))) {
+                Invoke-Logged 'excel-package' $Maven @('-q','-DskipTests','package') $excelRoot
+            }
+            if (!(Test-Path -LiteralPath $excelJar)) { throw 'Excel JAR missing. Run without -SkipBuild first.' }
+            $excelArguments = ($excelTracingArguments -join ' ') + ' -jar excel-service\target\easyjob-excel-0.0.1-SNAPSHOT.jar --server.port=8083 --server.address=127.0.0.1 --spring.config.additional-location=file:./temp/excel-runtime.yml'
+            $excelProcess = Start-Hidden 'excel' "$JavaHome\bin\java.exe" $excelArguments $root
+        }
+        try {
+            Wait-Ready 'excel queue' {
+                try { (Invoke-RestMethod 'http://127.0.0.1:8083/actuator/health' -TimeoutSec 3).status -eq 'UP' }
+                catch { $false }
+            } $excelProcess
+        } catch {
+            throw "Excel queue did not become healthy. Check logs/excel.out.log and logs/excel.err.log."
+        }
+        Invoke-Logged 'excel-worker-check' $python @('scripts\prepare-local.py','--check-excel-worker') $root
+        Write-Step 'excel ready. Blog and Excel both accept the local service key.'
+    } else {
+        Write-Step 'Skipping Excel export service startup.'
     }
 
     Write-Step '6/7 Starting Python Agent.'
@@ -326,6 +387,7 @@ try {
     Write-Host ''
     Write-Host 'READY: http://127.0.0.1:3000' -ForegroundColor Green
     Write-Host 'Gateway: :8090   Consul: :8500   Java: :8080   Agent: :8000   RPC: :20881 / :50051   Logs: logs/'
+    if ($startExcel) { Write-Host 'Excel: :8083   Logs: logs/excel.*.log' }
     Write-Host 'Services run in the background. Closing this launcher does not stop them.'
     if ($OpenBrowser) { Start-Process 'http://127.0.0.1:3000' | Out-Null }
 } finally {

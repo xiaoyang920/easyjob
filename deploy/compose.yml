@@ -96,6 +96,7 @@ services:
       AUTH_DB_PASSWORD: ${AUTH_DB_PASSWORD:?Set separate AUTH_DB_PASSWORD}
       BLOG_DB_PASSWORD: ${BLOG_DB_PASSWORD:?Set separate BLOG_DB_PASSWORD}
       AGENT_DB_PASSWORD: ${AGENT_DB_PASSWORD:?Set separate AGENT_DB_PASSWORD}
+      EXCEL_DB_PASSWORD: ${EXCEL_DB_PASSWORD:?Set separate EXCEL_DB_PASSWORD}
     volumes: [mysql-socket:/var/run/mysqld:ro]
     depends_on: {migrate: {condition: service_completed_successfully}}
     restart: "no"
@@ -115,6 +116,8 @@ services:
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?Set JWT_SECRET_KEY}
       EASYJOB_AUTH_ENABLED: "true"
       EASYJOB_AUTH_BASE_URL: http://auth:8081
+      EASYJOB_EXCEL_URL: http://excel:8083
+      EASYJOB_EXCEL_SERVICE_KEY: ${EASYJOB_EXCEL_SERVICE_KEY:?Set EASYJOB_EXCEL_SERVICE_KEY}
       EASYJOB_AUTH_SERVICE_KEY: ${AUTH_SERVICE_KEY:?Set AUTH_SERVICE_KEY}
       EASYJOB_AUTH_GATEWAY_PUBLIC_KEY_FILE: /run/auth-keys/gateway-public.json
       EASYJOB_AUTH_BLOG_PRIVATE_KEY_FILE: /run/auth-keys/blog-delegation-private.json
@@ -136,6 +139,22 @@ services:
     healthcheck: {test: [CMD, curl, -fsS, 'http://localhost:8080/actuator/health'], interval: 10s, timeout: 5s, retries: 30, start_period: 60s}
     restart: unless-stopped
     stop_grace_period: 330s
+  excel:
+    build: {context: .., dockerfile: deploy/Dockerfile.java, target: excel}
+    environment:
+      EXCEL_BIND_ADDRESS: 0.0.0.0
+      EXCEL_DB_URL: jdbc:mysql://mysql:3306/easyjob?serverTimezone=UTC&useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true
+      EXCEL_DB_USER: ej_excel_runtime
+      EXCEL_DB_PASSWORD: ${EXCEL_DB_PASSWORD}
+      EASYJOB_EXCEL_SERVICE_KEY: ${EASYJOB_EXCEL_SERVICE_KEY:?Set EASYJOB_EXCEL_SERVICE_KEY}
+      EASYJOB_EXCEL_BLOG_URL: http://blog:8080
+      EASYJOB_EXCEL_OUTPUT_DIR: /app/exports
+    volumes: [excel-exports:/app/exports]
+    depends_on:
+      database-permissions: {condition: service_completed_successfully}
+      blog: {condition: service_healthy}
+    healthcheck: {test: [CMD, curl, -fsS, 'http://localhost:8083/actuator/health'], interval: 10s, timeout: 5s, retries: 15, start_period: 30s}
+    restart: unless-stopped
   agent:
     build: {context: .., dockerfile: deploy/Dockerfile.agent}
     environment:
@@ -221,7 +240,7 @@ services:
   backup:
     image: alpine:3.21
     profiles: [tools]
-    volumes: [uploads:/data/uploads, checkpoint-data:/data/checkpoint, es-snapshots:/data/es-snapshots]
+    volumes: [uploads:/data/uploads, checkpoint-data:/data/checkpoint, es-snapshots:/data/es-snapshots, excel-exports:/data/excel-exports]
     entrypoint: [sh, -c]
 volumes:
   mysql-data:
@@ -232,3 +251,4 @@ volumes:
   es-data:
   es-snapshots:
   uploads:
+  excel-exports:
