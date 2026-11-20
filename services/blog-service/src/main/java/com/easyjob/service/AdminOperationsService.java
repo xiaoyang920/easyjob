@@ -20,25 +20,25 @@ public class AdminOperationsService {
     private static final Set<String> KINDS=Set.of("article","memory","article_orphan","memory_orphan","chunk_orphan");
     public Map<String,Object> summary(Long uid) {
         admin.requirePermission(uid,"operations.read");LinkedHashMap<String, Object> result=new LinkedHashMap<String,Object>();
-        for(String queue:QUEUES) result.put(queue,store.queueSummary(queue));
-        result.put("runs",store.runSummary());
+        for(String queue:QUEUES) result.put(queue,store.queueSummary(uid,queue));
+        result.put("runs",store.runSummary(uid));
         result.put("views",store.viewSummary());
-        result.put("reconciliation",store.reconciliationSummary());
+        result.put("reconciliation",store.reconciliationSummary(uid));
         return result;
     }
     public PageVO<Map<String,Object>> jobs(Long uid,String queue,String state,int page,int size) {
         admin.requirePermission(uid,"operations.read");boolean knownQueue=QUEUES.contains(queue==null?"":queue);
         if(!knownQueue || !Set.of("all","pending","running","dispatched","completed","dead").contains(state==null?"":state))throw new BusinessException(400,"任务筛选无效");
         ArticleRevisionService.bounds(page,size);
-        long count=store.countJobs(queue,state);
-        List<Map<String, Object>> rows=store.findJobs(queue,state,size,(page-1)*size);
+        long count=store.countJobs(uid,queue,state);
+        List<Map<String, Object>> rows=store.findJobs(uid,queue,state,size,(page-1)*size);
         return new PageVO<>(rows,count,(long)size,(long)page,(count+size-1)/size);
     }
     public PageVO<Map<String,Object>> runs(Long uid,String state,int page,int size) {
         admin.requirePermission(uid,"operations.read");ArticleRevisionService.bounds(page,size);
         if(!Set.of("all","running","awaiting_approval","succeeded","failed","cancelled","expired").contains(state==null?"":state))throw new BusinessException(400,"运行筛选无效");
-        long count=store.countRuns(state);
-        List<Map<String, Object>> rows=store.findRuns(state,size,(page-1)*size);
+        long count=store.countRuns(uid,state);
+        List<Map<String, Object>> rows=store.findRuns(uid,state,size,(page-1)*size);
         return new PageVO<>(rows,count,(long)size,(long)page,(count+size-1)/size);
     }
     @Transactional public void retry(Long uid,String queue,String id) {

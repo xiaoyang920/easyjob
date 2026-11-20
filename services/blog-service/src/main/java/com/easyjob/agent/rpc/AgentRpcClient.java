@@ -28,9 +28,9 @@ public final class AgentRpcClient {
     }
 
     @SuppressWarnings("unchecked")
-    public List<Map<String, Object>> serviceRows(String kind, Timestamp start, Timestamp end, String source) {
+    public List<Map<String, Object>> serviceRows(long actor, String kind, Timestamp start, Timestamp end, String source) {
         return (List<Map<String, Object>>) call(() -> remote.serviceQuery(AgentQuery.newBuilder()
-            .setIdentity(auth.identity(1L)).setKind(kind).setStart(start.toLocalDateTime().toString())
+            .setIdentity(auth.identity(actor)).setKind(kind).setStart(start.toLocalDateTime().toString())
             .setEnd(end.toLocalDateTime().toString()).setSource(source).build()));
     }
 

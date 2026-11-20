@@ -11,11 +11,11 @@ import java.util.Map;
 class DeliveryMetricsTests {
     @Test void browserSamplesAreIndependentFromModelUsageAndMissingIsNotZero() {
         AdminAgentMetricsMapper store=mock(AdminAgentMetricsMapper.class);
-        when(store.findMetrics(any(),any(),eq("business"))).thenReturn(List.of(
+        when(store.findMetrics(eq(7L),any(),any(),eq("business"))).thenReturn(List.of(
             Map.of("status","succeeded","delivery","{\"first_answer_ms\":1200}"),
             Map.of("status","failed","delivery","{\"first_answer_ms\":2400}"),
             Map.of("status","succeeded","delivery","{}")));
-        when(store.findStages(any(),any(),eq("business"))).thenReturn(List.of(Map.of("name","final_gate","count",2,"p95_ms",900)));
+        when(store.findStages(eq(7L),any(),any(),eq("business"))).thenReturn(List.of(Map.of("name","final_gate","count",2,"p95_ms",900)));
         AdminAgentMetricsService service=new AdminAgentMetricsService(store,mock(AdminConsoleService.class),new ObjectMapper());
         Map<String, Object> result=service.report(7L,7,"business");
         assertEquals(2,result.get("firstAnswerSamples"));assertEquals(1200L,result.get("firstAnswerP50Ms"));assertEquals(2400L,result.get("firstAnswerP95Ms"));
@@ -27,7 +27,7 @@ class DeliveryMetricsTests {
     }
     @Test void normallySettledButIncompleteDeliveriesAreNotSuccessfulTasks() {
         AdminAgentMetricsMapper store=mock(AdminAgentMetricsMapper.class);
-        when(store.countStates(any(),any(),eq("business"))).thenReturn(List.of(
+        when(store.countStates(eq(7L),any(),any(),eq("business"))).thenReturn(List.of(
             Map.of("status","succeeded","count",3L,"incomplete",2L),
             Map.of("status","failed","count",1L),
             Map.of("status","cancelled","count",1L),

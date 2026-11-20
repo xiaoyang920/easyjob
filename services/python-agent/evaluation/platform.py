@@ -89,7 +89,7 @@ async def run(args):
                 u={'key':key,'id':generator.next_id(),'email':f'{marker}-{key}@example.invalid','name':key+'-'+marker[-10:],'role':role}
                 await db.execute("INSERT INTO user_info(user_id,nick_name,email,password,join_time,sex,status,total_coin_count,current_coin_count,theme,role,article_count,follower_count,following_count,data_source) VALUES (:id,:name,:email,:password,NOW(),2,1,0,0,1,:role,0,0,0,'evaluation')",{**{k:u[k] for k in ['id','name','email','role']},'password':password});f['users'].append(u);await login(u)
             admin,reviewer,operator,reader,author=f['users']
-            for user,allowed,denied in [(reviewer,['/api/admin/reviews','/api/admin/articles'],['/api/admin/users','/api/admin/categories','/api/admin/agent-metrics']), (operator,['/api/admin/categories','/api/admin/operations','/api/admin/agent-metrics'],['/api/admin/users','/api/admin/reviews']), (reader,[],['/api/admin/me','/api/admin/articles','/api/admin/statistics'])]:
+            for user,allowed,denied in [(reviewer,['/api/admin/reviews','/api/admin/articles'],['/api/admin/users','/api/admin/categories','/api/admin/agent-metrics']), (operator,['/api/admin/categories','/api/admin/operations','/api/admin/operations/jobs?queue=memory','/api/admin/operations/runs','/api/admin/agent-metrics'],['/api/admin/users','/api/admin/reviews']), (reader,[],['/api/admin/me','/api/admin/articles','/api/admin/statistics'])]:
                 for path in allowed:await call('GET',path,user)
                 for path in denied:await call('GET',path,user,expected=403)
                 checks.append(user['key']+' server permissions enforced')
