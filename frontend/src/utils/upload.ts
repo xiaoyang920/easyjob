@@ -10,25 +10,27 @@ export interface UploadOptions {
   onProgress?: (percent: number) => void
 }
 
-export interface UploadResult {
+interface UploadedFile {
+  url: string
+  fileName?: string
+  path?: string
+  thumbUrl?: string
+}
+
+export interface UploadResult<T = UploadedFile> {
   code: number
   message: string
-  data?: {
-    url: string
-    fileName?: string
-    path?: string
-    thumbUrl?: string
-  }
+  data?: T
 }
 
 /**
  * 上传文件（带进度）
  */
-export async function uploadFile(options: UploadOptions): Promise<UploadResult> {
+export async function uploadFile<T = UploadedFile>(options: UploadOptions): Promise<UploadResult<T>> {
   const user = localStorage.getItem('userId')
   let token = await ensureAccessToken()
   let retried = false
-  const send = (): Promise<UploadResult> => {
+  const send = (): Promise<UploadResult<T>> => {
     if (localStorage.getItem('userId') !== user) return Promise.reject(new Error('登录账号已改变，请重新上传'))
     const { url, file, onProgress } = options
     const formData = new FormData()

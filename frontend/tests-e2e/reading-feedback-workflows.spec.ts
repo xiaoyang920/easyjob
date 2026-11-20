@@ -76,6 +76,40 @@ test('AI answers offer the shared code viewer and copy the original answer',asyn
  await page.keyboard.press('Escape');await page.getByRole('button',{name:'复制回答',exact:true}).click();expect((await page.evaluate(()=>navigator.clipboard.readText())).replace(/\r\n/g,'\n')).toBe(answer);expect(errors).toEqual([])
 })
 
+test('user code keeps indentation when sent and restored, while explicit fences still open the code viewer', async ({ page }) => {
+  await fixture(page)
+  const pasted = '  import asyncio\n\nasync def f():\n    if ready:\n        await start()\n\n    try:\n        await run()\n    finally:\n        await stop()'
+  let sent: string | undefined
+  await page.route('**/api/agent/chat/stream', async route => {
+    sent = route.request().postDataJSON().message
+    await route.fulfill({ contentType: 'text/event-stream', body: 'data:__REPLY__:{"content":"收到"}\n\ndata:[DONE]\n\n' })
+  })
+  await page.route('**/api/agent/conversations/101/messages*', async route => {
+    const data = sent ? [{ role: 'user', content: sent, messageId: '1003' }] : []
+    await route.fulfill({ json: { code: 200, data } })
+  })
+  await page.goto('/ai-chat?conversationId=101')
+  const composer = page.getByRole('textbox', { name: '消息内容' })
+  await composer.fill(pasted)
+  await composer.press('Enter')
+  await expect.poll(() => sent).toBe(pasted)
+  const userBubble = page.locator('.message-item.user .message-bubble').last()
+  await expect(userBubble.locator('pre')).toHaveCount(0)
+  const paragraphs = userBubble.locator('p')
+  await expect(paragraphs.first()).toHaveCSS('white-space', 'break-spaces')
+  expect(await paragraphs.first().innerText()).toBe('  import asyncio')
+  expect(await paragraphs.last().innerText()).toBe('    try:\n        await run()\n    finally:\n        await stop()')
+  await page.reload()
+  await expect(userBubble).toContainText('await stop()')
+  expect(await paragraphs.last().innerText()).toBe('    try:\n        await run()\n    finally:\n        await stop()')
+
+  await composer.fill('```python\nif ready:\n    await start()\n```')
+  await composer.press('Enter')
+  await userBubble.getByRole('button', { name: '放大第 1 个代码块' }).click()
+  const viewer = page.getByRole('dialog', { name: '代码放大查看' })
+  expect(await viewer.locator('code').textContent()).toContain('if ready:\n    await start()')
+})
+
 test('feedback detail displays the reported turn and persists a review with its original version',async({page})=>{
  await page.setViewportSize({width:1440,height:900});const {errors,writes}=await fixture(page)
  await page.goto('/admin?section=agentMetrics');await page.getByRole('button',{name:'查看详情',exact:true}).click()

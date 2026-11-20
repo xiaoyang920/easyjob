@@ -6,7 +6,7 @@ from pathlib import Path
 import sys
 from time import monotonic
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'python-agent'))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'services/python-agent'))
 import httpx
 from app.config import settings
 

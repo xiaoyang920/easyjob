@@ -1,0 +1,69 @@
+html:root.dark, [data-pendant-preview="night"] {
+  color-scheme: dark;
+  --ej-canvas: #1e1d1b;
+  --ej-surface: #292825;
+  --ej-ink: #f2eee5;
+  --ej-body: #d9d4ca;
+  --ej-muted: #b6b0a5;
+  --ej-line: #f2eee54d;
+  --ej-hairline: #f2eee529;
+  --ej-soft: #383630;
+  --ej-sidebar: #24231f;
+  --ej-accent: #c6b7ff;
+  --ej-accent-soft: #3b3159;
+  --ej-shadow: 3px 3px 0 #0008;
+  --ej-shadow-lift: 5px 5px 0 #000a;
+  --ej-texture: #f2eee5;
+  --ej-texture-opacity: .024;
+  --ej-scroll-thumb: #f2eee55c;
+  --ej-glass-rgb: 37 35 32;
+  /* 浅色彩色底只留一层淡色，深色彩色字向浅色提亮，都保留原来的色相 */
+  --ej-coral-text: #ff8f7d;
+  --ej-tint: 16%;
+  --ej-shade: 55%;
+  --el-color-primary: #c6b7ff;
+  --el-text-color-primary: var(--ej-ink);
+  --el-text-color-regular: var(--ej-body);
+  --el-text-color-secondary: var(--ej-muted);
+  --el-border-color: var(--ej-line);
+  --el-border-color-light: var(--ej-hairline);
+  --el-bg-color: var(--ej-surface);
+  --el-bg-color-overlay: var(--ej-surface);
+  --el-fill-color-blank: var(--ej-surface);
+}
+
+html.dark :is(#app, .writing-ai-panel) {
+  --w-e-textarea-bg-color: var(--ej-surface);
+  --w-e-textarea-color: var(--ej-ink);
+  --w-e-textarea-border-color: var(--ej-line);
+  --w-e-textarea-slight-color: var(--ej-soft);
+  --w-e-textarea-slight-bg-color: var(--ej-canvas);
+  --w-e-textarea-selected-border-color: var(--ej-accent);
+  --w-e-toolbar-color: var(--ej-ink);
+  --w-e-toolbar-active-color: var(--ej-ink);
+  --w-e-toolbar-bg-color: var(--ej-surface);
+  --w-e-toolbar-active-bg-color: var(--ej-soft);
+  --w-e-toolbar-border-color: var(--ej-line);
+  --w-e-toolbar-disabled-color: var(--ej-muted);
+  --w-e-modal-button-bg-color: var(--ej-surface);
+  --w-e-modal-button-border-color: var(--ej-line);
+}
+
+html.dark #app .app-header .header-glass-frost {
+  background: rgb(var(--ej-glass-rgb) / .86);
+}
+
+html.dark #app .app-header .header-glass-rim {
+  background: rgb(var(--ej-glass-rgb) / .72);
+}
+
+html.dark #app .app-header .header-glass::before { opacity: .48; }
+html.dark #app .app-header .header-glass::after { opacity: .38; }
+html.dark #app .app-header .nav-btn:not(.primary):not(:hover) { background: rgb(var(--ej-glass-rgb) / .9); }
+
+html.dark :is(.el-message, .el-message-box, .el-notification) {
+  background: var(--ej-surface);
+  border-color: var(--ej-line);
+  color: var(--ej-ink);
+}
+html.dark :is(.ej-confirm, .el-message-box) :is(.el-message-box__title, .el-message-box__content) { color: var(--ej-ink); }

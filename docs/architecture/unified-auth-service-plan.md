@@ -8,11 +8,11 @@
 
 | 当前代码 | 当前职责 | 处理方式 |
 |---|---|---|
-| `src/main/java/com/easyjob/controller/AuthController.java` | 注册、密码/邮箱登录、验证码、续签、注销 | 迁到认证服务，保留对外 API 形状 |
+| `services/blog-service/src/main/java/com/easyjob/controller/AuthController.java` | 注册、密码/邮箱登录、验证码、续签、注销 | 迁到认证服务，保留对外 API 形状 |
 | `service/AuthSessionService.java` | Redis 会话、设备、密码摘要/账号版本校验 | 迁到认证服务，集中管理会话 |
 | `service/AccountSecurityService.java`、`controller/AccountSecurityController.java` | 重置密码、修改密码、设备撤销 | 一并迁移，去掉对 Blog WebSocket 类的直接调用 |
 | `utils/JwtUtil.java` | HS512 签发、验签、会话检查混在一起 | 拆分外部 Token 签发和内部身份验证 |
-| `gateway/.../EdgeFilter.java` | JWT 基础检查、清理身份头、限流 | 拆成有明确顺序的过滤链 |
+| `services/gateway/.../EdgeFilter.java` | JWT 基础检查、清理身份头、限流 | 拆成有明确顺序的过滤链 |
 | `interceptor/JwtInterceptor.java` | 外部 JWT 与 Redis/DB 会话校验，设置 ThreadLocal | 切换为验证网关内部身份、设置请求上下文 |
 | 公开文章/评论/搜索控制器 | 各自解析可选 JWT | 改读统一的可选身份，避免漏迁移 |
 | Chat/Article 握手拦截器 | WebSocket 自行解析 JWT，部分路径重复解析 | 接入同一内部身份解析与连接撤销 |
@@ -35,7 +35,7 @@ flowchart LR
     J -->|服务身份 + 受限用户委托| P[Python Agent]
 ```
 
-- 新建 `auth-service/`，独立 Spring Boot 进程，Consul 服务名 `easyjob-auth`，本地端口规划 8081；实施前检查冲突。
+- 新建 `services/auth-service/`，独立 Spring Boot 进程，Consul 服务名 `easyjob-auth`，本地端口规划 8081；实施前检查冲突。
 - 延续 Java 21、当前 Boot 3.4.7/Cloud 2024.0.3 版本线，依赖由相容 BOM 管理。本次不夹带框架大版本升级。
 - 通过 Spring Security 的 JWT 编解码组件完成签发/验签，密码继续使用现有 BCrypt 能力。网关使用响应式安全链和 WebClient，不在 Netty 事件线程中执行阻塞 JDBC 或 HTTP。
 - 第一版保留站点自有 `/api/auth/*` 登录协议；独立认证服务和 JWKS 不代表已经实现完整 OAuth2/OIDC。标准授权码 + PKCE、OIDC 单点登录列为后续学习里程碑。
@@ -131,7 +131,7 @@ flowchart LR
 
 ### P1：抽取认证服务与唯一写入入口
 
-交付：`auth-service/` 独立构建/健康检查、迁移认证/账号安全逻辑、独立配置、SMTP、Redis、账号仓储、管理安全命令与审计；移除对 Blog WebSocket 类的编译依赖。
+交付：`services/auth-service/` 独立构建/健康检查、迁移认证/账号安全逻辑、独立配置、SMTP、Redis、账号仓储、管理安全命令与审计；移除对 Blog WebSocket 类的编译依赖。
 
 过渡：先让旧 Java 认证入口作为内部转发适配层，对外 API 保持兼容；必须原样正确转发 Set-Cookie、状态码和 no-store。实际账号与会话修改只由 Auth 执行。旧 HS512 签发仅用于短暂过渡，不同时运行两套账号写入实现。
 

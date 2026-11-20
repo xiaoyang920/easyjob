@@ -63,11 +63,11 @@ flowchart LR
 
 ## 验证
 
-- `mvn "-Dtest=!EasyjobApplicationTests" test`：Java 业务、Mapper、签名许可和发现测试。
-- `mvn -f gateway/pom.xml test`：身份头、JWT、限流、Redis 故障、熔断及无重试。
+- `mvn -f services/blog-service/pom.xml "-Dtest=!EasyjobApplicationTests" test`：Java 业务、Mapper、签名许可和发现测试。
+- `mvn -f services/gateway/pom.xml test`：身份头、JWT、限流、Redis 故障、熔断及无重试。
 - `python scripts/run-agent-offline-tests.py`：禁止网络访问的 Python 回归及边界校验。
-- `python scripts/service-split-smoke.py`：本机真实网关、Consul、前端代理、双向 RPC、事件 SSE 与 WebSocket 握手，不调用模型。
-- `python scripts/draft-commit-smoke.py`：临时草稿夹具验证许可、取消、幂等保存及回执，自动清理本次夹具。
+- `python scripts/checks/service-split-smoke.py`：本机真实网关、Consul、前端代理、双向 RPC、事件 SSE 与 WebSocket 握手，不调用模型。
+- `python scripts/checks/draft-commit-smoke.py`：临时草稿夹具验证许可、取消、幂等保存及回执，自动清理本次夹具。
 - GitHub integration 工作流用真实 Agent SQL 查询 peer，禁用模型与后台 worker；Java、网关、Consul 和浏览器真实运行。
 
 新统一认证模式不能通过将 Vite 直接指向 Blog 绕开网关；Blog 会拒绝没有可信内部身份的外部请求。认证模式回滚需同步切换配置、清理旧会话并重新登录，不回滚已经生效的密码或封禁等安全变更。服务发现回退只影响 RPC 地址选择，不取消认证要求。

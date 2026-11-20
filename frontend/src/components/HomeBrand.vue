@@ -14,7 +14,7 @@ const route = useRoute()
 #app .home-brand { flex-shrink: 0; gap: 9px; text-decoration: none; border-radius: 8px; }
 #app .home-brand:hover { transform: none; }
 #app .home-brand .logo-home { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; padding: 4px 8px; border: 1px solid var(--ej-line); border-radius: 99px; background: var(--ej-surface); color: var(--ej-ink); font-size: 11px; font-weight: 600; letter-spacing: 0; line-height: 1.3; transition: background 180ms, border-color 180ms; }
-#app .home-brand:hover .logo-home { background: var(--studio-lime); border-color: var(--ej-ink); }
+#app .home-brand:hover .logo-home { background: var(--studio-lime); color: var(--ej-on-color); border-color: var(--ej-ink); }
 #app .home-brand:focus-visible { outline: 2px solid var(--ej-ink); outline-offset: 5px; }
 @media (max-width: 480px) {
   #app .home-brand { gap: 7px; }

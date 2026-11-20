@@ -5,6 +5,7 @@ async function setup(page: Page, fail = false) {
   const identity = { token: 'qa.' + Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 })).toString('base64url') + '.test',
     userId: '9007199254740993', nickName: '新读者', email: 'register@example.invalid', avatar: null }
   const calls: string[] = []
+  const feedCalls: { page: string | null; authorization?: string }[] = []
   const submitted: any[] = []
   await page.routeWebSocket('**/ws/**', () => {})
   await page.route('**/api/**', async route => {
@@ -26,7 +27,13 @@ async function setup(page: Page, fail = false) {
     else if (url.pathname.includes('/article/detail/')) data = { articleId: '700', title: '注册体验测试文章', content: '<p>保持当前阅读位置。</p>',
       authorId: '1', authorName: '作者', requiredLevel: 0, likeCount: 0, collectCount: 0 }
     else if (url.pathname.includes('/comment/')) data = { list: [], total: 0 }
-    else if (url.pathname === '/api/article/work' || url.pathname === '/api/article/recommend' || url.pathname === '/api/article/list')
+    else if (url.pathname === '/api/article/recommend') {
+      const authorization = request.headers()['authorization']
+      feedCalls.push({ page: url.searchParams.get('page'), authorization })
+      data = { records: [{ articleId: '701', title: authorization ? '登录后个性化推荐' : '游客公开推荐',
+        authorName: '作者', requiredLevel: 0, readableNow: true }], total: 13, pages: 2 }
+    }
+    else if (url.pathname === '/api/article/work' || url.pathname === '/api/article/list')
       data = { records: [], total: 0, pages: 1 }
     else if (url.pathname.endsWith('/total-unread-count') || url.pathname.endsWith('/unread-count')) data = 0
     else if (url.pathname === '/api/agent/run-overview') data = { items: [], serverTime: new Date().toISOString() }
@@ -34,7 +41,7 @@ async function setup(page: Page, fail = false) {
       return route.fulfill({ contentType: 'text/event-stream', body: ': isolated test\n\n' })
     return route.fulfill({ json: { code: 200, status: 'success', data } })
   })
-  return { identity, calls, submitted }
+  return { identity, calls, submitted, feedCalls }
 }
 
 async function register(page: Page) {
@@ -66,16 +73,21 @@ for (const viewport of [{ name: 'desktop', width: 1440 }, { name: 'mobile', widt
 }
 
 test('login from the homepage header submits once and updates the account menu', async ({ page }) => {
-  const { calls, identity } = await setup(page)
+  const { calls, identity, feedCalls } = await setup(page)
   await page.goto('/')
-  await expect(page.locator('.home-page')).toBeVisible()
+  await expect(page.getByText('游客公开推荐', { exact: true })).toBeVisible()
   await page.getByRole('banner', { name: '站点导航' }).getByRole('button', { name: '登录', exact: true }).click()
   const form = page.locator('.login-form').getByRole('tabpanel', { name: '密码登录', exact: true })
+  const forgotPassword = form.getByRole('link', { name: '忘记密码？' })
+  await expect(forgotPassword).toHaveAttribute('href', '/password-reset')
+  await expect(forgotPassword).toHaveCSS('font-size', '13px')
   await form.getByPlaceholder('请输入邮箱', { exact: true }).fill('register@example.invalid')
   await form.getByPlaceholder('请输入密码', { exact: true }).fill('test-password')
   await form.getByRole('button', { name: '登录', exact: true }).click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(page.getByRole('button', { name: '账户菜单', exact: true })).toBeVisible()
+  await expect(page.getByText('登录后个性化推荐', { exact: true })).toBeVisible()
+  expect(feedCalls).toEqual([{ page: '1', authorization: undefined }, { page: '1', authorization: `Bearer ${identity.token}` }])
   expect(calls.filter(path => path === '/api/auth/login')).toHaveLength(1)
   expect(await page.evaluate(() => localStorage.getItem('userId'))).toBe(identity.userId)
 })

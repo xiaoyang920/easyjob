@@ -1,0 +1,57 @@
+{
+  "rules": {
+    "pendant": { "formats": ["png", "webp"], "animated": false, "square": true, "minWidth": 256, "maxWidth": 1024, "minHeight": 256, "maxHeight": 1024, "maxKiB": 3072, "transparency": true },
+    "bubble": { "formats": ["png", "webp"], "animated": false, "square": false, "minWidth": 120, "maxWidth": 600, "minHeight": 60, "maxHeight": 400, "maxKiB": 1024, "transparency": false },
+    "sticker": { "formats": ["png", "webp", "gif"], "animated": true, "square": true, "minWidth": 120, "maxWidth": 512, "minHeight": 120, "maxHeight": 512, "maxKiB": 1024, "transparency": false },
+    "icon": { "formats": ["png", "webp"], "animated": false, "square": true, "minWidth": 64, "maxWidth": 256, "minHeight": 64, "maxHeight": 256, "maxKiB": 512, "transparency": true }
+  },
+  "slots": {
+    "avatarPendant": {
+      "label": "头像挂件",
+      "ready": true,
+      "usage": "wear",
+      "hint": "透明方图，头像圆居中，占画布宽度的 60%。可下载对位模板，导出前隐藏对位线。",
+      "layout": { "canvas": 512, "avatarFraction": 0.6 },
+      "images": [{ "key": "image", "label": "挂件原稿", "rule": "pendant" }],
+      "settings": []
+    },
+    "chatBubble": {
+      "label": "聊天气泡",
+      "ready": true,
+      "usage": "wear",
+      "hint": "上传一张完整气泡，包含描边、气泡尾和角上的插画，按 2 倍图设计。把所有插画与气泡尾放进四个角的固定区域。横竖切线只能经过平整底色和连续边线。别人发的消息会自动镜像。",
+      "layout": { "displayScale": 0.5 },
+      "images": [{ "key": "image", "label": "完整气泡皮肤", "rule": "bubble" }],
+      "settings": [
+        { "key": "sliceTop", "label": "上边不拉伸（像素）", "type": "slice", "image": "image", "axis": "vertical" },
+        { "key": "sliceRight", "label": "右边不拉伸（像素）", "type": "slice", "image": "image", "axis": "horizontal" },
+        { "key": "sliceBottom", "label": "下边不拉伸（像素）", "type": "slice", "image": "image", "axis": "vertical" },
+        { "key": "sliceLeft", "label": "左边不拉伸（像素）", "type": "slice", "image": "image", "axis": "horizontal" },
+        { "key": "textColor", "label": "文字颜色", "type": "color" }
+      ]
+    },
+    "stickerPack": {
+      "label": "表情包",
+      "ready": true,
+      "usage": "collect",
+      "hint": "封面用于商城和表情面板页签。表情可以是动图（GIF 或动态 WebP），会按原文件保存。买下后在私信表情面板里直接发送，对方没买也能看到。",
+      "images": [{ "key": "cover", "label": "封面", "rule": "sticker" }],
+      "list": { "key": "stickers", "label": "表情", "min": 1, "max": 40, "nameMaxLength": 12, "rule": "sticker" },
+      "settings": []
+    },
+    "spaceIcons": {
+      "label": "全站图标包",
+      "ready": true,
+      "usage": "wear",
+      "hint": "佩戴后用于站内对应入口，也展示在佩戴者的个人空间。请按 128 × 128 绘制 5 个透明方形图标，确保缩小后在浅色和深色背景上都清晰。",
+      "images": [
+        { "key": "article", "label": "文章与草稿", "rule": "icon" },
+        { "key": "collect", "label": "收藏", "rule": "icon" },
+        { "key": "like", "label": "点赞", "rule": "icon" },
+        { "key": "notice", "label": "通知与公告", "rule": "icon" },
+        { "key": "link", "label": "链接与分享", "rule": "icon" }
+      ],
+      "settings": []
+    }
+  }
+}

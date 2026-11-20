@@ -2,6 +2,33 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { SseDecoder, readSse, createAgentState, applyAgentEvent, applyAnswerChunk, setRunStatus, restoreAgentState, deliveryReviewWarning } from '../src/utils/agentStream.ts'
 
+test('SSE error exposes a valid OpenTelemetry trace identifier', async () => {
+  const traceId = '0123456789abcdef'.repeat(2)
+  const response = new Response(JSON.stringify({ detail: '连接失败' }), {
+    status: 503, headers: { 'X-Trace-Id': traceId },
+  })
+  await assert.rejects(readSse(response).next(), { status: 503, traceId, message: `连接失败（追踪编号 ${traceId}）` })
+})
+
+test('result notes follow parallel completion order and replay without duplicates', () => {
+  const activity = (taskId, status) => ({ kind: 'activity', id: `${taskId}/task`,
+    label: taskId, taskId, status, step: 'task' })
+  const result = taskId => ({ kind: 'result', id: `${taskId}/result`, taskId, text: `结果 ${taskId}` })
+  const events = [
+    { kind: 'commentary', text: '开始查找资料' },
+    { kind: 'plan', tasks: ['a', 'b'].map(id => ({ id, label: id, role: 'search', stage: 1 })) },
+    activity('a', 'active'), activity('b', 'active'),
+    activity('b', 'done'), result('b'), activity('a', 'done'), result('a'), result('a'),
+    { kind: 'commentary', id: 'answer/route', text: '接下来对照两份资料' },
+  ].map(event => ({ version: 1, ...event, timestamp: '2026-10-11T01:00:00Z' }))
+  const state = createAgentState()
+  events.forEach(event => applyAgentEvent(state, event))
+  assert.deepEqual(state.timeline.map(entry => entry.id),
+    ['note/0', 'a', 'a/task', 'b/task', 'b/result', 'a/result', 'answer/route'])
+  assert.deepEqual(state.activities.map(item => item.status), ['done', 'done'])
+  assert.deepEqual(restoreAgentState({ runStatus: 'succeeded', agentEvents: events }).timeline, state.timeline)
+})
+
 test('an unresolved citation remains a citation warning after refresh', () => {
   const state = restoreAgentState({ runStatus: 'succeeded', agentEvents: [
     { version: 1, kind: 'activity', id: 'main/round_1/grounding', label: '部分引用待确认', status: 'error' },

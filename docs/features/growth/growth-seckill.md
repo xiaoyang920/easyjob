@@ -29,8 +29,8 @@ flowchart TD
     M --> N[Redis 按预占编号只释放一次]
 ```
 
-- `src/main/java/com/easyjob/growth/`：入口、事务、预占、消息拓扑、消费者、转发与补偿。
-- `src/main/resources/growth/reserve.lua`：活动时间、用户限购、库存、凭据、Stream 同步处理。所有 Key 使用活动 `{UUID}` 哈希标签，便于后续学习 Redis Cluster。
+- `services/blog-service/src/main/java/com/easyjob/growth/`：入口、事务、预占、消息拓扑、消费者、转发与补偿。
+- `services/blog-service/src/main/resources/growth/reserve.lua`：活动时间、用户限购、库存、凭据、Stream 同步处理。所有 Key 使用活动 `{UUID}` 哈希标签，便于后续学习 Redis Cluster。
 - `release.lua`：按预占编号用 Set 去重后加库存；保留用户活动资格占位，落实一人一单规则。
 - `frontend/src/views/GrowthShop.vue`：使用原请求编号重试，受理后查询，不把 HTTP 成功当作购买成功。
 
@@ -68,13 +68,13 @@ Redis、MQ 或数据库异常时，后台转发/补偿会重试，活动状态�
 ## 迁移、构建和验证
 
 ```powershell
-.\python-agent\.venv\Scripts\python.exe scripts\migrate-growth-seckill.py
-.\python-agent\.venv\Scripts\python.exe scripts\provision-auth-database.py
+.\services\python-agent\.venv\Scripts\python.exe scripts\migrations\migrate-growth-seckill.py
+.\services\python-agent\.venv\Scripts\python.exe scripts\provision-auth-database.py
 ```
 
 迁移可重入，原账号余额不变。完整迁移入口 `python -m app.migrate` 同样包含 031。随后构建 Java 与前端，确认 Agent 空闲后顺序重启 Blog。数据库日期沿用项目 JDBC 的 GMT+8 配置，API 输出 ISO UTC 时间，浏览器按本地时区显示。
 
-验证入口：`GrowthPaymentTests`、既有阅读/后台回归、`frontend/tests-e2e/growth-shop.spec.ts`、`scripts/growth-seckill-smoke.py`。真实检查创建独立临时账号，不发验证码邮件、不调用模型；只改变这些账号的余额，完成后删除其订单、流水和活动。结果保存在忽略目录 `temp/growth-smoke-report.json`。
+验证入口：`GrowthPaymentTests`、既有阅读/后台回归、`frontend/tests-e2e/growth-shop.spec.ts`、`scripts/checks/growth-seckill-smoke.py`。真实检查创建独立临时账号，不发验证码邮件、不调用模型；只改变这些账号的余额，完成后删除其订单、流水和活动。结果保存在忽略目录 `temp/growth-smoke-report.json`。
 
 2026-10-28 最终结果：30 项 Java 回归、1 项手机浏览器端到端检查、27 项真实服务检查通过。80 个并发请求争抢 3 份库存只生成 3 张订单；20 个重复支付只扣款一次。余额不足、不同订单同时扣款、中途流水冲突回滚、超时关闭、重复消息、重复补偿、暂停/对账/恢复、Redis 限购记录丢失与活动状态丢失均已检查。测试活动清理后为零，扣币流水没有缺失对应订单。前端、Gateway、Auth、Blog、Agent 最终健康检查均为 200。这些是局部并发和故障检查，不能代替大规模容量测试或多副本故障切换验证。
 

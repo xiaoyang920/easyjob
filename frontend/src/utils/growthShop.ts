@@ -5,7 +5,10 @@ export type GrowthActivity = {
 }
 export type GrowthOrder = {
   orderId: string; activityId: string; coinCost: number; growthSeconds: number;
-  state: 'PENDING' | 'PAID' | 'CLOSED' | 'REJECTED'; expiresAt: string; reason: string;
+  state: 'PENDING' | 'PAID' | 'CLOSED' | 'REJECTED'; expiresAt: string; reason: string; createdAt?: string;
+}
+export type DecorationOrder = {
+  orderId: string; title: string; coinCost: number; createdAt: string;
 }
 export type GrowthAudit = {
   activity: GrowthActivity; databaseStockConsistent: boolean; redisStock: string | null;

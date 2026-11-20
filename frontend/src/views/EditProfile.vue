@@ -15,13 +15,11 @@
         <!-- 左侧：名片预览，点击头像即可更换 -->
         <aside class="form-card profile-card">
           <label class="avatar-upload" :class="{ uploading: avatarUploading }">
-            <img
+            <SpaceAvatar
               v-if="!avatarUploading"
-              :src="avatarUrl(profile.avatar, profile.nickName)"
+              :src="profile.avatar" :name="profile.nickName" :user-id="currentUserId"
               alt="头像预览"
-              class="avatar-preview"
-              @error="onAvatarError($event, profile.nickName)"
-            >
+              class="avatar-preview" />
             <div v-else class="avatar-progress" role="progressbar" :aria-valuenow="avatarProgress" aria-valuemin="0" aria-valuemax="100" aria-label="头像上传进度">
               <div class="progress-bar" :style="{ height: avatarProgress + '%' }"></div>
               <span class="progress-text">{{ avatarProgress }}%</span>
@@ -115,12 +113,7 @@
             </div>
 
             <div class="form-item">
-              <label for="profile-theme">主题</label>
-              <AppSelect id="profile-theme" v-model="profile.theme">
-                <AppSelectOption :value="1">默认主题</AppSelectOption>
-                <AppSelectOption :value="2">暗黑主题</AppSelectOption>
-                <AppSelectOption :value="3">梦幻主题</AppSelectOption>
-              </AppSelect>
+              <RouterLink class="profile-customization-link" to="/space-customization">空间装扮</RouterLink>
             </div>
           </section>
 
@@ -152,10 +145,11 @@ import LoginForm from '../components/LoginForm.vue'
 import RegisterForm from '../components/RegisterForm.vue'
 import request from '../utils/request'
 import { uploadFile } from '../utils/upload'
-import { avatarUrl, onAvatarError } from '../utils/avatar'
-import { eventBus, EVENT_AUTH_EXPIRED } from '../utils/eventBus'
+import SpaceAvatar from '@/components/SpaceAvatar.vue'
+import { eventBus, EVENT_AUTH_EXPIRED, EVENT_AUTH_CHANGED } from '../utils/eventBus'
 
 const router = useRouter()
+const currentUserId = localStorage.getItem('userId')
 const saving = ref(false)
 const avatarUploading = ref(false)
 const avatarProgress = ref(0)
@@ -167,8 +161,7 @@ const profile = ref({
   birthday: '',
   school: '',
   personIntroduction: '',
-  noticeInfo: '',
-  theme: 1
+  noticeInfo: ''
 })
 
 // 获取用户信息
@@ -191,8 +184,7 @@ async function fetchProfile() {
         birthday: res.data.birthday || '',
         school: res.data.school || '',
         personIntroduction: res.data.personIntroduction || '',
-        noticeInfo: res.data.noticeInfo || '',
-        theme: res.data.theme ?? 1
+        noticeInfo: res.data.noticeInfo || ''
       }
     }
   } catch (error) {
@@ -221,14 +213,15 @@ async function saveProfile() {
       birthday: profile.value.birthday || null,
       school: profile.value.school,
       personIntroduction: profile.value.personIntroduction,
-      noticeInfo: profile.value.noticeInfo,
-      theme: profile.value.theme
+      noticeInfo: profile.value.noticeInfo
     })
 
     if (res.code === 200) {
       // 更新本地存储（缓存用户信息，避免重复查询）
       localStorage.setItem('nickName', profile.value.nickName)
       localStorage.setItem('avatar', profile.value.avatar)
+      // 页头是全局常驻的，通知它刷新头像和昵称（原个人页弹窗保存后也会这样做）
+      eventBus.emit(EVENT_AUTH_CHANGED)
       alert('保存成功')
       // 回到进入编辑前的页面，不在历史里再叠一条个人空间
       goBackOr(router, '/user-space')
@@ -327,6 +320,7 @@ onUnmounted(() => {
 
 <style scoped>
 /* 纸面卡片、输入框、按钮与标题的配色见 styles/theme.css，这里只负责布局 */
+.profile-customization-link { color: var(--ej-ink); text-underline-offset: 4px; justify-self: start; }
 .edit-profile-page {
   min-height: 100vh;
 }
@@ -412,7 +406,7 @@ onUnmounted(() => {
   display: grid;
   place-items: center;
   border-radius: 50%;
-  background: #11110fa6;
+  background: color-mix(in srgb, var(--ej-ink) 65%, transparent);
   color: var(--ej-surface);
   font-size: 13px;
   font-weight: 700;
@@ -458,7 +452,7 @@ onUnmounted(() => {
   right: 0;
   bottom: 0;
   background: var(--studio-lime);
-  transition: height 0.3s ease;
+  transition: height 0.3s ease; color: var(--ej-on-color);
 }
 
 .avatar-progress .progress-text {
@@ -484,7 +478,7 @@ onUnmounted(() => {
 
 .profile-intro {
   margin-top: 6px;
-  color: #47453f;
+  color: var(--ej-body);
   font-size: 13px;
   line-height: 1.7;
   overflow: hidden;
@@ -551,7 +545,7 @@ onUnmounted(() => {
 }
 
 .required {
-  color: var(--studio-coral);
+  color: var(--ej-coral-text);
 }
 
 /* 字数统计靠右 */

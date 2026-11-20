@@ -2,10 +2,8 @@
   <div ref="root" class="app-navigation" @keydown.esc="closeMenus">
     <template v-if="signedIn">
       <div class="app-nav-account" :class="{ 'is-open': accountOpen }" @pointerenter="enterAccount" @pointerleave="leaveAccount" @focusout="leaveAccountFocus">
-        <button class="app-nav-avatar" :aria-expanded="accountOpen" aria-controls="app-account-panel" aria-label="账户菜单" @pointerdown="beginAvatarPress" @click="toggleAccount" @keydown.down.prevent="openAccount">
-          <span class="app-nav-avatar-visual">
-          <img v-if="avatarUrl" :src="avatarUrl" alt="用户头像" @error="avatarUrl = ''"><img v-else :src="avatarPlaceholder(displayName)" alt="用户头像">
-          </span>
+        <button class="app-nav-avatar" :aria-expanded="accountOpen" aria-controls="app-account-panel" aria-label="账户菜单" @pointerenter="hoverAvatar" @pointerdown="beginAvatarPress" @click="toggleAccount" @keydown.down.prevent="openAccount">
+          <SpaceAvatar class="app-nav-avatar-visual" :src="avatarUrl" :name="displayName" :user-id="accountUserId" />
         </button>
         <Transition name="app-account" :duration="220">
           <div v-if="accountOpen" id="app-account-panel" class="app-account-menu">
@@ -35,7 +33,11 @@
       </button>
       <nav id="app-navigation-links" class="app-nav-links" :class="{ 'is-open': mobileOpen }" aria-label="平台导航">
         <RouterLink v-for="item in links" :key="item.path" :to="item.path" :title="item.path==='/chat' ? `私信未读 ${unread}，新消息请求 ${requestUnread}` : item.label" class="app-nav-link" :class="{ 'is-current': currentPath === item.path }" :aria-current="currentPath === item.path ? 'page' : undefined">
-          <span class="app-nav-icon"><component :is="item.icon" /><span v-if="badge(item.path)" class="app-nav-badge">{{ badge(item.path) > 99 ? '99+' : badge(item.path) }}</span></span>
+          <span class="app-nav-icon">
+            <SpaceIcon v-if="item.decoration" site :name="item.decoration"><component :is="item.icon" /></SpaceIcon>
+            <component v-else :is="item.icon" />
+            <span v-if="badge(item.path)" class="app-nav-badge">{{ badge(item.path) > 99 ? '99+' : badge(item.path) }}</span>
+          </span>
           <span>{{ item.label }}</span>
         </RouterLink>
       </nav>
@@ -56,7 +58,8 @@ import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { EditPen, Document, ChatDotRound, Bell, User, Menu, Close, SwitchButton, Lock, Monitor, Coin } from '@element-plus/icons-vue'
 import request from '@/utils/request'
-import { avatarPlaceholder } from '@/utils/avatar'
+import SpaceAvatar from '@/components/SpaceAvatar.vue'
+import SpaceIcon from '@/components/SpaceIcon.vue'
 import { eventBus, EVENT_AUTH_CHANGED } from '@/utils/eventBus'
 import { notifyUnreadCount, fetchNotifyUnreadCount, connectNotifyStream, closeNotifyStream, resetNotifyState } from '@/utils/notification'
 
@@ -104,7 +107,14 @@ function openAccount() {
   if (accountOpen.value) return
   accountOpen.value = true; mobileOpen.value = false; loadAccountStats()
 }
-function enterAccount(event: PointerEvent) { if (event.pointerType === 'mouse' && window.matchMedia('(hover: hover)').matches) { pointerInAccount = true; openAccount() } }
+function enterAccount(event: PointerEvent) {
+  if (event.pointerType !== 'mouse') return
+  pointerInAccount = true
+  cancelAccountClose()
+}
+function hoverAvatar(event: PointerEvent) {
+  if (event.pointerType === 'mouse' && window.matchMedia('(hover: hover)').matches) openAccount()
+}
 function leaveAccount(event: PointerEvent) {
   if (event.pointerType !== 'mouse') return
   pointerInAccount = false; cancelAccountClose(); accountCloseTimer = setTimeout(() => { if (!root.value?.querySelector('.app-nav-account')?.matches(':hover')) accountOpen.value = false }, 240)
@@ -128,10 +138,10 @@ function leaveAccountFocus(event: FocusEvent) {
   if (!(event.currentTarget as HTMLElement).contains(event.relatedTarget as Node | null) && !pointerInAccount) { cancelAccountClose(); accountOpen.value = false }
 }
 const links = [
-  { path: '/create-article', label: '写文章', icon: EditPen },
-  { path: '/draft-box', label: '草稿', icon: Document },
+  { path: '/create-article', label: '写文章', icon: EditPen, decoration: 'article' },
+  { path: '/draft-box', label: '草稿', icon: Document, decoration: 'article' },
   { path: '/chat', label: '消息', icon: ChatDotRound },
-  { path: '/notifications', label: '通知', icon: Bell },
+  { path: '/notifications', label: '通知', icon: Bell, decoration: 'notice' },
   { path: '/user-space', label: '空间', icon: User },
   { path: '/ai-chat', label: 'AI', icon: EditPen },
 ]
@@ -189,24 +199,20 @@ onUnmounted(() => { cancelAccountClose(); document.removeEventListener('pointerd
 #app .app-nav-links { display: flex; align-items: center; gap: 6px; }
 #app .app-nav-link { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 48px; padding: 7px 8px; color: var(--ej-ink); text-decoration: none; border: 1px solid transparent; border-radius: 12px; font-size: 11px; line-height: 1.3; transition: background 180ms, transform 250ms var(--studio-spring); }
 #app .app-nav-link:hover { background: var(--ej-surface); transform: translateY(-2px); }
-#app .app-nav-link.is-current { background: var(--studio-lime); border-color: var(--ej-ink); }
-#app .app-nav-icon { position: relative; display: flex; }
+#app .app-nav-link.is-current { background: var(--studio-lime); border-color: var(--ej-ink); color: var(--ej-on-color); }
+#app .app-nav-icon { position: relative; display: flex; --space-icon-size: 20px; }
 #app .app-navigation svg { width: 20px; height: 20px; }
-#app .app-nav-badge { position: absolute; top: -5px; left: 12px; min-width: 15px; padding: 1px 3px; border: 1px solid var(--ej-ink); border-radius: 99px; background: var(--studio-coral); font-size: 9px; line-height: 12px; text-align: center; }
+#app .app-nav-badge { position: absolute; top: -5px; left: 12px; min-width: 15px; padding: 1px 3px; border: 1px solid var(--ej-ink); border-radius: 99px; background: var(--studio-coral); font-size: 9px; line-height: 12px; text-align: center; color: var(--ej-on-color); }
 #app .app-nav-account { position: relative; }
-#app .app-nav-account::before { content: ''; position: absolute; inset: -18px; }
 #app .app-nav-avatar { position: relative; z-index: 2; width: 36px; height: 36px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--ej-ink); cursor: pointer; }
 /* 按钮及外层命中区域不动，只缩放没有指针事件的头像视觉层。 */
-#app .app-nav-avatar-visual { position: absolute; inset: 0; display: grid; place-items: center; border: 1px solid var(--ej-ink); border-radius: 50%; background: var(--ej-surface); overflow: hidden; pointer-events: none; transition: transform 300ms cubic-bezier(.4,0,.2,1), box-shadow 200ms; }
+#app .app-nav-avatar-visual { position: absolute; inset: 0; width: 100%; height: 100%; box-sizing: border-box; border: 1px solid var(--ej-ink); border-radius: 50%; background: var(--ej-surface); pointer-events: none; transition: transform 300ms cubic-bezier(.4,0,.2,1), box-shadow 200ms; }
 #app .app-nav-account.is-open .app-nav-avatar-visual { transform: scale(2); box-shadow: 0 4px 16px #11110f20; }
-#app .app-nav-avatar img { width: 100%; height: 100%; object-fit: cover; }
 #app .app-account-menu { position: absolute; z-index: 1; left: calc(50% - 140px); top: 25px; width: min(280px,calc(100vw - 32px)); }
-/* 外层保持固定的鼠标命中区域，动画仅发生在内部卡片。桥接间隙，避免移向卡片时触发离开。 */
-#app .app-account-menu::before { content: ''; position: absolute; inset: -12px 0 auto; height: 12px; }
 #app .app-account-card { padding: 45px 8px 8px; border: 1px solid var(--ej-ink); border-radius: 18px; box-shadow: var(--ej-shadow-lift); background: var(--ej-surface); transform-origin: top center; max-height: calc(100dvh - 110px); overflow-y: auto; }
 #app .app-account-identity { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px 10px; }
 #app .app-account-name { min-width: 0; color: var(--ej-ink); font-size: 17px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#app .app-account-level { flex-shrink: 0; padding: 3px 7px; border: 1px solid var(--ej-ink); border-radius: 99px; background: var(--studio-lime); color: var(--ej-ink); font-size: 11px; font-weight: 700; line-height: 1.2; }
+#app .app-account-level { flex-shrink: 0; padding: 3px 7px; border: 1px solid var(--ej-ink); border-radius: 99px; background: var(--studio-lime); color: var(--ej-on-color); font-size: 11px; font-weight: 700; line-height: 1.2; }
 #app .app-account-menu :is(a,button) { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px; font: inherit; font-size: 13px; text-decoration: none; color: var(--ej-ink); border: 0; border-radius: 8px; background: transparent; text-align: left; cursor: pointer; }
 #app .app-account-menu :is(a,button):hover { background: var(--ej-canvas); }
 #app .app-account-identity .app-account-name { display: block; width: auto; padding: 0; border-radius: 0; font-size: 17px; font-weight: 700; line-height: 1.5; text-align: center; }
@@ -217,7 +223,7 @@ onUnmounted(() => { cancelAccountClose(); document.removeEventListener('pointerd
 #app .app-account-stats span { font-size: 11px; color: var(--ej-muted); }
 #app .app-account-items { padding-block: 8px; }
 #app .app-account-items .app-account-admin { margin-top: 6px; border-top: 1px solid var(--ej-hairline); border-radius: 0 0 8px 8px; padding-top: 12px; }
-#app .app-account-menu .app-account-logout { border-top: 1px solid var(--ej-hairline); border-radius: 0 0 10px 10px; color: #9d4433; }
+#app .app-account-menu .app-account-logout { border-top: 1px solid var(--ej-hairline); border-radius: 0 0 10px 10px; color: color-mix(in srgb, #9d4433 var(--ej-shade), var(--ej-ink)); }
 #app .app-account-enter-active .app-account-card, #app .app-account-leave-active .app-account-card { transition: opacity 180ms, transform 220ms cubic-bezier(.4,0,.2,1); }
 #app .app-account-enter-from .app-account-card, #app .app-account-leave-to .app-account-card { opacity: 0; transform: translateY(8px) scale(.98); }
 #app .app-account-leave-active { pointer-events: none; }
@@ -226,8 +232,8 @@ onUnmounted(() => { cancelAccountClose(); document.removeEventListener('pointerd
 @media(max-width: 1100px) {
   #app .app-navigation { gap: 10px; }
   #app .app-nav-account { position: static; }
-  #app .app-nav-account::before { display: none; }
   #app .app-account-menu { left: auto; right: 0; top: calc(100% + 12px); }
+  #app .app-account-menu::before { content: ''; position: absolute; inset: -12px 0 auto; height: 12px; }
   #app .app-account-card { padding-top: 16px; }
   #app .app-nav-account.is-open .app-nav-avatar-visual { transform: scale(1.25); }
   #app .app-nav-toggle { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid var(--ej-ink); border-radius: 99px; background: var(--ej-surface); color: var(--ej-ink); font: inherit; font-size: 12px; cursor: pointer; }

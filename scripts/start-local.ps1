@@ -5,6 +5,8 @@ param(
     [switch]$Build,
     [switch]$SkipBuild,
     [switch]$Migrate,
+    [switch]$Excel,
+    [switch]$Tracing,
     [switch]$Reindex,
     [ValidateRange(30,900)][int]$TimeoutSeconds = 180,
     [string]$MySqlService = 'MySQL',
@@ -13,7 +15,6 @@ param(
     [string]$Node = 'D:\applications\nodejs\node.exe',
     [string]$ElasticsearchHome = 'D:\applications\ES\elasticsearch-9.2.4-windows-x86_64\elasticsearch-9.2.4',
     [string]$RabbitHome = 'D:\applications\rabbitmq\rabbitmq_server-4.1.8',
-    [switch]$Excel,
     [switch]$SkipExcel
 )
 
@@ -26,19 +27,24 @@ $root = Split-Path -Parent $PSScriptRoot
 [string[]]$authTracingArguments = @(Get-JavaTracingArguments -ProjectRoot $root -ServiceName 'easyjob-auth')
 [string[]]$blogTracingArguments = @(Get-JavaTracingArguments -ProjectRoot $root -ServiceName 'easyjob-blog')
 [string[]]$gatewayTracingArguments = @(Get-JavaTracingArguments -ProjectRoot $root -ServiceName 'easyjob-gateway')
+[string[]]$indexTracingArguments = @(Get-JavaTracingArguments -ProjectRoot $root -ServiceName 'easyjob-search-index')
 [string[]]$excelTracingArguments = if ($startExcel) { Get-JavaTracingArguments -ProjectRoot $root -ServiceName 'easyjob-excel' }
 $logs = Join-Path $root 'logs'
-$python = Join-Path $root 'python-agent\.venv\Scripts\python.exe'
+$python = Join-Path $root 'services\python-agent\.venv\Scripts\python.exe'
 $docker = 'C:\Program Files\Docker\Docker\resources\bin\docker.exe'
 $desktop = 'C:\Program Files\Docker\Docker\Docker Desktop.exe'
 $image = 'redis/redis-stack@sha256:5d5154123426693540ea6c1d9e638eae2bf2024879c839db6fcfdd7717e817c7'
-$jar = Join-Path $root 'target\easyjob-0.0.1-SNAPSHOT.jar'
+$blogRoot = Join-Path $root 'services/blog-service'
+$jar = Join-Path $blogRoot 'target\easyjob-0.0.1-SNAPSHOT.jar'
 $runtime = Join-Path $root 'temp\application-runtime.yml'
-$gatewayJar = Join-Path $root 'gateway\target\easyjob-gateway-0.0.1-SNAPSHOT.jar'
+$gatewayJar = Join-Path $root 'services\gateway\target\easyjob-gateway-0.0.1-SNAPSHOT.jar'
 $gatewayRuntime = Join-Path $root 'temp\gateway-runtime.yml'
-$excelRoot = Join-Path $root 'excel-service'
+$excelRoot = Join-Path $root 'services/excel-service'
 $excelJar = Join-Path $excelRoot 'target\easyjob-excel-0.0.1-SNAPSHOT.jar'
 $excelRuntime = Join-Path $root 'temp\excel-runtime.yml'
+$indexRoot = Join-Path $root 'services/search-index-service'
+$indexJar = Join-Path $indexRoot 'target\easyjob-search-index-0.0.1-SNAPSHOT.jar'
+$indexContract = Join-Path $root 'search-index-common\src\main'
 $consulImage = 'hashicorp/consul@sha256:200471c74bc0965cd20c81eacc31a209873d5d9e599fe637ceb856b0cbbc518d'
 
 function Write-Step([string]$Message) { Write-Host ('[{0:HH:mm:ss}] {1}' -f (Get-Date), $Message) }
@@ -49,17 +55,27 @@ function Test-Port([int]$Port) {
     catch { return $false } finally { $client.Dispose() }
 }
 
-function Wait-Ready([string]$Name, [scriptblock]$Probe, $Process = $null) {
+function Wait-Ready([string]$Name, [scriptblock]$Probe, $Process = $null, [switch]$SpringBoot) {
     $timer = [Diagnostics.Stopwatch]::StartNew()
+    $failure = "$Name not ready after $TimeoutSeconds seconds."
+    $outputLog = Join-Path $logs "$Name.out.log"
     while ($timer.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
         if (& $Probe) { Write-Step "$Name ready."; return }
         if ($null -ne $Process) {
             $Process.Refresh()
             if ($Process.HasExited) { throw "$Name exited (code $($Process.ExitCode)). Check $logs\$Name.err.log and $Name.out.log." }
+            if ($SpringBoot -and (Select-String -LiteralPath $outputLog -Pattern ' - Application run failed\s*$' -Quiet -ErrorAction SilentlyContinue)) {
+                $failure = "$Name reported a Spring Boot startup failure."
+                break
+            }
         }
         Start-Sleep -Seconds 1
     }
-    throw "$Name not ready after $TimeoutSeconds seconds. Check logs/; resolve the failure and run again."
+    if ($SpringBoot -and $null -ne $Process) {
+        if (!$Process.HasExited) { Stop-Process -InputObject $Process -Force -ErrorAction SilentlyContinue }
+        throw "$failure Check $outputLog and $logs\$Name.err.log."
+    }
+    throw "$failure Check logs/; resolve the failure and run again."
 }
 
 function Start-Hidden([string]$Name, [string]$File, [string]$ArgumentLine, [string]$Directory) {
@@ -125,53 +141,20 @@ function Test-Consul {
 function Test-GatewayJarFresh {
     if (!(Test-Path -LiteralPath $gatewayJar -PathType Leaf)) { return $false }
     $modified=(Get-Item -LiteralPath $gatewayJar).LastWriteTimeUtc
-    $files=@(Get-ChildItem -LiteralPath (Join-Path $root 'gateway\src') -File -Recurse)
-    $files+=Get-Item -LiteralPath (Join-Path $root 'gateway\pom.xml')
+    $files=@(Get-ChildItem -LiteralPath (Join-Path $root 'services\gateway\src') -File -Recurse)
+    $files+=Get-Item -LiteralPath (Join-Path $root 'services\gateway\pom.xml')
     $files+=Get-ChildItem -LiteralPath (Join-Path $root 'auth-common\src\main') -File -Recurse
     return @($files | Where-Object { $_.LastWriteTimeUtc -gt $modified }).Count -eq 0
 }
 function Test-AuthJarFresh {
-    $path=Join-Path $root 'auth-service\target\easyjob-auth-0.0.1-SNAPSHOT.jar'
+    $path=Join-Path $root 'services\auth-service\target\easyjob-auth-0.0.1-SNAPSHOT.jar'
     if(!(Test-Path -LiteralPath $path -PathType Leaf)){return $false}
     $modified=(Get-Item -LiteralPath $path).LastWriteTimeUtc
-    $files=@(Get-ChildItem -LiteralPath (Join-Path $root 'auth-service\src\main') -File -Recurse)
+    $files=@(Get-ChildItem -LiteralPath (Join-Path $root 'services\auth-service\src\main') -File -Recurse)
     $files+=Get-ChildItem -LiteralPath (Join-Path $root 'auth-common\src\main') -File -Recurse
-    $files+=Get-Item -LiteralPath (Join-Path $root 'auth-service\pom.xml')
+    $files+=Get-Item -LiteralPath (Join-Path $root 'services\auth-service\pom.xml')
     return @($files|Where-Object {$_.LastWriteTimeUtc -gt $modified}).Count -eq 0
 }
-
-function Start-RedisContainer([string]$Name, [int]$Port, [string]$Volume, [switch]$Checkpoint) {
-    if (Test-Port $Port) { Write-Step "Redis :$Port already listening; verifying protocol below."; return }
-    $existing = @(& $docker ps -a --format '{{.Names}}')
-    if ($LASTEXITCODE -ne 0) { throw 'Cannot list Docker containers.' }
-    $container = $Name
-    if ($Port -eq 6379 -and $existing -contains 'redis-stack') { $container = 'redis-stack' }
-    if ($existing -contains $container) {
-        & $docker start $container | Out-Null
-    } else {
-        $arguments = @('run','-d','--name',$container,'--restart','unless-stopped',
-            '-p',"127.0.0.1:${Port}:6379",'-v',"${Volume}:/data")
-        if ($Checkpoint) {
-            $arguments += @('--entrypoint','redis-server',$image,'--dir','/data','--appendonly','yes',
-                '--protected-mode','no','--loadmodule','/opt/redis-stack/lib/redisearch.so',
-                '--loadmodule','/opt/redis-stack/lib/rejson.so')
-        } else { $arguments += $image }
-        & $docker @arguments | Out-Null
-    }
-    if ($LASTEXITCODE -ne 0) { throw "Redis container $container failed to start." }
-    Wait-Ready "Redis-$Port" { Test-Port $Port }
-}
-
-function Test-JarFresh {
-    if (!(Test-Path -LiteralPath $jar -PathType Leaf)) { return $false }
-    $modified = (Get-Item -LiteralPath $jar).LastWriteTimeUtc
-    $sources = @(Get-ChildItem -LiteralPath (Join-Path $root 'src\main') -Recurse -File)
-    $sources += Get-Item -LiteralPath (Join-Path $root 'pom.xml')
-    $sources += Get-ChildItem -LiteralPath (Join-Path $root 'contracts') -Recurse -File
-    $sources += Get-ChildItem -LiteralPath (Join-Path $root 'auth-common\src\main') -Recurse -File
-    return @($sources | Where-Object { $_.LastWriteTimeUtc -gt $modified }).Count -eq 0
-}
-
 function Test-ExcelJarFresh {
     if (!(Test-Path -LiteralPath $excelJar -PathType Leaf)) { return $false }
     $modified = (Get-Item -LiteralPath $excelJar).LastWriteTimeUtc
@@ -180,10 +163,49 @@ function Test-ExcelJarFresh {
     return @($files | Where-Object { $_.LastWriteTimeUtc -gt $modified }).Count -eq 0
 }
 
+function Test-IndexJarFresh {
+    if (!(Test-Path -LiteralPath $indexJar -PathType Leaf)) { return $false }
+    $modified = (Get-Item -LiteralPath $indexJar).LastWriteTimeUtc
+    $files = @(Get-ChildItem -LiteralPath (Join-Path $indexRoot 'src\main'),$indexContract -File -Recurse)
+    $files += Get-Item -LiteralPath (Join-Path $indexRoot 'pom.xml')
+    return @($files | Where-Object { $_.LastWriteTimeUtc -gt $modified }).Count -eq 0
+}
+
+function Start-RedisContainer([string]$Name, [int]$Port, [string]$Volume, [switch]$Checkpoint) {
+    if (Test-Port $Port) { Write-Step "Redis :$Port already listening; verifying protocol below."; return }
+    $existing = @(& $docker ps -a --format '{{.Names}}')
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot list Docker containers.' }
+    if ($existing -contains $Name) {
+        & $docker start $Name | Out-Null
+    } else {
+        $arguments = @('run','-d','--name',$Name,'--restart','unless-stopped',
+            '-p',"127.0.0.1:${Port}:6379",'-v',"${Volume}:/data")
+        if ($Checkpoint) {
+            $arguments += @('--entrypoint','redis-server',$image,'--dir','/data','--appendonly','yes',
+                '--protected-mode','no','--loadmodule','/opt/redis-stack/lib/redisearch.so',
+                '--loadmodule','/opt/redis-stack/lib/rejson.so')
+        } else { $arguments += $image }
+        & $docker @arguments | Out-Null
+    }
+    if ($LASTEXITCODE -ne 0) { throw "Redis container $Name failed to start." }
+    Wait-Ready "Redis-$Port" { Test-Port $Port }
+}
+
+function Test-JarFresh {
+    if (!(Test-Path -LiteralPath $jar -PathType Leaf)) { return $false }
+    $modified = (Get-Item -LiteralPath $jar).LastWriteTimeUtc
+    $sources = @(Get-ChildItem -LiteralPath (Join-Path $blogRoot 'src\main') -Recurse -File)
+    $sources += Get-Item -LiteralPath (Join-Path $blogRoot 'pom.xml')
+    $sources += Get-ChildItem -LiteralPath (Join-Path $root 'contracts') -Recurse -File
+    $sources += Get-ChildItem -LiteralPath (Join-Path $root 'auth-common\src\main') -Recurse -File
+    $sources += Get-ChildItem -LiteralPath $indexContract -Recurse -File
+    return @($sources | Where-Object { $_.LastWriteTimeUtc -gt $modified }).Count -eq 0
+}
+
 function Check-Prerequisites {
     $required = @($python, "$JavaHome\bin\java.exe", $Node,
         "$ElasticsearchHome\bin\elasticsearch.bat", "$RabbitHome\sbin\rabbitmq-server.bat",
-        (Join-Path $root 'src\main\resources\application.yml'), (Join-Path $root 'python-agent\.env'),
+        (Join-Path $blogRoot 'src\main\resources\application.yml'), (Join-Path $root 'services\python-agent\.env'),
         (Join-Path $root 'frontend\node_modules\vite\bin\vite.js'))
     if (!$SkipBuild) { $required += $Maven }
     if (!(Test-Port 6379) -or !(Test-Port 6380) -or !(Test-Port 8500)) { $required += @($docker,$desktop) }
@@ -193,6 +215,7 @@ function Check-Prerequisites {
     if ($Build -and $SkipBuild) { throw 'Use -Build or -SkipBuild, not both.' }
     if ($SkipBuild -and !(Test-Path -LiteralPath $jar)) { throw 'No existing Java JAR. Run without -SkipBuild first.' }
     if (($Build -or $Reindex) -and (Test-Port 8080)) { throw 'Java is already running. Stop the verified project Java process before -Build/-Reindex.' }
+    if ($Build -and (Test-Port 8084)) { throw 'Search index is already running. Stop the verified project search index process before -Build.' }
     if ($startExcel -and $Build -and (Test-Port 8083)) { throw 'Excel is already running. Stop the verified project Excel process before -Build.' }
     if ($Migrate -and ((Test-Port 8080) -or (Test-Port 8000) -or (Test-Port 8083))) { throw 'Stop Blog, Agent, and Excel before requesting -Migrate.' }
 }
@@ -209,8 +232,9 @@ try {
     Check-Prerequisites
     if ($Check) {
         Write-Host 'Prerequisites found. Check mode does not start services, build, or change database/configuration.'
-        foreach ($port in @(3306,6379,6380,5672,9200,8500,8090,8080,8083,8000,20881,50051,3000)) { Write-Host (':{0} listening={1}' -f $port,(Test-Port $port)) }
+        foreach ($port in @(3306,6379,6380,5672,9200,8500,8090,8080,8083,8084,8000,20881,50051,3000)) { Write-Host (':{0} listening={1}' -f $port,(Test-Port $port)) }
         Write-Host ('Java build needed when stopped: ' + !(Test-JarFresh))
+        Write-Host ('Search index build needed when stopped: ' + !(Test-IndexJarFresh))
         Write-Host "Excel startup enabled: $startExcel"
         if ($startExcel) { Write-Host ('Excel build needed when stopped: ' + !(Test-ExcelJarFresh)) }
         return
@@ -223,8 +247,8 @@ try {
     . (Join-Path $PSScriptRoot 'python-tracing.ps1')
     Set-PythonTracingEnvironment
     $env:SERVICE_DISCOVERY_ENABLED = 'true'
-    Write-Step 'Java OpenTelemetry tracing enabled for auth, blog and gateway.'
-    Invoke-Logged 'python-dependencies' $python @('-c','import uvicorn, yaml, redis, httpx, databases, grpc, langgraph.checkpoint.redis; from app.services import tracing') (Join-Path $root 'python-agent')
+    Write-Step 'Java OpenTelemetry tracing enabled for auth, blog, gateway and search index.'
+    Invoke-Logged 'python-dependencies' $python @('-c','import uvicorn, yaml, redis, httpx, databases, grpc, langgraph.checkpoint.redis; from app.services import tracing') (Join-Path $root 'services/python-agent')
 
     Write-Step '1/7 Checking MySQL.'
     if (!(Test-Port 3306)) {
@@ -238,10 +262,10 @@ try {
         Write-Step 'Preparing missing local runtime configuration (secrets are not printed).'
         Invoke-Logged 'prepare-local' $python @('scripts\prepare-local.py') $root
     }
-
     if ($startExcel) {
         Invoke-Logged 'prepare-excel' $python @('scripts\prepare-local.py','--excel') $root
     }
+    Invoke-Logged 'prepare-search-index' $python @('scripts\prepare-local.py','--search-index') $root
 
     Write-Step '2/7 Starting cache Redis and Checkpoint Redis.'
     if (!(Test-Port 6379) -or !(Test-Port 6380)) {
@@ -266,11 +290,24 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Consul failed to start.' }
     }
     Wait-Ready 'consul' { Test-Consul }
+    if ($Tracing) {
+        Write-Step 'Starting OpenTelemetry Collector and Jaeger.'
+        if (!(Test-Docker)) {
+            Start-Process -FilePath $desktop -WindowStyle Hidden | Out-Null
+            Wait-Ready 'Docker' { Test-Docker }
+        }
+        Invoke-Logged 'tracing-compose' $docker @('compose','-f','deploy/observability/compose.yaml','up','-d') $root
+        Wait-Ready 'Collector' { Test-Port 14318 }
+        Wait-Ready 'Jaeger' { Test-Port 16686 }
+    }
     if ($Migrate) {
         Write-Step 'Applying explicitly requested database migrations.'
-        Invoke-Logged 'database-migration' $python @('-m','app.migrate') (Join-Path $root 'python-agent')
+        Invoke-Logged 'database-migration' $python @('-m','app.migrate') (Join-Path $root 'services/python-agent')
+        if (Test-Path -LiteralPath (Join-Path $root 'temp\auth-database-users.json') -PathType Leaf) {
+            Write-Step 'Refreshing local Blog permissions for space customization.'
+            Invoke-Logged 'space-db-grants' $python @('scripts\provision-auth-database.py','--refresh-space-grants') $root
+        }
     }
-
     if ($startExcel) {
         try { Invoke-Logged 'excel-db-check' $python @('scripts\prepare-local.py','--check-excel-db') $root }
         catch {
@@ -299,11 +336,11 @@ try {
 
     Write-Step '5/7 Starting Java backend.'
     Write-Step 'Starting independent authentication service.'
-    $authJar=Join-Path $root 'auth-service\target\easyjob-auth-0.0.1-SNAPSHOT.jar'
+    $authJar=Join-Path $root 'services\auth-service\target\easyjob-auth-0.0.1-SNAPSHOT.jar'
     if (!(Test-Port 8081)) {
-        if ($Build -or (!$SkipBuild -and !(Test-AuthJarFresh))) {Invoke-Logged 'auth-package' $Maven @('-q','-DskipTests','package') (Join-Path $root 'auth-service')}
-        if(!(Test-Path -LiteralPath $authJar)){throw 'Auth JAR missing; build auth-service/pom.xml first.'}
-        $authArguments = ($authTracingArguments -join ' ') + ' -jar auth-service\target\easyjob-auth-0.0.1-SNAPSHOT.jar --spring.profiles.include=tracing --spring.config.additional-location=file:./temp/auth-runtime.yml'
+        if ($Build -or (!$SkipBuild -and !(Test-AuthJarFresh))) {Invoke-Logged 'auth-package' $Maven @('-q','-DskipTests','package') (Join-Path $root 'services/auth-service')}
+        if(!(Test-Path -LiteralPath $authJar)){throw 'Auth JAR missing; build services/auth-service/pom.xml first.'}
+        $authArguments = ($authTracingArguments -join ' ') + ' -jar services\auth-service\target\easyjob-auth-0.0.1-SNAPSHOT.jar --spring.profiles.include=tracing --spring.config.additional-location=file:./temp/auth-runtime.yml'
         $authProcess=Start-Hidden 'auth' "$JavaHome\bin\java.exe" $authArguments $root
         Wait-Ready 'auth' {try{(Invoke-RestMethod 'http://127.0.0.1:8081/actuator/health' -TimeoutSec 3).status -eq 'UP'}catch{$false}} $authProcess
     }
@@ -316,15 +353,30 @@ try {
             Write-Step 'Building updated Java sources. Progress: logs/maven-package.log.'
             # Protocol/source deletions leave obsolete generated sources and classes
             # behind during incremental package. Clean only this launcher's output.
-            Invoke-Logged 'maven-package' $Maven @('-q','-DskipTests','-Deasyjob.build.directory=target/local-launcher','clean','package') $root
-            Copy-Item -LiteralPath (Join-Path $root 'target\local-launcher\easyjob-0.0.1-SNAPSHOT.jar') -Destination $jar -Force
+            Invoke-Logged 'maven-package' $Maven @('-q','-DskipTests','-Deasyjob.build.directory=target/local-launcher','clean','package') $blogRoot
+            Copy-Item -LiteralPath (Join-Path $blogRoot 'target\local-launcher\easyjob-0.0.1-SNAPSHOT.jar') -Destination $jar -Force
         }
-        $arguments = ($blogTracingArguments -join ' ') + ' -jar target\easyjob-0.0.1-SNAPSHOT.jar --server.address=127.0.0.1 --spring.profiles.include=tracing --spring.config.additional-location=file:./temp/application-runtime.yml'
+        $arguments = ($blogTracingArguments -join ' ') + ' -jar services\blog-service\target\easyjob-0.0.1-SNAPSHOT.jar --server.address=127.0.0.1 --spring.profiles.include=tracing --spring.config.additional-location=file:./temp/application-runtime.yml,file:./temp/search-index-blog.yml'
         if (Test-Path -LiteralPath $excelRuntime) { $arguments += ',file:./temp/excel-runtime.yml' }
         if ($Reindex) { $arguments += ' --rag.reindex.enabled=true' }
         $javaProcess = Start-Hidden 'java' "$JavaHome\bin\java.exe" $arguments $root
-        Wait-Ready 'java' { Test-Java } $javaProcess
+        Wait-Ready 'java' { Test-Java } $javaProcess -SpringBoot
     }
+
+    Write-Step 'Starting search index service.'
+    $indexProcess = $null
+    if (!(Test-Port 8084)) {
+        if ($Build -or (!$SkipBuild -and !(Test-IndexJarFresh))) {
+            Invoke-Logged 'search-index-package' $Maven @('-q','-DskipTests','package') $indexRoot
+        }
+        if (!(Test-Path -LiteralPath $indexJar -PathType Leaf)) { throw 'Search index JAR missing. Run without -SkipBuild first.' }
+        $indexArguments = ($indexTracingArguments -join ' ') + ' -jar services\search-index-service\target\easyjob-search-index-0.0.1-SNAPSHOT.jar --spring.config.additional-location=file:./temp/search-index-blog.yml,file:./temp/search-index-runtime.yml'
+        $indexProcess = Start-Hidden 'search-index' "$JavaHome\bin\java.exe" $indexArguments $root
+    }
+    Wait-Ready 'search-index' {
+        try { (Invoke-RestMethod 'http://127.0.0.1:8084/actuator/health' -TimeoutSec 3).status -eq 'UP' }
+        catch { $false }
+    } $indexProcess
 
     if ($startExcel) {
         Write-Step 'Starting Excel export service.'
@@ -338,7 +390,7 @@ try {
                 Invoke-Logged 'excel-package' $Maven @('-q','-DskipTests','package') $excelRoot
             }
             if (!(Test-Path -LiteralPath $excelJar)) { throw 'Excel JAR missing. Run without -SkipBuild first.' }
-            $excelArguments = ($excelTracingArguments -join ' ') + ' -jar excel-service\target\easyjob-excel-0.0.1-SNAPSHOT.jar --server.port=8083 --server.address=127.0.0.1 --spring.config.additional-location=file:./temp/excel-runtime.yml'
+            $excelArguments = ($excelTracingArguments -join ' ') + ' -jar services\excel-service\target\easyjob-excel-0.0.1-SNAPSHOT.jar --server.port=8083 --server.address=127.0.0.1 --spring.config.additional-location=file:./temp/excel-runtime.yml'
             $excelProcess = Start-Hidden 'excel' "$JavaHome\bin\java.exe" $excelArguments $root
         }
         try {
@@ -361,7 +413,7 @@ try {
         $previousAgentRuntime=$env:EASYJOB_AGENT_RUNTIME
         try {
             $env:EASYJOB_AGENT_RUNTIME='true'
-            $agentProcess = Start-Hidden 'python' $python '-m uvicorn app.main:app --host 127.0.0.1 --port 8000' (Join-Path $root 'python-agent')
+            $agentProcess = Start-Hidden 'python' $python '-m uvicorn app.main:app --host 127.0.0.1 --port 8000' (Join-Path $root 'services/python-agent')
         } finally { $env:EASYJOB_AGENT_RUNTIME=$previousAgentRuntime }
     }
     Wait-Ready 'python' { Test-Agent } $agentProcess
@@ -370,10 +422,10 @@ try {
     $gatewayProcess=$null
     if (!(Test-Port 8090)) {
         if (!$SkipBuild -and !(Test-GatewayJarFresh)) {
-            Invoke-Logged 'gateway-package' $Maven @('-B','-DskipTests','package') (Join-Path $root 'gateway')
+            Invoke-Logged 'gateway-package' $Maven @('-B','-DskipTests','package') (Join-Path $root 'services/gateway')
         }
-        if (!(Test-Path -LiteralPath $gatewayJar)) { throw 'Gateway JAR missing; build gateway/pom.xml first.' }
-        $gatewayArguments = ($gatewayTracingArguments -join ' ') + ' -jar gateway\target\easyjob-gateway-0.0.1-SNAPSHOT.jar --spring.profiles.include=tracing --spring.config.additional-location=file:./temp/gateway-runtime.yml'
+        if (!(Test-Path -LiteralPath $gatewayJar)) { throw 'Gateway JAR missing; build services/gateway/pom.xml first.' }
+        $gatewayArguments = ($gatewayTracingArguments -join ' ') + ' -jar services\gateway\target\easyjob-gateway-0.0.1-SNAPSHOT.jar --spring.profiles.include=tracing --spring.config.additional-location=file:./temp/gateway-runtime.yml'
         $gatewayProcess=Start-Hidden 'gateway' "$JavaHome\bin\java.exe" $gatewayArguments $root
     }
     Wait-Ready 'gateway' { Test-Gateway } $gatewayProcess
@@ -388,6 +440,8 @@ try {
     Write-Host 'READY: http://127.0.0.1:3000' -ForegroundColor Green
     Write-Host 'Gateway: :8090   Consul: :8500   Java: :8080   Agent: :8000   RPC: :20881 / :50051   Logs: logs/'
     if ($startExcel) { Write-Host 'Excel: :8083   Logs: logs/excel.*.log' }
+    Write-Host 'Search index: :8084   Logs: logs/search-index.*.log'
+    if ($Tracing) { Write-Host 'Jaeger: http://127.0.0.1:16686   OTLP/HTTP: :14318' }
     Write-Host 'Services run in the background. Closing this launcher does not stop them.'
     if ($OpenBrowser) { Start-Process 'http://127.0.0.1:3000' | Out-Null }
 } finally {

@@ -7,7 +7,7 @@ from auth_database_grants import provision, verify
 def main():
     database = os.environ['MYSQL_DB']
     accounts = {role: {'name': f'ej_{role}_runtime', 'password': os.environ[role.upper() + '_DB_PASSWORD']}
-                for role in ('auth', 'blog', 'agent', 'excel')}
+                for role in ('auth', 'blog', 'agent', 'excel', 'index')}
     if any(len(account['password']) < 32 for account in accounts.values()):
         raise ValueError('Runtime database passwords must have at least 32 characters')
     with pymysql.connect(unix_socket='/var/run/mysqld/mysqld.sock', user='root',
@@ -15,8 +15,8 @@ def main():
         provision(connection, database, accounts, host='%')
     for role, account in accounts.items():
         with pymysql.connect(host='mysql', port=3306, user=account['name'], password=account['password'],
-                             database=database, autocommit=True) as connection:
-            verify(connection, role)
+                             database=None if role == 'index' else database, autocommit=True) as connection:
+            verify(connection, role, database)
     print('Runtime database roles and denied-operation checks passed.')
 
 

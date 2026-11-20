@@ -67,18 +67,18 @@ onBeforeUnmount(() => { ++version; controller?.abort(); document.removeEventList
 </script>
 
 <style scoped>
-.context-meter { display: grid; place-items: center; flex: 0 0 30px; width: 30px; height: 34px; padding: 3px; border: 0; border-radius: 50%; background: transparent; color: #77786f; cursor: pointer; }
-.context-meter:hover, .context-meter:focus-visible { background: #77786f15; color: #393a34; }
+.context-meter { display: grid; place-items: center; flex: 0 0 30px; width: 30px; height: 34px; padding: 3px; border: 0; border-radius: 50%; background: transparent; color: var(--ej-body); cursor: pointer; }
+.context-meter:hover, .context-meter:focus-visible { background: #77786f15; color: var(--ej-ink); }
 .context-meter:focus-visible { outline: 2px solid #8972d6; outline-offset: 2px; }
-.context-meter-high { color: #a96921; }
+.context-meter-high { color: color-mix(in srgb, #a96921 var(--ej-shade), var(--ej-ink)); }
 .context-meter svg { width: 22px; height: 22px; transform: rotate(-90deg); }
 .context-meter circle { stroke: currentColor; stroke-width: 2.5; fill: none; }
 .context-meter .context-track { opacity: .22; }
 .context-meter .context-fill { stroke-linecap: round; }
-.context-details { color: #efefeb; font-size: 13px; line-height: 1.7; }
-.context-details strong { display: block; color: #c3c3ba; font-size: 12px; font-weight: 500; margin-bottom: 4px; }
+.context-details { color: var(--ej-surface); font-size: 13px; line-height: 1.7; }
+.context-details strong { display: block; color: var(--ej-muted); font-size: 12px; font-weight: 500; margin-bottom: 4px; }
 .context-percent { font-size: 15px; font-weight: 600; }
 .context-percent span { font-weight: 400; }
-.context-details small { display: block; color: #babbb3; font-size: 11px; line-height: 1.6; margin-top: 9px; }
-:global(.el-popover.context-usage-popover) { background: #252623; border: 1px solid #41423a; border-radius: 13px; padding: 14px 16px; max-width: calc(100vw - 24px); box-sizing: border-box; box-shadow: 0 6px 22px #0002; }
+.context-details small { display: block; color: var(--ej-muted); font-size: 11px; line-height: 1.6; margin-top: 9px; }
+:global(.el-popover.context-usage-popover) { background: var(--ej-ink); border: 1px solid var(--ej-ink); border-radius: 13px; padding: 14px 16px; max-width: calc(100vw - 24px); box-sizing: border-box; box-shadow: 0 6px 22px #0002; }
 </style>

@@ -5,6 +5,8 @@
 - [容器部署与备份恢复](deployment.md)
 - [文章分批向量化与线程池配置](embedding-pool.md)
 - [本机开发服务](local-startup.md)
+- [Excel 导出启动和验收](excel-service.md)
+- [脚本索引](../../scripts/README.md)
 - [Agent 重启后的 RPC 恢复](rpc-restart-recovery.md)
 - [关闭页面后会话被旧运行阻塞的修复](run-recovery-fix-20261004.md)
 - [运行稳定性与回答质量验证](runtime-quality.md)

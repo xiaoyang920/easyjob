@@ -1,7 +1,7 @@
 param([switch]$KeepAlive)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
-$python = Join-Path $root 'python-agent\.venv\Scripts\python.exe'
+$python = Join-Path $root 'services\python-agent\.venv\Scripts\python.exe'
 $logs = Join-Path $root 'logs'
 $env:PYTHONUTF8 = '1'
 $env:PYTHONIOENCODING = 'utf-8'
@@ -57,7 +57,7 @@ $previousAgentRuntime=$env:EASYJOB_AGENT_RUNTIME
 try {
     $env:EASYJOB_AGENT_RUNTIME='true'
     $started = Start-Process -FilePath $python -ArgumentList @('-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', '8000') `
-        -WorkingDirectory (Join-Path $root 'python-agent') -WindowStyle Hidden `
+        -WorkingDirectory (Join-Path $root 'services/python-agent') -WindowStyle Hidden `
         -RedirectStandardOutput (Join-Path $logs 'python-context-128k.out.log') `
         -RedirectStandardError (Join-Path $logs 'python-context-128k.err.log') -PassThru
 } finally { $env:EASYJOB_AGENT_RUNTIME=$previousAgentRuntime }

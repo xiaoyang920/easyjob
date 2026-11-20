@@ -24,11 +24,11 @@ Blog 管理接口 -> 服务身份 + 用户委托 -> Agent 内部 RPC
 
 ## 代码位置
 
-- `auth-service/`：独立 Spring Boot 服务。账号仓储、验证码、登录、续签、注销、密码、设备、管理员账号安全修改、JWKS、撤销 outbox。
+- `services/auth-service/`：独立 Spring Boot 服务。账号仓储、验证码、登录、续签、注销、密码、设备、管理员账号安全修改、JWKS、撤销 outbox。
 - `auth-common/src/main/java/com/easyjob/security/`：共享身份协议、JWT 验证规则和路由分类。三个 Maven 工程以共同源码目录编译，不依赖另一个服务的实现包。
-- `gateway/.../UnifiedIdentityFilter.java`：外部 Token 与在线会话准入、伪造身份头清理、内部身份签发。
-- `src/main/java/com/easyjob/security/TrustedGatewayFilter.java`：Blog 内部身份验证、上下文安装与清理。
-- `python-agent/app/security/gateway.py`、`public_api.py`：Python 验证网关身份并兼容网站原有的用户侧 Agent 接口。
+- `services/gateway/.../UnifiedIdentityFilter.java`：外部 Token 与在线会话准入、伪造身份头清理、内部身份签发。
+- `services/blog-service/src/main/java/com/easyjob/security/TrustedGatewayFilter.java`：Blog 内部身份验证、上下文安装与清理。
+- `services/python-agent/app/security/gateway.py`、`public_api.py`：Python 验证网关身份并兼容网站原有的用户侧 Agent 接口。
 - `ConnectionSessions`：WebSocket/SSE 撤销通知和周期性复查，断开订阅不会自动取消持久化的 Agent 任务。
 - `AgentDelegation`、`AgentServiceAuth` 和 Python `app/security/delegation.py`：服务身份与用户委托验证。观察探针使用单独用途的短期凭证，不能启动用户任务。
 
@@ -60,9 +60,9 @@ Agent 的新执行把发起会话关联到 `agent_run`。审批继续与故障�
 ## 本地运行
 
 1. 应用新增迁移（启动脚本不隐式迁移）。已有环境可只通过 `app.migrate.apply_product_features` 应用 029、030；完整新环境使用既有迁移入口。
-2. 执行 `python-agent/.venv/Scripts/python.exe scripts/prepare-local.py`。它生成忽略目录内的配置与持久化密钥，不输出凭证。
-3. 确认 MySQL 已就绪，执行 `python-agent/.venv/Scripts/python.exe scripts/provision-auth-database.py`。脚本只管理忽略清单中归属本项目的三个账户，并检查列/表权限。再次执行 `prepare-local.py` 会保留这些运行账户。
-4. 分别构建根 Java、`auth-service/pom.xml`、`gateway/pom.xml`。运行中的 JAR 不直接覆盖，使用隔离构建目录，再交给重启脚本。
+2. 执行 `services/python-agent/.venv/Scripts/python.exe scripts/prepare-local.py`。它生成忽略目录内的配置与持久化密钥，不输出凭证。
+3. 确认 MySQL 已就绪，执行 `services/python-agent/.venv/Scripts/python.exe scripts/provision-auth-database.py`。脚本只管理忽略清单中归属本项目的三个账户，并检查列/表权限。再次执行 `prepare-local.py` 会保留这些运行账户。
+4. 分别构建 `services/blog-service/pom.xml`、`services/auth-service/pom.xml`、`services/gateway/pom.xml`。运行中的 JAR 不直接覆盖，使用隔离构建目录，再交给重启脚本。
 5. 执行 `scripts/start-local.ps1`，按依赖、Auth、Blog、Agent、Gateway、前端的顺序启动。已有服务使用 `scripts/restart-unified-auth.ps1`，它在确认 Agent 空闲并持有 admission guard 后切换已验证的构建。
 
 配置文件：`temp/application-runtime.yml`、`temp/auth-runtime.yml`、`temp/gateway-runtime.yml`。密钥位于忽略目录 `temp/auth-keys/`。这些文件不提交仓库。
@@ -76,9 +76,9 @@ Auth 使用 Consul TTL 心跳，避免 Docker 内的 Consul 无法通过自己�
 ## Auth 签名密钥轮换
 
 ```powershell
-.\python-agent\.venv\Scripts\python.exe scripts\rotate-auth-key.py prepare
+.\services\python-agent\.venv\Scripts\python.exe scripts\rotate-auth-key.py prepare
 # 确认 JWKS 已包含新 kid，等待公钥缓存刷新窗口
-.\python-agent\.venv\Scripts\python.exe scripts\rotate-auth-key.py activate
+.\services\python-agent\.venv\Scripts\python.exe scripts\rotate-auth-key.py activate
 # 使用 restart-auth.ps1 重启 Auth，开始签发新 kid
 ```
 
@@ -101,9 +101,9 @@ Linux 下私钥文件必须可被容器 UID 10001 读取且不对其他用户开
 - Auth 的协议与会话测试验证签名/用途/受众/方法路径、过期、不同密钥和续签竞态。
 - 网关测试验证匿名/保护接口、伪造身份头、无效可选凭证、续签 Cookie、下游异常边界。
 - Python 委托测试与既有 RPC/执行仓储测试一起运行。
-- `scripts/unified-auth-smoke.py` 使用临时账号真实检查网关、Auth、Blog、Agent、设备撤销、封禁和 WebSocket。通过 Redis 仅注入这些临时账号的验证码以避免发测试邮件；所有凭证在内存，结束清理账号和会话。
-- `scripts/unified-auth-resilience-smoke.py` 在隔离端口启动真实 Auth/Gateway，用故障代理中断它们的 Auth、JWKS、Redis 连接，并实际重启 Auth 完成密钥轮换。测试不停止主站服务；结果在 `temp/unified-auth-resilience-report.json`。
-- `scripts/unified-auth-cluster-smoke.py` 启动不注册服务发现、不执行余额轮询的第二个 Blog JVM。改密码产生真实 SQL outbox/RabbitMQ 事件，验证两个实例上的会话连接同时关闭；结果在 `temp/unified-auth-cluster-report.json`。
+- `scripts/checks/unified-auth-smoke.py` 使用临时账号真实检查网关、Auth、Blog、Agent、设备撤销、封禁和 WebSocket。通过 Redis 仅注入这些临时账号的验证码以避免发测试邮件；所有凭证在内存，结束清理账号和会话。
+- `scripts/checks/unified-auth-resilience-smoke.py` 在隔离端口启动真实 Auth/Gateway，用故障代理中断它们的 Auth、JWKS、Redis 连接，并实际重启 Auth 完成密钥轮换。测试不停止主站服务；结果在 `temp/unified-auth-resilience-report.json`。
+- `scripts/checks/unified-auth-cluster-smoke.py` 启动不注册服务发现、不执行余额轮询的第二个 Blog JVM。改密码产生真实 SQL outbox/RabbitMQ 事件，验证两个实例上的会话连接同时关闭；结果在 `temp/unified-auth-cluster-report.json`。
 - 真实测试记录在 `temp/unified-auth-smoke-report.json`，只包含检查结果与耗时，不含 Token、密码或服务密钥。性能测的是整个请求链路，不能等同于纯认证开销，也没有据此宣称比旧架构更快。
 
 尚未实现的后续学习内容：独立账号数据库、OAuth2 授权码/PKCE、OIDC 标准发现与 SSO、mTLS、刷新凭证轮换、内部密钥自动轮换、分布式账号/资料创建补偿。

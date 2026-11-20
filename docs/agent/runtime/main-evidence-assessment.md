@@ -23,6 +23,6 @@ Main 在一次 `MainDecision` 调用中同时输出：
 
 每次有候选的知识检索正常路径减少一次固定 LLM 评估调用；查询改写、引用错误或格式错误的限次修正仍可能调用模型。充分性是模型判断，并不保证事实绝对正确。离线测试验证调用次数和执行契约，不作为真实模型质量或延迟成绩。
 
-在 `python-agent` 下配置离线假密钥后运行 `python -m unittest discover -s tests`。真实本地语料的精排故障测试可显式运行 `scripts/retrieval-degradation-check.py`，会调用配置的模型；它只执行一次新的 Main 决策，不执行其返回的后续检索或草稿动作。
+在 `python-agent` 下配置离线假密钥后运行 `python -m unittest discover -s tests`。真实本地语料的精排故障测试可显式运行 `scripts/checks/retrieval-degradation-check.py`，会调用配置的模型；它只执行一次新的 Main 决策，不执行其返回的后续检索或草稿动作。
 
-学校介绍问题的受控决策回归使用 `scripts/evidence-assessment-smoke.py --live --phase before/after`，需要提前核对并授权 `logs/evidence-assessment-live-plan.json` 中的问题和四条官网公开资料。工具不加载历史对话、画像、约束、记忆、附件或草稿，不执行返回的检索和写作动作；累计预留最多两次模型调用。报告仅保存动作、校验规则与引用选择等诊断字段，不包含模型正文和来源全文。一次修复前后通过仅表示该次真实样本的契约结果，不代表全量准确率。
+学校介绍问题的受控决策回归使用 `scripts/checks/evidence-assessment-smoke.py --live --phase before/after`，需要提前核对并授权 `logs/evidence-assessment-live-plan.json` 中的问题和四条官网公开资料。工具不加载历史对话、画像、约束、记忆、附件或草稿，不执行返回的检索和写作动作；累计预留最多两次模型调用。报告仅保存动作、校验规则与引用选择等诊断字段，不包含模型正文和来源全文。一次修复前后通过仅表示该次真实样本的契约结果，不代表全量准确率。

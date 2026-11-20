@@ -1,0 +1,106 @@
+package com.easyjob.agent;
+
+import com.easyjob.agent.rpc.*;
+import com.easyjob.agent.security.AgentServiceAuth;
+import com.easyjob.agent.service.AgentDraftService;
+import com.easyjob.service.ArticleRevisionService;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
+import java.net.ServerSocket;
+import java.nio.file.*;
+import java.time.Duration;
+import java.util.*;
+import java.util.concurrent.TimeUnit;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
+import com.easyjob.agent.rpc.AgentRpcClient;
+import com.easyjob.agent.rpc.TripleRuntime;
+import com.easyjob.observability.RequestTrace;
+import java.nio.file.Path;
+import java.util.List;
+
+/** Opt-in: actual Java Triple <-> Python grpcio, without production DB/LLM dependencies. */
+@EnabledIfEnvironmentVariable(named="RPC_TEST_PYTHON", matches=".+")
+class RpcInteropTests {
+    private int freePort() throws Exception { try (ServerSocket socket = new ServerSocket(0)) { return socket.getLocalPort(); } }
+    @Test void nativeGrpcAndDubboTripleWorkInBothDirections() throws Exception {
+        String python = System.getenv("RPC_TEST_PYTHON");
+        int agentPort = freePort(), blogPort = freePort();
+        Path ready = Files.createTempFile("easyjob-rpc-", ".ready"); Files.delete(ready);
+        Path output = Files.createTempFile("easyjob-rpc-", ".log");
+        Path callbackOutput = Files.createTempFile("easyjob-rpc-callback-", ".log");
+        Process peer = new ProcessBuilder(python, "scripts/checks/rpc-integration-peer.py", "server", ""+agentPort, ready.toString())
+                .redirectErrorStream(true).redirectOutput(output.toFile()).start();
+        try {
+            for (int i=0; i<150 && !Files.exists(ready) && peer.isAlive(); i++) Thread.sleep(100);
+            assertTrue(Files.exists(ready), () -> {
+                try { return Files.readString(output); } catch (Exception e) { return "Python peer failed"; }
+            });
+            ArticleRevisionService revisions = mock(ArticleRevisionService.class);
+            AgentDraftService drafts = mock(AgentDraftService.class);
+            when(revisions.ownDrafts(7L,"中文")).thenAnswer(invocation -> {
+                assertEquals("interop-python-12345678",org.slf4j.MDC.get("trace_id"));
+                return List.of(Map.of("articleId",Long.toString(RpcTransportTests.BIG),"title","中文草稿"));
+            });
+            when(revisions.ownDraft(7L,RpcTransportTests.BIG)).thenReturn(Map.of("id",RpcTransportTests.BIG,"editable",true,"empty",List.of()));
+            when(drafts.save(eq(7L),any())).thenAnswer(invocation -> {
+                AgentDraftService.DraftRequest draft = invocation.getArgument(1);
+                if (draft.expectedLockVersion()!=0) throw new ResponseStatusException(HttpStatus.CONFLICT);
+                return Map.of("articleId",Long.toString(draft.articleId()));
+            });
+            AgentServiceAuth auth = new AgentServiceAuth(RpcTransportTests.KEY);
+            try (RequestTrace trace = new com.easyjob.observability.RequestTrace("interop-java-12345678",null);
+                 TripleRuntime runtime = new TripleRuntime(new BlogRpcProvider(auth,drafts,revisions),"127.0.0.1:"+agentPort,"127.0.0.1",blogPort)) {
+                runtime.start();
+                AgentRpcClient client = new AgentRpcClient(runtime.agent(),auth);
+                Map<?, ?> reply = (Map<?, ?>) client.serviceQuery(7L, "interop", "", "", 1, 20, "");
+                assertEquals("中文二进制 RPC", reply.get("reply"));
+                assertEquals(RpcTransportTests.BIG, reply.get("id"));
+                assertEquals(List.of(), reply.get("items"));
+                assertEquals(409, assertThrows(ResponseStatusException.class,
+                    () -> client.serviceQuery(7L, "conflict", "", "", 1, 20, "")).getStatusCode().value());
+                AgentRpcClient wrong = new AgentRpcClient(runtime.agent(), new AgentServiceAuth("incorrect-service-key-but-long-enough"));
+                assertEquals(401, assertThrows(ResponseStatusException.class,
+                    () -> wrong.serviceQuery(7L, "interop", "", "", 1, 20, "")).getStatusCode().value());
+                Process callback = new ProcessBuilder(python,"scripts/checks/rpc-integration-peer.py","callback",""+blogPort)
+                        .redirectErrorStream(true).redirectOutput(callbackOutput.toFile()).start();
+                try {
+                    assertTrue(callback.waitFor(40,TimeUnit.SECONDS),"Python callback timed out");
+                    assertEquals(0,callback.exitValue(),Files.readString(callbackOutput));
+                } finally { stop(callback); }
+                verify(drafts,times(2)).save(eq(7L),any());
+                // Exercise the actual leased Dubbo reference path as well as direct mode.
+                runtime.catalog(new com.easyjob.agent.rpc.ServiceCatalog(new com.fasterxml.jackson.databind.ObjectMapper(),
+                    true,"http://127.0.0.1:1","","127.0.0.1",8080,blogPort,"interop-snapshot") {
+                    @Override public String agentTarget(long uid) { return "127.0.0.1:"+agentPort; }
+                    @Override public java.util.List<String> healthyTargets() { return java.util.List.of("127.0.0.1:"+agentPort); }
+                });
+                AgentRpcClient discovered=new AgentRpcClient(runtime.agent(),auth);
+                assertEquals("中文二进制 RPC", ((Map<?, ?>) discovered
+                    .serviceQuery(7L, "interop", "", "", 1, 20, "")).get("reply"));
+            }
+        } finally {
+            Files.writeString(Path.of(ready + ".stop"), "stop");
+            peer.waitFor(5,TimeUnit.SECONDS);
+            stop(peer);
+            cleanup(ready); cleanup(Path.of(ready + ".stop")); cleanup(output); cleanup(callbackOutput);
+        }
+    }
+    private void cleanup(Path path) throws Exception {
+        for (int i=0; i<20; i++) {
+            try { Files.deleteIfExists(path); return; }
+            catch (java.io.IOException e) { Thread.sleep(50); }
+        }
+        path.toFile().deleteOnExit(); // Antivirus/file handle release can lag on Windows.
+    }
+    private void stop(Process process) throws Exception {
+        List<ProcessHandle> children = process.descendants().toList();
+        children.forEach(ProcessHandle::destroyForcibly);
+        process.destroyForcibly(); process.waitFor(5,TimeUnit.SECONDS);
+        for (ProcessHandle child : children) {
+            try { child.onExit().get(5,TimeUnit.SECONDS); } catch (Exception ignored) { }
+        }
+    }
+}

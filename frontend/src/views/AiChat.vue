@@ -134,7 +134,7 @@
           >
             <div class="message-avatar">
               <svg v-if="msg.role === 'assistant'" viewBox="0 0 24 24" fill="currentColor"><path d="m14 4 6 6-9 9-7 1 1-7 9-9Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="m12 6 6 6M5 19l4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-              <img v-else :src="avatarUrl(userAvatar, userNickName)" alt="" @error="onAvatarError($event, userNickName)">
+              <SpaceAvatar v-else :src="userAvatar" :name="userNickName" :user-id="writingOwner" class="account-portrait" />
             </div>
             <div class="message-content">
               <!-- 用户发送的图片（点击可放大） -->
@@ -179,7 +179,7 @@
                   </div>
                 </footer>
               </article>
-              <div v-else-if="msg.content" class="message-bubble"><CodeContent :html="renderMarkdown(msg.content, msg.provisional ? [] : msg.citations)" @expand="openCodeViewer" /></div>
+              <div v-else-if="msg.content" class="message-bubble"><CodeContent :html="renderMarkdown(msg.content, msg.provisional ? [] : msg.citations, msg.role === 'user')" @expand="openCodeViewer" /></div>
               <AppButton v-if="msg.role === 'assistant' && msg.content && !msg.provisional && !msg.isDraft && !msg.agent?.answerReceiving" size="small" class="copy-answer-btn" @click="copyAnswer(msg.content)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2" /><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" /></svg>
                 复制回答
@@ -293,6 +293,8 @@
             </div>
           </div>
           <slot name="composer-tools" :disabled="loading || uploadingImage || loadingMessages || historyLoadFailed" />
+          <BrowserControl v-if="!embedded" :conversation-id="currentConversationId" :disabled="composerBusy"
+            @change="browserSessionId = $event" />
           <div v-if="referencesEnabled" class="writing-reference-picker" @focusout="leaveReferencePicker" @keydown="referenceMenuOpen && handleComposerKeydown($event)">
             <div v-if="referenceMenuOpen" :id="referenceMenuId" class="writing-reference-menu" role="listbox" aria-label="选择引用内容">
               <span class="reference-menu-heading">引用到本次提问</span>
@@ -338,6 +340,7 @@
               :aria-expanded="referencesEnabled ? referenceMenuOpen : undefined"
               :aria-activedescendant="referenceMenuOpen && referenceOptions.length ? `${referenceMenuId}-${referenceMenuIndex}` : undefined"
               @input="updateMentionMenu" @click="updateMentionMenu"
+              @paste="handleImagePaste"
               @keydown="handleComposerKeydown" @blur="leaveComposer"
               rows="1"
               ref="inputRef"
@@ -362,7 +365,7 @@
               class="send-btn" 
               aria-label="发送消息"
               @click="sendMessage" 
-              :disabled="(!userInput.trim() && selectedImages.length === 0) || loading || loadingMessages || historyLoadFailed"
+              :disabled="(!userInput.trim() && selectedImages.length === 0) || composerBusy"
             >
               <svg v-if="!loading" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
@@ -417,15 +420,17 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import AnswerFeedback from '@/components/AnswerFeedback.vue'
 import CodeContent from '@/components/CodeContent.vue'
 import CodeViewer from '@/components/CodeViewer.vue'
-import { renderChatMarkdown } from '@/utils/chatMarkdown'
-import { avatarUrl, onAvatarError } from '@/utils/avatar'
+import { renderChatMarkdown, renderUserChatMarkdown } from '@/utils/chatMarkdown'
+import SpaceAvatar from '@/components/SpaceAvatar.vue'
 import { safeHtml } from '@/utils/safeHtml'
 import { draftBodyHtml, formatCitationHtml, type SourceLink } from '../utils/citationLinks'
 import LoginForm from '@/components/LoginForm.vue'
 import RegisterForm from '@/components/RegisterForm.vue'
 import AgentActivity from '@/components/AgentActivity.vue'
 import QuestionRail from '@/components/QuestionRail.vue'
+import BrowserControl from '@/components/BrowserControl.vue'
 import { createAgentState, applyAgentEvent, applyAnswerChunk, readSse, setRunStatus, restoreAgentState } from '@/utils/agentStream'
+import { traceErrorMessage, traceIdFrom } from '@/utils/traceId'
 import type { AgentStreamState } from '@/utils/agentStream'
 import request from '@/utils/request'
 import { savedArticlePath } from '@/utils/articleLifecycle'
@@ -533,6 +538,7 @@ function sessionField<K extends keyof Session>(key: K) {
   return computed({ get: () => activeSession.value[key], set: (value: Session[K]) => { activeSession.value[key] = value } })
 }
 const currentConversationId = sessionField('conversationId')
+const browserSessionId = ref<string | null>(null)
 const selectedConversation = ref<any | null>(null)
 const currentOriginArticleId = sessionField('originArticleId')
 currentOriginArticleId.value = props.originArticleId || null
@@ -1085,25 +1091,42 @@ function triggerImageUpload() {
 
 function handleImageSelect(event: Event) {
   const target = event.target as HTMLInputElement
-  const file = target.files?.[0]
-  if (!file) return
-  
-  if (file.size > 15 * 1024 * 1024) {
-    ElMessage.warning('图片大小不能超过15MB')
-    return
-  }
-  
-  // 限制最多3张图片
-  if (selectedImages.value.length >= 3) {
-    ElMessage.warning('最多只能上传3张图片')
-    return
-  }
-  
-  // 先上传图片到服务器
-  uploadImage(file)
-  
-  // 清空input，允许重复选择同一文件
+  const files = Array.from(target.files ?? [])
   target.value = ''
+  void attachImages(files)
+}
+
+function handleImagePaste(event: ClipboardEvent) {
+  const clipboard = event.clipboardData
+  if (!clipboard) return
+  const images = Array.from(clipboard.files).filter(file => file.type.startsWith('image/'))
+  if (!images.length) {
+    for (const item of Array.from(clipboard.items)) {
+      if (item.kind !== 'file' || !item.type.startsWith('image/')) continue
+      const file = item.getAsFile()
+      if (file) images.push(file)
+    }
+  }
+  if (!images.length) return
+  if (!clipboard.getData('text/plain')) event.preventDefault()
+  void attachImages(images)
+}
+
+async function attachImages(files: File[]) {
+  if (!files.length || composerBusy.value) return
+  const session = activeSession.value
+  for (const file of files) {
+    if (activeSession.value !== session || composerBusy.value) return
+    if (selectedImages.value.length >= 3) {
+      ElMessage.warning('最多只能上传3张图片')
+      return
+    }
+    if (file.size > 15 * 1024 * 1024) {
+      ElMessage.warning('图片大小不能超过15MB')
+      continue
+    }
+    await uploadImage(file)
+  }
 }
 
 // 上传图片到服务器
@@ -1180,7 +1203,8 @@ function removeImage(index: number) {
 // 发送消息
 async function sendMessage() {
   const session = activeSession.value
-  const content = session.userInput.trim()
+  const input = session.userInput
+  const content = input.trim() ? input : ''
   if (!content && session.selectedImages.length === 0) return
   if (session.loading || session.cancelling || uploadingImage.value || loadingMessages.value || session.historyLoadFailed || session.historyBusy) return
   if (!localStorage.getItem('token')) { requestLogin(); return }
@@ -1284,6 +1308,7 @@ async function streamChat(message: string, imagePaths: string[], msg: ChatMessag
     conversationId: session.conversationId
   }
   if (editorContext) body.editorContext = editorContext
+  if (browserSessionId.value) body.browserSessionId = browserSessionId.value
   const submittedWritingId = writingArticleId()
   if (props.writing) { body.writingContext = { article_id: submittedWritingId }; submittedWritingIds.set(session, submittedWritingId) }
   if (session.originArticleId) body.originArticleId = session.originArticleId
@@ -1311,6 +1336,7 @@ function ensureAgent(msg: ChatMessage): AgentStreamState {
 
 async function consumeAgentStream(response: Response, msg: ChatMessage, session: Session, timing?: ReturnType<typeof createDeliveryTiming>) {
   const controller = session.abortController!
+  const initialTraceId = traceIdFrom(response.headers)
   let finished = false
   let runId = ''
   let after = '0'
@@ -1329,7 +1355,7 @@ async function consumeAgentStream(response: Response, msg: ChatMessage, session:
             msg.provisional = false
             ensureAgent(msg).answerReceiving = false
           }
-          const error = new Error(data.substring(7).trim())
+          const error = new Error(traceErrorMessage(data.substring(7).trim(), initialTraceId))
           Object.assign(error, { terminal: true })
           throw error
         }
@@ -1775,7 +1801,9 @@ function handleResultEvent(data: string, msg: ChatMessage, session: Session): bo
     // answer or the verified approval draft rather than displaying a candidate.
     return
   } else if (data.startsWith('__ANSWER__:')) {
-    msg.content = applyAnswerChunk(ensureAgent(msg), msg.content, json('__ANSWER__:'))
+    const chunk = json('__ANSWER__:')
+    if (chunk.type === 'start' && chunk.mode === 'direct') msg.provisional = true
+    msg.content = applyAnswerChunk(ensureAgent(msg), msg.content, chunk)
   } else if (data.startsWith('__RUN_ID__:')) {
     const runId = data.substring('__RUN_ID__:'.length).trim()
     msg.runId = runId
@@ -1941,27 +1969,29 @@ function renderDraftPreview(content: string, format?: string, citations: SourceL
   return draftBodyHtml(safeHtml(format === 'html' ? content : renderChatMarkdown(preprocessMarkdown(content))), citations)
 }
 
-function renderMarkdown(content: string, citations: SourceLink[] = []): string {
+function renderMarkdown(content: string, citations: SourceLink[] = [], userMessage = false): string {
   if (!content) return ''
   
   // 流式进行中不使用缓存（content 持续变化）
-  const cacheKey = JSON.stringify([content, citations.map(c => [c.id, c.articleId, c.url, c.title])])
-  if (!streaming.value) {
+  const cacheKey = JSON.stringify([userMessage, content, citations.map(c => [c.id, c.articleId, c.url, c.title])])
+  const cacheable = userMessage || !streaming.value
+  if (cacheable) {
     const cached = renderedCache.get(cacheKey)
     if (cached) return cached
   }
   
-  let processed = preprocessMarkdown(content)
+  let processed = userMessage ? content : preprocessMarkdown(content)
   
   // 流式进行中，保护不完整的表格
-  if (streaming.value) {
+  if (!userMessage && streaming.value) {
     processed = protectIncompleteTable(processed)
   }
   
-  const rendered = formatCitationHtml(safeHtml(renderChatMarkdown(processed)), citations)
+  const html = userMessage ? renderUserChatMarkdown(processed) : renderChatMarkdown(processed)
+  const rendered = formatCitationHtml(safeHtml(html), citations)
   
   // 非流式状态下缓存结果（历史消息）
-  if (!streaming.value) {
+  if (cacheable) {
     renderedCache.set(cacheKey, rendered)
     // 限制缓存大小
     if (renderedCache.size > 100) {
@@ -2262,10 +2292,10 @@ onUnmounted(() => {
   left: 0;
   right: 0;
   height: 70px;
-  background: rgba(255, 255, 255, 0.95);
+  background: color-mix(in srgb, var(--ej-surface) 95%, transparent);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  border-bottom: 1px solid color-mix(in srgb, var(--ej-ink) 8%, transparent);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -2301,13 +2331,13 @@ onUnmounted(() => {
 .page-title {
   font-size: 20px;
   font-weight: 600;
-  color: #333;
+  color: var(--ej-ink);
 }
 
 .nav-btn {
   background: transparent;
-  color: #666;
-  border: 1px solid #ddd;
+  color: var(--ej-muted);
+  border: 1px solid var(--ej-line);
   padding: 10px 20px;
   border-radius: 20px;
   cursor: pointer;
@@ -2330,8 +2360,8 @@ onUnmounted(() => {
 /* 左侧会话列表 */
 .conversation-sidebar {
   width: 280px;
-  background: white;
-  border-right: 1px solid #e5e7eb;
+  background: var(--ej-surface);
+  border-right: 1px solid var(--ej-hairline);
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
@@ -2341,7 +2371,7 @@ onUnmounted(() => {
 
 .sidebar-header {
   padding: 20px;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--ej-hairline);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -2350,7 +2380,7 @@ onUnmounted(() => {
 .sidebar-header h3 {
   margin: 0;
   font-size: 16px;
-  color: #333;
+  color: var(--ej-ink);
   font-weight: 600;
 }
 
@@ -2360,7 +2390,7 @@ onUnmounted(() => {
   gap: 6px;
   padding: 8px 14px;
   background: var(--ej-accent);
-  color: white;
+  color: var(--ej-surface);
   border: none;
   border-radius: 8px;
   cursor: pointer;
@@ -2393,12 +2423,12 @@ onUnmounted(() => {
 }
 
 .conversation-item:hover {
-  background: #f3f4f6;
+  background: var(--ej-canvas);
 }
 
 .conversation-item.active {
-  background: #f3f4f6;
-  border: 1px solid #e5e7eb;
+  background: var(--ej-canvas);
+  border: 1px solid var(--ej-hairline);
 }
 
 .conv-icon {
@@ -2423,7 +2453,7 @@ onUnmounted(() => {
 
 .conv-title {
   font-size: 14px;
-  color: #333;
+  color: var(--ej-ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2432,7 +2462,7 @@ onUnmounted(() => {
 
 .conv-time {
   font-size: 12px;
-  color: #909399;
+  color: var(--ej-muted);
   margin-top: 4px;
 }
 
@@ -2445,7 +2475,7 @@ onUnmounted(() => {
   opacity: 1;
   transition: opacity 0.2s;
   padding: 4px;
-  color: #909399;
+  color: var(--ej-muted);
   border-radius: 6px;
 }
 
@@ -2455,13 +2485,13 @@ onUnmounted(() => {
 
 .delete-btn:hover {
   color: #f56c6c;
-  background: #fef0f0;
+  background: var(--ej-canvas);
 }
 
 .no-conversations,
 .loading-conversations {
   text-align: center;
-  color: #909399;
+  color: var(--ej-muted);
   padding: 40px 0;
   font-size: 14px;
 }
@@ -2480,8 +2510,8 @@ onUnmounted(() => {
   position: absolute;
   top: 15px;
   left: 15px;
-  background: white;
-  border: 1px solid #e5e7eb;
+  background: var(--ej-surface);
+  border: 1px solid var(--ej-hairline);
   border-radius: 8px;
   padding: 8px;
   cursor: pointer;
@@ -2515,7 +2545,7 @@ onUnmounted(() => {
 .welcome-title {
   font-size: 30px;
   font-weight: 600;
-  color: #111827;
+  color: color-mix(in srgb, #111827 var(--ej-shade), var(--ej-ink));
   letter-spacing: -0.02em;
   line-height: 1.2;
   margin-bottom: 10px;
@@ -2523,7 +2553,7 @@ onUnmounted(() => {
 
 .welcome-desc {
   font-size: 14px;
-  color: #6b7280;
+  color: var(--ej-body);
   line-height: 1.6;
   margin-bottom: 36px;
 }
@@ -2532,7 +2562,7 @@ onUnmounted(() => {
 .quick-questions {
   display: flex;
   flex-direction: column;
-  border-top: 1px solid #edf0f3;
+  border-top: 1px solid var(--ej-hairline);
 }
 
 .quick-question-item {
@@ -2541,15 +2571,15 @@ onUnmounted(() => {
   justify-content: space-between;
   gap: 16px;
   padding: 14px 4px;
-  border-bottom: 1px solid #edf0f3;
+  border-bottom: 1px solid var(--ej-hairline);
   cursor: pointer;
   transition: padding 0.2s ease, color 0.2s ease;
-  color: #374151;
+  color: color-mix(in srgb, #374151 var(--ej-shade), var(--ej-ink));
 }
 
 .quick-question-item:hover {
   padding-left: 10px;
-  color: #111827;
+  color: color-mix(in srgb, #111827 var(--ej-shade), var(--ej-ink));
 }
 
 .quick-question-item .qq-text {
@@ -2564,7 +2594,7 @@ onUnmounted(() => {
 }
 
 .quick-question-item:hover .qq-arrow {
-  color: #111827;
+  color: color-mix(in srgb, #111827 var(--ej-shade), var(--ej-ink));
   transform: translate(2px, -2px);
 }
 
@@ -2606,11 +2636,11 @@ onUnmounted(() => {
   color: var(--ej-accent);
 }
 
-.message-avatar img {
+.message-avatar .account-portrait {
   width: 100%;
   height: 100%;
-  object-fit: cover;
 }
+.message-item.user .message-avatar { overflow: visible; }
 
 .message-content {
   max-width: 70%;
@@ -2647,15 +2677,15 @@ onUnmounted(() => {
 
 .message-item.user .message-bubble {
   background: var(--ej-accent);
-  color: white;
+  color: var(--ej-surface);
   display: inline-block;
   border-radius: 14px 4px 14px 14px;
 }
 
 .message-item.assistant .message-bubble {
-  background: white;
-  color: #1f2937;
-  border: 1px solid #edf0f3;
+  background: var(--ej-surface);
+  color: color-mix(in srgb, #1f2937 var(--ej-shade), var(--ej-ink));
+  border: 1px solid var(--ej-hairline);
   border-radius: 4px 14px 14px 14px;
   padding: 14px 18px;
   line-height: 1.75;
@@ -2668,9 +2698,9 @@ onUnmounted(() => {
   gap: 10px;
   margin-top: 12px;
   padding: 12px;
-  background: linear-gradient(180deg, #f8fafc 0%, #f3f5f9 100%);
+  background: linear-gradient(180deg, var(--ej-canvas) 0%, var(--ej-canvas) 100%);
   border-radius: 12px;
-  border: 1px solid #eef1f6;
+  border: 1px solid var(--ej-hairline);
 }
 
 /* 单个卡片 */
@@ -2678,11 +2708,11 @@ onUnmounted(() => {
   display: flex;
   gap: 12px;
   padding: 12px;
-  background: white;
+  background: var(--ej-surface);
   border-radius: 10px;
   cursor: pointer;
   transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
-  border: 1px solid #edf0f3;
+  border: 1px solid var(--ej-hairline);
   align-items: stretch;
 }
 
@@ -2699,7 +2729,7 @@ onUnmounted(() => {
   border-radius: 8px;
   overflow: hidden;
   flex-shrink: 0;
-  background: linear-gradient(135deg, #eef4ff 0%, #e3ecff 100%);
+  background: linear-gradient(135deg, var(--ej-canvas) 0%, #e3ecff 100%);
 }
 
 .card-cover img {
@@ -2722,7 +2752,7 @@ onUnmounted(() => {
 .card-title {
   font-size: 14px;
   font-weight: 600;
-  color: #1f2937;
+  color: color-mix(in srgb, #1f2937 var(--ej-shade), var(--ej-ink));
   line-height: 1.35;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -2733,7 +2763,7 @@ onUnmounted(() => {
 
 .card-summary {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--ej-body);
   line-height: 1.45;
   display: -webkit-box;
   -webkit-line-clamp: 1;
@@ -2746,7 +2776,7 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   font-size: 11px;
-  color: #9ca3af;
+  color: var(--ej-muted);
   margin-top: 2px;
 }
 
@@ -2778,7 +2808,7 @@ onUnmounted(() => {
 /* Markdown样式；代码块与行内代码统一使用 styles/theme.css 中的墨色代码块 */
 .message-bubble :deep(strong) {
   font-weight: 600;
-  color: #1a1a1a;
+  color: var(--ej-ink);
 }
 
 .message-bubble :deep(p) {
@@ -2787,6 +2817,11 @@ onUnmounted(() => {
 
 .message-bubble :deep(p:last-child) {
   margin-bottom: 0;
+}
+
+.message-item.user .message-bubble :deep(p) {
+  white-space: break-spaces;
+  tab-size: 4;
 }
 
 .message-bubble :deep(ul),
@@ -2875,22 +2910,22 @@ onUnmounted(() => {
 }
 
 /* 执行进度步骤条 */
-.draft-review-card { width: min(100%, 720px); border: 1px solid #e5e7eb; border-radius: 12px; background: #fff; overflow: hidden; margin-bottom: 12px; }
-.draft-review-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 17px 20px; background: #f8f9fb; border-bottom: 1px solid #eceef1; }
+.draft-review-card { width: min(100%, 720px); border: 1px solid var(--ej-hairline); border-radius: 12px; background: var(--ej-surface); overflow: hidden; margin-bottom: 12px; }
+.draft-review-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 17px 20px; background: var(--ej-canvas); border-bottom: 1px solid var(--ej-hairline); }
 .draft-review-eyebrow { font-size: 11px; color: var(--ej-muted); }
 .draft-review-header h3 { font-size: 15px; color: var(--ej-ink); margin: 5px 0 0; font-weight: 700; }
 .draft-review-status { font-size: 11px; padding: 4px 8px; white-space: nowrap; }
 /* 草稿预览的代码块见 styles/theme.css */
-.draft-review-body { max-height: 480px; overflow: auto; padding: 18px 22px; line-height: 1.8; font-size: 14px; color: #2f2d28; overflow-wrap: anywhere; }
+.draft-review-body { max-height: 480px; overflow: auto; padding: 18px 22px; line-height: 1.8; font-size: 14px; color: var(--ej-ink); overflow-wrap: anywhere; }
 .draft-review-body :deep(table) { width: 100%; border-collapse: collapse; }
 .draft-review-body :deep(th), .draft-review-body :deep(td) { border: 1px solid var(--ej-hairline); padding: 8px; }
 .draft-review-body :deep(th) { background: var(--ej-canvas); text-align: left; }
 .draft-review-footer { padding: 16px 20px; border-top: 1px solid var(--ej-hairline); }
 .draft-review-footer > p { color: var(--ej-muted); font-size: 12px; margin: 0 0 12px; }
 .draft-revision { display: flex; align-items: flex-end; gap: 10px; margin-top: 14px; }
-.draft-revision textarea { flex: 1; min-width: 0; border: 1px solid #e2e5ea; border-radius: 7px; padding: 10px; resize: vertical; font: inherit; font-size: 12px; outline: none; }
+.draft-revision textarea { flex: 1; min-width: 0; border: 1px solid var(--ej-hairline); border-radius: 7px; padding: 10px; resize: vertical; font: inherit; font-size: 12px; outline: none; }
 .draft-revision textarea:focus { border-color: #a0b2c8; }
-.draft-revision > button { padding: 8px 11px; border: 1px solid #dce1e7; background: #f9fafb; border-radius: 7px; color: #586575; cursor: pointer; white-space: nowrap; }
+.draft-revision > button { padding: 8px 11px; border: 1px solid var(--ej-line); background: var(--ej-canvas); border-radius: 7px; color: var(--ej-body); cursor: pointer; white-space: nowrap; }
 .draft-revision > button:disabled { opacity: .5; cursor: default; }
 
 .progress-steps {
@@ -2898,8 +2933,8 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 10px;
   padding: 14px 18px;
-  background: linear-gradient(180deg, #fafbfd 0%, var(--ej-canvas) 100%);
-  border: 1px solid #edf0f3;
+  background: linear-gradient(180deg, var(--ej-surface) 0%, var(--ej-canvas) 100%);
+  border: 1px solid var(--ej-hairline);
   border-radius: 12px;
   margin-bottom: 4px;
   min-width: 220px;
@@ -2910,12 +2945,12 @@ onUnmounted(() => {
   align-items: center;
   gap: 10px;
   font-size: 13px;
-  color: #909399;
+  color: var(--ej-muted);
   transition: color 0.3s, opacity 0.3s;
 }
 
 .progress-step.active {
-  color: #303133;
+  color: var(--ej-ink);
 }
 
 .progress-step.done {
@@ -2949,7 +2984,7 @@ onUnmounted(() => {
 .step-spinner {
   width: 14px;
   height: 14px;
-  border: 2px solid #e4e7ed;
+  border: 2px solid var(--ej-hairline);
   border-top-color: var(--ej-accent);
   border-radius: 50%;
   animation: stepSpin 0.8s linear infinite;
@@ -2964,7 +2999,7 @@ onUnmounted(() => {
 }
 
 .step-detail {
-  color: #909399;
+  color: var(--ej-muted);
   font-size: 12px;
   font-weight: 400;
 }
@@ -2975,7 +3010,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 8px;
   padding: 6px 0 2px;
-  color: #909399;
+  color: var(--ej-muted);
   font-size: 12px;
 }
 
@@ -3027,14 +3062,14 @@ onUnmounted(() => {
 .interrupt-actions {
   margin-top: 12px;
   padding: 14px 16px;
-  background: linear-gradient(135deg, #f3f8ff 0%, #ecf5ff 100%);
+  background: linear-gradient(135deg, var(--ej-canvas) 0%, var(--ej-canvas) 100%);
   border: 1px solid #d9ecff;
   border-radius: 10px;
 }
 
 .interrupt-hint {
   font-size: 13px;
-  color: #4a5c72;
+  color: color-mix(in srgb, #4a5c72 var(--ej-shade), var(--ej-ink));
   margin-bottom: 10px;
   line-height: 1.5;
 }
@@ -3056,7 +3091,7 @@ onUnmounted(() => {
 
 .interrupt-btn.approve {
   background: var(--ej-accent);
-  color: white;
+  color: var(--ej-surface);
   border-color: var(--ej-accent);
   box-shadow: 0 2px 8px rgba(17, 17, 15, 0.25);
 }
@@ -3069,15 +3104,15 @@ onUnmounted(() => {
 }
 
 .interrupt-btn.reject {
-  background: white;
-  color: #606266;
-  border-color: #dcdfe6;
+  background: var(--ej-surface);
+  color: var(--ej-body);
+  border-color: var(--ej-line);
 }
 
 .interrupt-btn.reject:hover:not(:disabled) {
   background: var(--ej-canvas);
-  color: #909399;
-  border-color: #c0c4cc;
+  color: var(--ej-muted);
+  border-color: var(--ej-line);
 }
 
 .interrupt-btn:disabled {
@@ -3087,8 +3122,8 @@ onUnmounted(() => {
 
 /* 草稿预览样式 —— 克制的中性灰 */
 .draft-bubble {
-  border: 1px solid #e5e7eb !important;
-  background: #fafbfc !important;
+  border: 1px solid var(--ej-hairline) !important;
+  background: var(--ej-canvas) !important;
   position: relative;
 }
 
@@ -3143,9 +3178,9 @@ onUnmounted(() => {
 
 /* 输入区域 */
 .input-area {
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--ej-hairline);
   padding: 16px 30px;
-  background: white;
+  background: var(--ej-surface);
 }
 
 /* 图片预览（多图） */
@@ -3165,7 +3200,7 @@ onUnmounted(() => {
   max-width: 100px;
   max-height: 70px;
   border-radius: 8px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--ej-hairline);
   object-fit: cover;
 }
 
@@ -3177,7 +3212,7 @@ onUnmounted(() => {
   height: 22px;
   background: #f56c6c;
   color: white;
-  border: 2px solid white;
+  border: 2px solid var(--ej-hairline);
   border-radius: 50%;
   cursor: pointer;
   display: flex;
@@ -3188,7 +3223,7 @@ onUnmounted(() => {
 }
 
 .remove-image-btn:hover {
-  background: #e04040;
+  background: #e04040; color: var(--ej-on-color);
 }
 
 /* 上传进度条样式 */
@@ -3235,8 +3270,8 @@ onUnmounted(() => {
   display: flex;
   gap: 10px;
   align-items: center;
-  background: #ffffff;
-  border: 1px solid #e6e9ef;
+  background: var(--ej-surface);
+  border: 1px solid var(--ej-hairline);
   border-radius: 14px;
   padding: 10px 12px;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
@@ -3253,7 +3288,7 @@ onUnmounted(() => {
   background: none;
   border: none;
   cursor: pointer;
-  color: #9ca3af;
+  color: var(--ej-muted);
   padding: 4px;
   border-radius: 6px;
   display: flex;
@@ -3264,8 +3299,8 @@ onUnmounted(() => {
 }
 
 .upload-btn:hover:not(:disabled) {
-  color: #1f2937;
-  background: #f3f4f6;
+  color: color-mix(in srgb, #1f2937 var(--ej-shade), var(--ej-ink));
+  background: var(--ej-canvas);
 }
 
 .upload-btn:disabled {
@@ -3279,7 +3314,7 @@ onUnmounted(() => {
   outline: none;
   background: transparent;
   font-size: 15px;
-  color: #333;
+  color: var(--ej-ink);
   resize: none;
   /* border-box：32px = 一行 24px + 上下各 4px 内边距；最多长到 7 行，之后内部滚动 */
   height: 32px;
@@ -3293,7 +3328,7 @@ onUnmounted(() => {
 }
 
 .input-wrapper textarea::placeholder {
-  color: #999;
+  color: var(--ej-muted);
 }
 
 .input-wrapper textarea:disabled {
@@ -3306,7 +3341,7 @@ onUnmounted(() => {
   background: var(--ej-accent);
   border: none;
   border-radius: 10px;
-  color: white;
+  color: var(--ej-surface);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -3334,7 +3369,7 @@ onUnmounted(() => {
 .input-tips {
   text-align: center;
   font-size: 11px;
-  color: #9ca3af;
+  color: var(--ej-muted);
   margin-top: 10px;
   letter-spacing: 0.01em;
 }
@@ -3342,8 +3377,8 @@ onUnmounted(() => {
 .loading-spinner {
   width: 18px;
   height: 18px;
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  border-top-color: white;
+  border: 2px solid color-mix(in srgb, var(--ej-hairline) 30%, transparent);
+  border-top-color: var(--ej-hairline);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
   display: inline-block;
@@ -3875,8 +3910,8 @@ onUnmounted(() => {
   gap: 8px;
   margin-top: 10px;
   padding: 8px 14px;
-  background: #fafbfc;
-  border: 1px solid #edf0f3;
+  background: var(--ej-canvas);
+  border: 1px solid var(--ej-hairline);
   border-radius: 8px;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -3884,24 +3919,24 @@ onUnmounted(() => {
 }
 
 .draft-link:hover {
-  background: #f0f4f8;
-  border-color: #d0d7de;
+  background: var(--ej-canvas);
+  border-color: var(--ej-line);
 }
 
 .draft-link-icon {
   width: 16px;
   height: 16px;
-  color: #909399;
+  color: var(--ej-muted);
   flex-shrink: 0;
 }
 
 .draft-link-text {
   font-size: 13px;
-  color: #606266;
+  color: var(--ej-body);
 }
 
 .draft-link-title {
-  color: #303133;
+  color: var(--ej-ink);
   font-weight: 500;
 }
 
@@ -3914,7 +3949,7 @@ onUnmounted(() => {
   font-weight: 500;
   margin-left: auto;
   padding-left: 8px;
-  border-left: 1px solid #edf0f3;
+  border-left: 1px solid var(--ej-hairline);
 }
 
 .draft-link-action svg {
@@ -3925,34 +3960,34 @@ onUnmounted(() => {
 .conversation-group-toggle svg { width: 12px; height: 12px; transition: transform 160ms; }
 .conversation-group-toggle svg.expanded { transform: rotate(90deg); }
 .conversation-group-title { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-.conversation-group-updates { padding: 2px 7px; border: 1px solid var(--ej-line); border-radius: 999px; background: var(--studio-lime-soft); color: var(--ej-ink); font-size: 10px; font-weight: 600; line-height: 1.5; }
+.conversation-group-updates { padding: 2px 7px; border: 1px solid var(--ej-line); border-radius: 999px; background: var(--studio-lime-soft); color: var(--ej-on-color); font-size: 10px; font-weight: 600; line-height: 1.5; }
 .conv-article-title { color: var(--ej-muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 4px; }
 .conversation-load-more { width: 100%; padding: 10px; background: transparent; border: 0; color: var(--ej-muted); cursor: pointer; font-size: 12px; }
-.article-context-strip { display: flex; align-items: center; gap: 10px; padding: 12px 24px; border-bottom: 1px solid #11110f18; flex-shrink: 0; font-size: 12px; min-width: 0; }
+.article-context-strip { display: flex; align-items: center; gap: 10px; padding: 12px 24px; border-bottom: 1px solid color-mix(in srgb, var(--ej-ink) 9%, transparent); flex-shrink: 0; font-size: 12px; min-width: 0; }
 .article-context-strip > span { color: var(--ej-muted); flex-shrink: 0; }
 .article-context-strip button { background: transparent; border: 0; padding: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; cursor: pointer; color: var(--ej-ink); }
 .article-context-strip small { color: var(--ej-muted); margin-left: auto; flex-shrink: 0; }
-.history-error { padding: 12px 20px; color: #9b482f; font-size: 13px; background: #fff1e8; }
+.history-error { padding: 12px 20px; color: color-mix(in srgb, #9b482f var(--ej-shade), var(--ej-ink)); font-size: 13px; background: color-mix(in srgb, #fff1e8 var(--ej-tint), var(--ej-surface)); }
 .history-error button { border: 0; background: transparent; color: inherit; text-decoration: underline; cursor: pointer; margin-left: 8px; }
 .article-chat-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 20px 18px 14px; flex-shrink: 0; }
 .article-chat-heading { display: flex; align-items: center; gap: 10px; }
 .article-chat-heading strong { display: block; font-size: 15px; }
 .article-chat-heading div > span { display: block; font-size: 11px; color: var(--ej-muted); margin-top: 4px; }
-.article-chat-mark { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--ej-ink); background: var(--ej-lime, #caff4d); display: grid; place-items: center; font-size: 21px; }
+.article-chat-mark { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--ej-ink); background: var(--ej-lime, #caff4d); display: grid; place-items: center; font-size: 21px; color: var(--ej-on-color); }
 .article-chat-controls { display: flex; align-items: center; gap: 4px; }
 .article-chat-controls button { background: transparent; border: 0; border-radius: 8px; padding: 6px 8px; cursor: pointer; font-size: 12px; color: var(--ej-muted); }
-.article-chat-controls button:hover { background: #11110f08; color: var(--ej-ink); }
+.article-chat-controls button:hover { background: color-mix(in srgb, var(--ej-ink) 3%, transparent); color: var(--ej-ink); }
 .article-chat-controls .article-chat-close { font-size: 23px; line-height: 1; }
-.article-reader-link { display: flex; align-items: center; gap: 8px; padding: 8px 18px 12px; background: transparent; border: 0; border-bottom: 1px solid #11110f18; color: var(--ej-muted); font-size: 12px; text-align: left; cursor: pointer; flex-shrink: 0; }
+.article-reader-link { display: flex; align-items: center; gap: 8px; padding: 8px 18px 12px; background: transparent; border: 0; border-bottom: 1px solid color-mix(in srgb, var(--ej-ink) 9%, transparent); color: var(--ej-muted); font-size: 12px; text-align: left; cursor: pointer; flex-shrink: 0; }
 .reader-link-arrow { margin-left: auto; }
-.reader-unread-dot { width: 6px; height: 6px; border-radius: 50%; background: #e66d55; }
+.reader-unread-dot { width: 6px; height: 6px; border-radius: 50%; background: #e66d55; color: var(--ej-on-color); }
 .expand-assistant-link { display: block; margin: 12px auto 0; padding: 0; border: 0; background: transparent; font-size: 11px; color: var(--ej-muted); cursor: pointer; }
 .expand-assistant-link:disabled { cursor: default; opacity: .4; }
 :global(:is(#app, .article-rich-editor) .ai-chat-page.embedded-chat) { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--ej-surface); overflow: hidden; border-radius: inherit; }
 :global(:is(#app, .article-rich-editor) .ai-chat-page.embedded-chat::before) { display: none; }
 :global(:is(#app, .article-rich-editor) .embedded-chat .chat-container) { padding: 0; height: auto; min-height: 0; flex: 1; width: 100%; max-width: none; margin: 0; }
 :global(:is(#app, .article-rich-editor) .embedded-chat .chat-main) { width: 100%; min-width: 0; min-height: 0; background: transparent; }
-:global(:is(#app, .article-rich-editor) .embedded-chat .article-context-strip) { padding: 10px 18px; background: #11110f03; }
+:global(:is(#app, .article-rich-editor) .embedded-chat .article-context-strip) { padding: 10px 18px; background: color-mix(in srgb, var(--ej-ink) 1%, transparent); }
 :global(:is(#app, .article-rich-editor) .embedded-chat .welcome-area) { min-height: 0; padding: 28px 20px; overflow-y: auto; align-items: safe center; }
 :global(:is(#app, .article-rich-editor) .embedded-chat .welcome-title) { font-size: 21px; line-height: 1.5; letter-spacing: -.02em; }
 :global(:is(#app, .article-rich-editor) .embedded-chat .welcome-desc) { font-size: 13px; line-height: 1.7; margin-bottom: 20px; }

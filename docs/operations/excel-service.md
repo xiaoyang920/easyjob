@@ -23,8 +23,8 @@
 如需单独启动 Excel，先用启动器准备好配置并启动 Blog，然后在仓库根目录执行：
 
 ```powershell
-mvn -f excel-service/pom.xml package
-& 'D:\jdk\bin\java.exe' -jar excel-service/target/easyjob-excel-0.0.1-SNAPSHOT.jar --spring.config.additional-location=file:./temp/excel-runtime.yml
+mvn -f services/excel-service/pom.xml package
+& 'D:\jdk\bin\java.exe' -jar services/excel-service/target/easyjob-excel-0.0.1-SNAPSHOT.jar --spring.config.additional-location=file:./temp/excel-runtime.yml
 ```
 
 ## 服务间通信
@@ -46,7 +46,7 @@ Invoke-RestMethod 'http://127.0.0.1:8083/actuator/health'
 python scripts/checks/excel-export-smoke.py --base-url http://127.0.0.1:8090 --email YOUR_ADMIN_EMAIL --days 30 --source business --output temp/community-daily-check.xlsx
 ```
 
-脚本并发提交两次相同请求，确认只返回一个任务号，再轮询、检查匿名下载被拒绝、下载文件并校验工作表、连续日期和数值列。默认每页 10 天，30 天会读取三页。Excel 服务日志中可按任务号查找失败记录。单独执行 `mvn -f excel-service/pom.xml test` 可用 11、11、8 行验证三次连续填充，逐行比较数值。
+脚本并发提交两次相同请求，确认只返回一个任务号，再轮询、检查匿名下载被拒绝、下载文件并校验工作表、连续日期和数值列。默认每页 10 天，30 天会读取三页。Excel 服务日志中可按任务号查找失败记录。单独执行 `mvn -f services/excel-service/pom.xml test` 可用 11、11、8 行验证三次连续填充，逐行比较数值。
 
 页面验收可从 `http://127.0.0.1:3000` 登录管理员账号，进入「管理后台 → 社区数据」，选择来源和日期范围，点击「导出 Excel」，等待浏览器下载。
 

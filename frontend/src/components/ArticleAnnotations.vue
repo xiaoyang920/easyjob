@@ -16,19 +16,19 @@
         <div v-else-if="!comments.length" class="annotation-empty"><span class="empty-quote" aria-hidden="true">“</span><strong>从一句话开始讨论</strong><p>选中正文中的文字，再点击“评论所选内容”。</p></div>
         <article v-for="comment in comments" :key="comment.commentId" class="annotation-thread" :class="{ active: activeThread === comment.commentId }">
           <CommentQuotePreview :quote="comment.quote" @locate="locate" />
-          <div class="annotation-author"><img :src="avatarUrl(comment.userAvatar, comment.userNickName)" alt="" @error="onAvatarError($event, comment.userNickName)" /><a :href="`/user-space/${comment.userId}`">{{ comment.userNickName }}</a><time>{{ comment.createTime }}</time></div>
+          <div class="annotation-author"><SpaceAvatar :src="comment.userAvatar" :name="comment.userNickName" :user-id="comment.userId" alt="" /><a :href="`/user-space/${comment.userId}`">{{ comment.userNickName }}</a><time>{{ comment.createTime }}</time></div>
           <p v-if="comment.content" class="annotation-text">{{ comment.content }}</p>
-          <CommentImage :src="comment.imgPath" />
+          <CommentImage :src="comment.imgPath" :sources="comment.imgPaths" />
           <div class="annotation-actions"><button type="button" :aria-expanded="activeThread === comment.commentId" @click="toggleThread(comment)">{{ activeThread === comment.commentId ? '收起回复' : `回复${comment.replyCount ? ` · ${comment.replyCount}` : ''}` }}</button><button v-if="String(comment.userId) === myUserId" type="button" @click="askDelete(comment)">删除</button></div>
           <div v-if="activeThread === comment.commentId" class="annotation-replies">
             <p v-if="replyLoading">正在读取回复…</p>
             <p v-if="replyError" role="alert">{{ replyError }} <AppButton size="small" variant="quiet" @click="loadReplies(comment)">重试</AppButton></p>
-            <div v-for="reply in replies" :key="reply.commentId" class="annotation-reply"><a :href="`/user-space/${reply.userId}`">{{ reply.userNickName }}</a><p v-if="reply.content">{{ reply.content }}</p><CommentImage :src="reply.imgPath" /></div>
+            <div v-for="reply in replies" :key="reply.commentId" class="annotation-reply"><a :href="`/user-space/${reply.userId}`">{{ reply.userNickName }}</a><p v-if="reply.content">{{ reply.content }}</p><CommentImage :src="reply.imgPath" :sources="reply.imgPaths" /></div>
             <button v-if="moreReplies" type="button" :disabled="replyLoading" @click="loadReplies(comment, true)">更多回复</button>
             <label class="sr-only" :for="`quote-reply-${comment.commentId}`">回复这条划词评论</label>
             <textarea :id="`quote-reply-${comment.commentId}`" v-model="replyText" maxlength="500" rows="2" :disabled="submitting" placeholder="围绕这段原文说说你的看法…" @paste="replyImageInput[0]?.paste($event)"></textarea>
             <CommentImageInput :key="comment.commentId" ref="replyImageInput" v-model="replyImage" :disabled="submitting" @busy="replyImageBusy = $event" @login="emit('login')" />
-            <div class="annotation-submit-row"><small>{{ replyText.length }}/500</small><button type="button" class="annotation-primary" :disabled="(!replyText.trim() && !replyImage) || submitting || replyImageBusy" @click="submitReply(comment)">{{ submitting ? '发布中…' : '发布回复' }}</button></div>
+            <div class="annotation-submit-row"><small>{{ replyText.length }}/500</small><button type="button" class="annotation-primary" :disabled="(!replyText.trim() && !replyImage.length) || submitting || replyImageBusy" @click="submitReply(comment)">{{ submitting ? '发布中…' : '发布回复' }}</button></div>
           </div>
         </article>
         <button v-if="hasMore" class="annotation-load-more" type="button" :disabled="loading" @click="load(true)">{{ loading ? '读取中…' : '更多划词评论' }}</button>
@@ -40,7 +40,7 @@
         <textarea id="annotation-comment" ref="composer" v-model="text" maxlength="500" rows="3" :disabled="submitting" placeholder="你的疑问、补充或想法…" @paste="imageInput?.paste($event)"></textarea>
         <CommentImageInput ref="imageInput" v-model="image" :disabled="submitting" @busy="imageBusy = $event" @login="emit('login')" />
         <p v-if="submitError" class="annotation-error" role="alert">{{ submitError }}</p>
-        <div class="annotation-submit-row"><small>{{ text.length }}/500</small><button type="submit" class="annotation-primary" :disabled="(!text.trim() && !image) || submitting || imageBusy">{{ submitting ? '发布中…' : '发布评论' }}</button></div>
+        <div class="annotation-submit-row"><small>{{ text.length }}/500</small><button type="submit" class="annotation-primary" :disabled="(!text.trim() && !image.length) || submitting || imageBusy">{{ submitting ? '发布中…' : '发布评论' }}</button></div>
       </form>
       <footer v-else class="annotation-footer">选中正文任意文字，即可发起新讨论。</footer>
     </section>
@@ -55,7 +55,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } fr
 import { selectedArticleReference, type ArticleSelection } from '@/utils/articleReferences'
 import request from '@/utils/request'
 import { errorMessage, notify } from '@/utils/feedback'
-import { avatarUrl, onAvatarError } from '@/utils/avatar'
+import SpaceAvatar from '@/components/SpaceAvatar.vue'
 import { latestRequest } from '@/utils/latestRequest'
 import { eventBus, EVENT_AUTH_CHANGED, EVENT_AUTH_EXPIRED } from '@/utils/eventBus'
 import { selectedQuote, quoteRange, type CommentQuote } from '@/utils/commentAnchors'
@@ -64,7 +64,7 @@ import CommentQuotePreview from './CommentQuotePreview.vue'
 import CommentImage from './CommentImage.vue'
 import CommentImageInput from './CommentImageInput.vue'
 
-interface Comment { commentId: string; userId: string; userNickName: string; userAvatar?: string; content: string; imgPath?: string; createTime: string; replyCount: number; quote?: CommentQuote }
+interface Comment { commentId: string; userId: string; userNickName: string; userAvatar?: string; content: string; imgPath?: string; imgPaths?: string[]; createTime: string; replyCount: number; quote?: CommentQuote }
 const props = defineProps<{ articleId: string; articleAuthorId: string; root?: HTMLElement; aiReference?: boolean }>()
 const emit = defineEmits<{ changed: []; login: []; opened: []; referenceRequested: [selection: ArticleSelection] }>()
 const openPanel = ref(false), narrow = ref(false), top = ref(88), panelHeight = ref(600), panel = ref<HTMLElement>(), closeButton = ref<HTMLButtonElement>(), composer = ref<HTMLTextAreaElement>()
@@ -72,8 +72,8 @@ const panelStyle = computed(() => ({ top: `${top.value}px`, ...(narrow.value ? {
 const selectionQuote = ref<CommentQuote>(), actionStyle = ref({ left: '0px', top: '0px' })
 const selectionReference = shallowRef<ArticleSelection>()
 const pendingQuote = ref<CommentQuote>(), text = ref(''), submitError = ref(''), notice = ref('')
-const image = ref(''), imageBusy = ref(false), imageInput = ref<InstanceType<typeof CommentImageInput>>()
-const replyImage = ref(''), replyImageBusy = ref(false)
+const image = ref<string[]>([]), imageBusy = ref(false), imageInput = ref<InstanceType<typeof CommentImageInput>>()
+const replyImage = ref<string[]>([]), replyImageBusy = ref(false)
 // A template ref inside v-for is an array even though only the active thread mounts it.
 const replyImageInput = ref<InstanceType<typeof CommentImageInput>[]>([])
 const comments = ref<Comment[]>([]), total = ref(0), page = ref(1), hasMore = ref(false), loading = ref(false), error = ref(''), submitting = ref(false)
@@ -186,10 +186,10 @@ async function openForMarkers(ids: string[]) {
 }
 async function showAll() { focusedIds.value = undefined; await load() }
 function close(restoreFocus = true) { openPanel.value = false; selectionQuote.value = undefined; clearHighlight(); if (restoreFocus) previousFocus?.focus({ preventScroll: true }) }
-function cancelDraft() { pendingQuote.value = undefined; text.value = ''; image.value = ''; imageBusy.value = false; submitError.value = ''; clearHighlight() }
+function cancelDraft() { pendingQuote.value = undefined; text.value = ''; image.value = []; imageBusy.value = false; submitError.value = ''; clearHighlight() }
 async function startComment() {
   if (!selectionQuote.value) return
-  if (pendingQuote.value && (text.value.trim() || image.value || imageBusy.value)) { notify.warning('请先发布或取消正在编辑的评论'); return }
+  if (pendingQuote.value && (text.value.trim() || image.value.length || imageBusy.value)) { notify.warning('请先发布或取消正在编辑的评论'); return }
   pendingQuote.value = { ...selectionQuote.value }; submitError.value = ''; notice.value = ''
   const range = props.root && quoteRange(props.root, pendingQuote.value)
   if (range) paint(range)
@@ -248,12 +248,12 @@ async function loadMarkers() {
 }
 async function refresh() { await loadMarkers(); if (!disposed) await load() }
 async function submit() {
-  if (!pendingQuote.value || (!text.value.trim() && !image.value) || submitting.value || imageBusy.value) return
+  if (!pendingQuote.value || (!text.value.trim() && !image.value.length) || submitting.value || imageBusy.value) return
   if (!localStorage.getItem('token')) { emit('login'); return }
   myUserId.value = localStorage.getItem('userId') || ''
   submitting.value = true; submitError.value = ''
   try {
-    await request.post('/comment/create', { articleId: props.articleId, articleUserId: props.articleAuthorId, content: text.value.trim(), imgPath: image.value || null, quote: pendingQuote.value })
+    await request.post('/comment/create', { articleId: props.articleId, articleUserId: props.articleAuthorId, content: text.value.trim(), imgPaths: image.value, quote: pendingQuote.value })
     if (disposed) return
     cancelDraft(); emit('changed'); await refresh(); notify.success('划词评论已发布')
   } catch (err) { if (!disposed) submitError.value = errorMessage(err, '发布失败，评论内容已保留，请重试') }
@@ -262,7 +262,7 @@ async function submit() {
 async function toggleThread(comment: Comment) {
   if (submitting.value) return
   if (activeThread.value === comment.commentId) { activeThread.value = ''; replyImageBusy.value = false; replyReads.cancel(); return }
-  activeThread.value = comment.commentId; replies.value = []; replyText.value = ''; replyImage.value = ''; replyImageBusy.value = false; await loadReplies(comment)
+  activeThread.value = comment.commentId; replies.value = []; replyText.value = ''; replyImage.value = []; replyImageBusy.value = false; await loadReplies(comment)
 }
 async function loadReplies(comment: Comment, more = false) {
   const ticket = replyReads.begin(), nextPage = more ? replyPage.value + 1 : 1
@@ -276,13 +276,13 @@ async function loadReplies(comment: Comment, more = false) {
   finally { if (ticket.isCurrent()) replyLoading.value = false }
 }
 async function submitReply(comment: Comment) {
-  if ((!replyText.value.trim() && !replyImage.value) || submitting.value || replyImageBusy.value) return
+  if ((!replyText.value.trim() && !replyImage.value.length) || submitting.value || replyImageBusy.value) return
   if (!localStorage.getItem('token')) { emit('login'); return }
   submitting.value = true; replyError.value = ''
   try {
-    await request.post('/comment/create', { articleId: props.articleId, articleUserId: props.articleAuthorId, parentId: comment.commentId, replyUserId: comment.userId, content: replyText.value.trim(), imgPath: replyImage.value || null })
+    await request.post('/comment/create', { articleId: props.articleId, articleUserId: props.articleAuthorId, parentId: comment.commentId, replyUserId: comment.userId, content: replyText.value.trim(), imgPaths: replyImage.value })
     if (disposed) return
-    if (activeThread.value === comment.commentId) { replyText.value = ''; replyImage.value = ''; await loadReplies(comment) }
+    if (activeThread.value === comment.commentId) { replyText.value = ''; replyImage.value = []; await loadReplies(comment) }
     comment.replyCount++; emit('changed')
   } catch (err) { if (!disposed) replyError.value = errorMessage(err, '回复发布失败，输入已保留') }
   finally { submitting.value = false }
@@ -310,7 +310,7 @@ watch(() => props.root, root => { selectionQuote.value = undefined; selectionRef
 function authChanged() {
   const previous = myUserId.value
   myUserId.value = localStorage.getItem('userId') || ''
-  if (!myUserId.value || (previous && previous !== myUserId.value)) { close(); cancelDraft(); replyText.value = ''; replyImage.value = ''; replyImageBusy.value = false; activeThread.value = '' }
+  if (!myUserId.value || (previous && previous !== myUserId.value)) { close(); cancelDraft(); replyText.value = ''; replyImage.value = []; replyImageBusy.value = false; activeThread.value = '' }
 }
 onMounted(() => { bindRoot(props.root); layout(); void refresh(); document.addEventListener('selectionchange', selectionChanged); window.addEventListener('resize', layout); window.addEventListener('scroll', articleScrolled, true); visualViewport?.addEventListener('resize', layout); eventBus.on(EVENT_AUTH_CHANGED, authChanged); eventBus.on(EVENT_AUTH_EXPIRED, authChanged) })
 onUnmounted(() => { disposed = true; reads.cancel(); replyReads.cancel(); markerReads.cancel(); cancelAnimationFrame(selectionFrame); cancelAnimationFrame(markerFrame); bindRoot(undefined); clearHighlight(); document.removeEventListener('selectionchange', selectionChanged); window.removeEventListener('resize', layout); window.removeEventListener('scroll', articleScrolled, true); visualViewport?.removeEventListener('resize', layout); eventBus.off(EVENT_AUTH_CHANGED, authChanged); eventBus.off(EVENT_AUTH_EXPIRED, authChanged) })
@@ -320,18 +320,18 @@ defineExpose({ open, close, locate, refresh, total })
 <style>
 ::highlight(easyjob-comment) { background:#ffe6a2; color:inherit; }
 .article-comment-lines { position:absolute; left:0; top:0; height:0; width:100%; z-index:20; pointer-events:none; }
-.article-comment-line { position:absolute; height:2px; border-radius:2px; background:#e9b941; pointer-events:none; }
+.article-comment-line { position:absolute; height:2px; border-radius:2px; background:#e9b941; pointer-events:none; color: var(--ej-on-color); }
 .article-content.article-comment-hover { cursor:pointer; }
-.annotation-scope { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:10px 20px; background:#fff1bf; border-bottom:1px solid var(--ej-line); font-size:12px; }
+.annotation-scope { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:10px 20px; background:#fff1bf; border-bottom:1px solid var(--ej-line); font-size:12px; color: var(--ej-on-color); }
 .annotation-scope button { border:0; background:none; padding:4px 0; text-decoration:underline; }
-.annotation-panel { position:fixed; right:20px; bottom:20px; width:380px; max-width:calc(100vw - 24px); z-index:2200; display:flex; flex-direction:column; background:var(--ej-surface,#fffdf7); color:var(--ej-ink,#171715); border:1px solid var(--ej-ink); border-radius:20px; box-shadow:6px 6px 0 #00000015; font-size:14px; }
+.annotation-panel { position:fixed; right:20px; bottom:20px; width:380px; max-width:calc(100vw - 24px); z-index:2200; display:flex; flex-direction:column; background:var(--ej-surface,var(--ej-canvas)); color:var(--ej-ink,var(--ej-ink)); border:1px solid var(--ej-ink); border-radius:20px; box-shadow:6px 6px 0 #00000015; font-size:14px; }
 .annotation-panel button,.annotation-dialog-button,.quote-selection-action { font:inherit; color:inherit; cursor:pointer; }
 .annotation-panel button:disabled,.annotation-dialog-button:disabled { opacity:.45; cursor:not-allowed; }
 .annotation-panel button:focus-visible,.annotation-dialog-button:focus-visible { outline:2px solid var(--ej-ink); outline-offset:3px; border-radius:5px; }
 .annotation-panel .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
 .annotation-header { display:flex; align-items:flex-start; gap:12px; justify-content:space-between; padding:20px; border-bottom:1px solid var(--ej-line); flex-shrink:0; }
 .annotation-header h2 { margin:0; font-size:18px; font-weight:750; }
-.annotation-header h2 span { font-size:13px; border:1px solid var(--ej-ink); border-radius:99px; background:var(--studio-lime,#baff32); padding:1px 7px; margin-left:5px; }
+.annotation-header h2 span { font-size:13px; border:1px solid var(--ej-ink); border-radius:99px; background:var(--studio-lime,#baff32); padding:1px 7px; margin-left:5px; color: var(--ej-on-color); }
 .annotation-header p { margin:7px 0 0; font-size:12px; color:var(--ej-muted); }
 .annotation-header > button { border:0; background:none; font-size:26px; line-height:1; padding:0 4px; }
 .annotation-content { flex:1; min-height:0; overflow-y:auto; overscroll-behavior:contain; padding:16px; }
@@ -339,7 +339,7 @@ defineExpose({ open, close, locate, refresh, total })
 .annotation-thread.active { border-color:var(--ej-ink); }
 .annotation-thread > .comment-quote-preview { margin-top:0; }
 .annotation-author { display:flex; gap:7px; align-items:center; margin-top:14px; font-size:12px; }
-.annotation-author img { width:24px; height:24px; border-radius:50%; object-fit:cover; }
+.annotation-author .space-avatar { width: 24px; height: 24px; }
 .annotation-panel a { color:var(--ej-ink); text-decoration:none; }
 .annotation-author time { margin-left:auto; color:var(--ej-muted); font-size:10px; }
 .annotation-text,.annotation-reply p { white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.75; margin:10px 0; }
@@ -352,21 +352,21 @@ defineExpose({ open, close, locate, refresh, total })
 .annotation-reply p { margin:4px 0; }
 .annotation-composer { flex-shrink:0; padding:16px; border-top:1px solid var(--ej-line); max-height:55%; overflow:auto; }
 .composer-label { display:flex; align-items:center; justify-content:space-between; font-size:13px; }
-.annotation-panel textarea { display:block; box-sizing:border-box; width:100%; padding:12px; background:var(--ej-bg,#f2efe6); color:var(--ej-ink); border:1px solid var(--ej-line); border-radius:12px; font:inherit; line-height:1.6; resize:vertical; min-height:70px; max-height:180px; }
+.annotation-panel textarea { display:block; box-sizing:border-box; width:100%; padding:12px; background:var(--ej-bg,var(--ej-canvas)); color:var(--ej-ink); border:1px solid var(--ej-line); border-radius:12px; font:inherit; line-height:1.6; resize:vertical; min-height:70px; max-height:180px; }
 .annotation-panel textarea:focus { outline:2px solid var(--ej-ink); outline-offset:2px; }
 .annotation-submit-row { display:flex; justify-content:space-between; align-items:center; margin-top:12px; gap:8px; }
 .annotation-submit-row small { color:var(--ej-muted); }
-.annotation-panel .annotation-primary,.annotation-primary { background:var(--ej-ink,#171715); color:var(--ej-surface,#fffdf7); border:1px solid var(--ej-ink); padding:8px 16px; border-radius:99px; }
+.annotation-panel .annotation-primary,.annotation-primary { background:var(--ej-ink,var(--ej-ink)); color:var(--ej-surface,var(--ej-surface)); border:1px solid var(--ej-ink); padding:8px 16px; border-radius:99px; }
 .annotation-footer { padding:16px 20px; border-top:1px solid var(--ej-line); font-size:12px; color:var(--ej-muted); }
 .annotation-empty { display:flex; flex-direction:column; align-items:center; padding:40px 8px; text-align:center; color:var(--ej-muted); line-height:1.8; }
 .annotation-empty strong { color:var(--ej-ink); font-size:16px; }
 .annotation-empty p { max-width:250px; margin-top:6px; }
 .empty-quote { font-size:58px; line-height:1; color:var(--ej-ink); }
-.annotation-notice,.annotation-error { padding:10px 12px; background:#fff0c4; border-radius:8px; font-size:12px; line-height:1.7; }
-.annotation-error { background:#fff0e9; }
+.annotation-notice,.annotation-error { padding:10px 12px; background:color-mix(in srgb, #fff0c4 var(--ej-tint), var(--ej-surface)); border-radius:8px; font-size:12px; line-height:1.7; }
+.annotation-error { background:color-mix(in srgb, #fff0e9 var(--ej-tint), var(--ej-surface)); }
 .annotation-load-more { width:100%; border:1px solid var(--ej-line); border-radius:99px; padding:10px; background:transparent; }
-.quote-selection-action { position:fixed; z-index:2300; display:flex; align-items:center; gap:0; padding:3px; max-width:calc(100vw - 24px); border:1px solid var(--ej-ink); border-radius:99px; background:var(--studio-lime,#baff32); color:var(--ej-ink); box-shadow:3px 3px 0 #0002; font-size:12px; white-space:nowrap; }
-.quote-selection-action button{display:flex;align-items:center;gap:6px;padding:6px 10px;border:0;border-radius:99px;background:transparent;font:inherit;color:inherit;cursor:pointer}.quote-selection-action button+button{border-left:1px solid #11110f26;border-radius:0 99px 99px 0}.quote-selection-action button:focus-visible{outline:2px solid var(--ej-ink);outline-offset:1px}
+.quote-selection-action { position:fixed; z-index:2300; display:flex; align-items:center; gap:0; padding:3px; max-width:calc(100vw - 24px); border:1px solid var(--ej-ink); border-radius:99px; background:var(--studio-lime,#baff32); color:var(--ej-on-color); box-shadow:3px 3px 0 #0002; font-size:12px; white-space:nowrap; }
+.quote-selection-action button{display:flex;align-items:center;gap:6px;padding:6px 10px;border:0;border-radius:99px;background:transparent;font:inherit;color:inherit;cursor:pointer}.quote-selection-action button+button{border-left:1px solid color-mix(in srgb, var(--ej-ink) 15%, transparent);border-radius:0 99px 99px 0}.quote-selection-action button:focus-visible{outline:2px solid var(--ej-ink);outline-offset:1px}
 .quote-selection-action span { font-size:16px; line-height:1; }
 .annotation-backdrop { position:fixed; inset:0; background:#0005; z-index:2199; }
 .annotation-highlight-fallback span { position:fixed; background:#ffc94d55; pointer-events:none; z-index:1; }

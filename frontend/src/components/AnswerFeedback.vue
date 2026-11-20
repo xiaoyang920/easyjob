@@ -18,9 +18,9 @@ async function submit(value:string){if(busy.value)return;const id=props.runId,tu
 </script>
 <style scoped>
 .answer-feedback{margin-top:16px;font-size:12px;color:var(--ej-muted);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.answer-feedback button[aria-pressed=true]{background:var(--studio-lime);border-color:var(--ej-ink)}
+.answer-feedback button[aria-pressed=true]{background:var(--studio-lime);border-color:var(--ej-ink); color: var(--ej-on-color);}
 .answer-feedback-form{flex-basis:100%;min-width:0;display:grid;gap:16px;padding:18px;background:var(--ej-surface);border:1px solid var(--ej-line);border-radius:16px}
 .feedback-reason{display:grid;grid-template-columns:auto minmax(0,260px);align-items:center;gap:12px;color:var(--ej-ink);justify-content:start}.feedback-comment{display:block;color:var(--ej-ink)}.feedback-comment small{margin-left:8px;color:var(--ej-muted);font-size:11px}
-.answer-feedback textarea{display:block;box-sizing:border-box;width:100%;margin-top:8px;resize:vertical;min-height:86px;background:var(--ej-canvas);color:var(--ej-ink);border:1px solid var(--ej-line);border-radius:10px;padding:10px 12px;font:inherit;line-height:1.7}.answer-feedback textarea:focus{outline:2px solid var(--studio-lime);outline-offset:1px}.feedback-actions{display:flex;gap:8px}.answer-feedback .feedback-submit{background:var(--ej-ink);color:var(--ej-surface);border-color:var(--ej-ink)}.answer-feedback .feedback-submit:hover:enabled{background:var(--studio-lime);color:var(--ej-ink)}
+.answer-feedback textarea{display:block;box-sizing:border-box;width:100%;margin-top:8px;resize:vertical;min-height:86px;background:var(--ej-canvas);color:var(--ej-ink);border:1px solid var(--ej-line);border-radius:10px;padding:10px 12px;font:inherit;line-height:1.7}.answer-feedback textarea:focus{outline:2px solid var(--studio-lime);outline-offset:1px}.feedback-actions{display:flex;gap:8px}.answer-feedback .feedback-submit{background:var(--ej-ink);color:var(--ej-surface);border-color:var(--ej-ink)}.answer-feedback .feedback-submit:hover:enabled{background:var(--studio-lime);color:var(--ej-on-color)}
 @media(max-width:600px){.answer-feedback-form{padding:14px}.feedback-reason{grid-template-columns:minmax(0,1fr);gap:7px}.feedback-comment small{display:block;margin:4px 0 0}}
 </style>

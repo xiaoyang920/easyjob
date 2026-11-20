@@ -33,6 +33,10 @@
             </el-input>
           </el-form-item>
 
+          <div class="password-help">
+            <RouterLink class="forgot-password" to="/password-reset">忘记密码？</RouterLink>
+          </div>
+
           <el-form-item>
             <el-button
               type="primary"
@@ -99,7 +103,7 @@
           </el-form-item>
         </el-form>
       </el-tab-pane>
-    </el-tabs><RouterLink to="/password-reset" style="display:block;text-align:right;margin:12px 0">忘记密码？</RouterLink>
+    </el-tabs>
 
     <div class="form-footer">
       <span>还没有账号？</span>
@@ -419,7 +423,7 @@ async function handleCodeLogin() {
 /* 按下时收起偏移阴影，形成“压下去”的反馈 */
 .login-tabs :deep(.el-button--primary:active) {
   background: var(--studio-lime);
-  color: var(--ej-ink);
+  color: var(--ej-on-color);
   box-shadow: 1px 1px 0 var(--ej-ink);
   transform: translateY(0);
 }
@@ -440,13 +444,40 @@ async function handleCodeLogin() {
 .login-tabs :deep(.el-button--default:hover:not(.is-disabled)) {
   background: var(--studio-lime);
   border-color: var(--ej-ink);
-  color: var(--ej-ink);
+  color: var(--ej-on-color);
 }
 
 .login-tabs :deep(.el-button--default.is-disabled) {
   background: var(--ej-canvas);
   border-color: var(--ej-line);
   color: var(--ej-muted);
+}
+
+.password-help {
+  display: flex;
+  justify-content: flex-end;
+  margin: -8px 0 14px;
+}
+
+.forgot-password {
+  color: var(--ej-muted);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.5;
+  padding: 4px 2px;
+  border-radius: 4px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.forgot-password:hover,
+.forgot-password:focus-visible {
+  color: var(--ej-ink);
+}
+
+.forgot-password:focus-visible {
+  outline: 2px solid var(--ej-ink);
+  outline-offset: 2px;
 }
 
 .form-footer {
@@ -557,6 +588,10 @@ async function handleCodeLogin() {
     margin-top: 15px;
     padding-top: 15px;
     font-size: 12px;
+  }
+
+  .password-help {
+    margin-top: 0;
   }
   
   .decoration-image {

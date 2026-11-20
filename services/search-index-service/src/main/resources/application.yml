@@ -1,0 +1,69 @@
+server:
+  port: ${SEARCH_INDEX_PORT:8084}
+  address: ${SEARCH_INDEX_BIND:127.0.0.1}
+  shutdown: graceful
+spring:
+  application:
+    name: easyjob-search-index
+  lifecycle:
+    timeout-per-shutdown-phase: 135s
+  datasource:
+    url: ${SEARCH_INDEX_LOCK_URL:jdbc:mysql://127.0.0.1:3306/}
+    username: ${SEARCH_INDEX_LOCK_USER:}
+    password: ${SEARCH_INDEX_LOCK_PASSWORD:}
+    hikari:
+      maximum-pool-size: ${SEARCH_INDEX_LOCK_POOL_SIZE:8}
+      minimum-idle: 0
+  elasticsearch:
+    uris: ${SPRING_ELASTICSEARCH_URIS:http://${ES_HOST:localhost}:${ES_PORT:9200}}
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      database: ${REDIS_DB:0}
+      password: ${REDIS_PASSWORD:}
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+    virtual-host: ${RABBITMQ_VIRTUAL_HOST:/}
+    listener:
+      simple:
+        prefetch: 1
+        shutdown-timeout: 130s
+        default-requeue-rejected: false
+        retry:
+          enabled: true
+          max-attempts: 3
+          initial-interval: 1s
+          multiplier: 2
+  ai:
+    model:
+      chat: none
+    zhipuai:
+      api-key: ${ZHIPUAI_API_KEY}
+      base-url: ${ZHIPUAI_BASE_URL:https://open.bigmodel.cn/api/paas}
+      embedding:
+        options:
+          model: ${ZHIPU_EMBEDDING_MODEL:embedding-3}
+          dimensions: ${ZHIPU_EMBEDDING_DIMENSIONS:2048}
+mybatis-plus:
+  mapper-locations: classpath:/mapper/*.xml
+search-index:
+  blog-url: ${SEARCH_INDEX_BLOG_URL:http://127.0.0.1:8080}
+agent:
+  index-outbox:
+    consumer-concurrency: ${ARTICLE_INDEX_CONCURRENCY:4}
+  embedding:
+    execution:
+      core-pool-size: ${EMBEDDING_CORE_THREADS:8}
+      max-pool-size: ${EMBEDDING_MAX_THREADS:8}
+      queue-capacity: ${EMBEDDING_QUEUE_CAPACITY:16}
+      per-article-parallelism: ${EMBEDDING_ARTICLE_PARALLELISM:4}
+      article-timeout: ${EMBEDDING_ARTICLE_TIMEOUT:120s}
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health

@@ -1,6 +1,6 @@
 # 中文技术检索
 
-文章全文搜索与 RAG 的 BM25 分路共用中文分析配置，资源在 `src/main/resources/elasticsearch/`：
+文章全文搜索与 RAG 的 BM25 分路共用中文分析配置，资源在 `services/blog-service/src/main/resources/elasticsearch/`：
 
 - `easyjob-technical.dic`：IK 扩展技术词，如缓存穿透、缓存击穿、倒排索引、检索增强生成。词典不是按字段自动启用，先注册到 IK 的 `ext_dict`，再由使用 IK 的分析器加载。
 - `easyjob-synonyms.txt`：查询侧等价表达，如 `es, elasticsearch`、`springboot, spring boot`、`rag, 检索增强生成`。不同故障和不同框架不能当同义词。

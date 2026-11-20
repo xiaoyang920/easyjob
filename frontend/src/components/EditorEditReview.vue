@@ -35,7 +35,7 @@ function undo() {
 </script>
 <style scoped>
 .editor-edit-review{margin-top:16px;border:1px solid var(--ej-ink);border-radius:14px;background:var(--ej-surface);overflow:hidden;font-size:12px;color:var(--ej-ink)}
-header{display:flex;justify-content:space-between;gap:8px;padding:12px;border-bottom:1px solid var(--ej-line);background:var(--studio-lime-soft)}header span{color:var(--ej-muted);font-size:11px}
+header{display:flex;justify-content:space-between;gap:8px;padding:12px;border-bottom:1px solid var(--ej-line);background:var(--studio-lime-soft); color: var(--ej-on-color);}header span{color:var(--ej-muted);font-size:11px}
 p,details,.edit-after{margin:12px}summary{cursor:pointer;color:var(--ej-muted)}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;line-height:1.8;max-height:260px;overflow:auto;margin:8px 0}.edit-before{color:var(--ej-muted)}.edit-after>span{font-size:11px;color:var(--ej-muted)}
 .edit-review-actions{display:flex;gap:8px;padding:0 12px 12px}.edit-review-actions button{padding:7px 12px;border:1px solid var(--ej-ink);border-radius:99px;background:var(--ej-ink);color:var(--ej-surface);font:inherit;cursor:pointer}.edit-review-actions .edit-ignore{background:transparent;color:var(--ej-ink)}button:disabled{opacity:.45;cursor:default}.edit-notice{font-size:11px;color:var(--ej-muted)}
 </style>

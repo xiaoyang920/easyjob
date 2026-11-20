@@ -15,14 +15,16 @@
           <form v-if="editingProfile" class="profile-form" @submit.prevent="saveProfile">
             <label>关注领域<input v-model="profileForm.topics" maxlength="4039" placeholder="Java, Redis, Agent（逗号分隔）"><small>你长期关注、想学或想写的方向，最多40项；不代表熟练程度。</small></label>
             <label>学习背景<input v-model="profileForm.experience" maxlength="100" placeholder="例如：Python 新手，从事 Java 后端开发"><small>写明对应领域，帮助助手调整讲解深度。</small></label>
+            <label>默认城市<input v-model="profileForm.defaultCity" maxlength="100" placeholder="例如：杭州"><small>提问时没指定城市，助手会优先用你保存的城市查询。留空可清除。</small></label>
             <label>回答偏好 <small>英文小写键名，如 language、detail、code_language</small><div v-for="(pref, index) in profileForm.preferences" :key="index" class="preference-row"><input v-model="pref.key" maxlength="40" aria-label="偏好名称" placeholder="language"><input v-model="pref.value" maxlength="1000" aria-label="偏好内容" placeholder="中文"><button type="button" :disabled="busy" @click="profileForm.preferences.splice(index, 1)" aria-label="移除偏好">×</button></div></label>
-            <button type="button" class="text-button" :disabled="busy || profileForm.preferences.length >= 20" @click="profileForm.preferences.push({ key: '', value: '' })">＋添加偏好</button>
+            <button type="button" class="text-button" :disabled="busy || profileForm.preferences.length + Number(!!profileForm.defaultCity.trim()) >= 20" @click="profileForm.preferences.push({ key: '', value: '' })">＋添加偏好</button>
             <div class="form-actions"><button class="memory-button primary" :disabled="busy">{{ busy ? '保存中…' : '保存修改' }}</button><button type="button" class="memory-button" :disabled="busy" @click="editingProfile = false">取消</button><button type="button" class="text-button danger" :disabled="busy" @click="clearProfile">清空画像</button></div>
           </form>
           <div v-else class="profile-grid">
             <div class="profile-topics"><span>关注领域</span><p>{{ data.profile.topics?.join(' · ') || '尚未记录' }}</p><small>长期关注、想学或想写的方向</small></div>
             <div><span>学习背景</span><p>{{ data.profile.experience === 'unknown' ? '尚未记录' : data.profile.experience }}</p></div>
-            <div><span>回答偏好</span><p v-for="(value, key) in data.profile.preferences" :key="key">{{ preferenceLabel(key) }}：{{ value }}</p><p v-if="!Object.keys(data.profile.preferences || {}).length">尚未记录</p></div>
+            <div><span>回答偏好</span><p v-for="[key, value] in profilePreferences" :key="key">{{ preferenceLabel(key) }}：{{ value }}</p><p v-if="!profilePreferences.length">尚未记录</p></div>
+            <div><span>默认城市</span><p>{{ data.profile.preferences.default_city || '未设置' }}</p></div>
           </div>
           <p class="memory-meta">更新于 {{ formatDate(data.profile_updated_at) }} · 明确表达背景或长期偏好后更新</p>
         </section>
@@ -54,8 +56,10 @@ type Memory = { memory_id: string; version: string; memory_type: string; memory_
 type Overview = { profile: { topics: string[]; experience: string; preferences: Record<string, string> }; profile_version: string; profile_updated_at?: string; memories: Memory[]; next_cursor?: string; extraction: { enabled: boolean }; write_jobs?: { id: string; status: string; updated_at?: string }[] }
 const data = ref<Overview>(), loading = ref(false), loadError = ref(''), busy = ref(false), requests = latestRequest()
 const selected = ref('all'), editingId = ref(''), editContent = ref(''), editVersion = ref(''), editingProfile = ref(false)
-const profileForm = ref({ version: '', topics: '', experience: 'unknown', preferences: [] as { key: string; value: string }[] })
+const profileForm = ref({ version: '', topics: '', experience: 'unknown', defaultCity: '', preferences: [] as { key: string; value: string }[] })
 const tabs = [{ key: 'all', label: '全部' }, { key: 'constraint', label: '约束' }, { key: 'decision', label: '决策' }, { key: 'event', label: '旧事件（归档）' }]
+const profilePreferences = computed(() => Object.entries(data.value?.profile.preferences || {})
+  .filter(([key]) => key !== 'default_city'))
 const visibleMemories = computed(() => data.value?.memories.filter(m => selected.value === 'all' ? ['constraint', 'decision'].includes(m.memory_type) : m.memory_type === selected.value) || [])
 function selectType(kind: string) {
   if (selected.value === kind) return
@@ -80,7 +84,11 @@ async function load(append = false) {
 function startProfile() {
   if (!data.value) return
   const p = data.value.profile
-  profileForm.value = { version: data.value.profile_version, topics: p.topics.join(', '), experience: p.experience, preferences: Object.entries(p.preferences).map(([key, value]) => ({ key, value: String(value) })) }
+  const { default_city: defaultCity = '', ...preferences } = p.preferences
+  profileForm.value = {
+    version: data.value.profile_version, topics: p.topics.join(', '), experience: p.experience, defaultCity,
+    preferences: Object.entries(preferences).map(([key, value]) => ({ key, value: String(value) }))
+  }
   editingProfile.value = true
 }
 async function saveProfile() {
@@ -88,17 +96,20 @@ async function saveProfile() {
   const form = profileForm.value
   const keys = form.preferences.map(p => p.key.trim())
   if (new Set(keys).size !== keys.length) { notify.warning('偏好名称不能重复'); return }
+  if (keys.includes('default_city')) { notify.warning('请在默认城市栏填写城市'); return }
+  const preferences = Object.fromEntries(form.preferences.map(p => [p.key.trim(), p.value.trim()]))
+  if (form.defaultCity.trim()) preferences.default_city = form.defaultCity.trim()
   busy.value = true
   try {
     const split = (v: string) => [...new Set(v.split(/[,，]/).map(s => s.trim()).filter(Boolean))]
-    await request.put('/agent/memory/profile', { version: form.version, topics: split(form.topics), experience: form.experience.trim() || 'unknown', preferences: Object.fromEntries(form.preferences.map(p => [p.key.trim(), p.value.trim()])) })
+    await request.put('/agent/memory/profile', { version: form.version, topics: split(form.topics), experience: form.experience.trim() || 'unknown', preferences })
     editingProfile.value = false; notify.success('画像已更新'); await load()
   } catch (e) { notify.error(errorMessage(e)) }
   finally { busy.value = false }
 }
 async function clearProfile() {
   if (!await confirmAction('清空关注领域、学习背景和全部回答偏好？', '清空画像')) return
-  profileForm.value = { ...profileForm.value, topics: '', experience: 'unknown', preferences: [] }; await saveProfile()
+  profileForm.value = { ...profileForm.value, topics: '', experience: 'unknown', defaultCity: '', preferences: [] }; await saveProfile()
 }
 async function changeRecord(memory: Memory, content: string, active: boolean, version = memory.version) {
   if (busy.value || loading.value) return
@@ -125,13 +136,13 @@ onMounted(() => {
 onUnmounted(() => { requests.cancel(); if (writePoll) clearInterval(writePoll) })
 </script>
 <style scoped>
-.write-status { margin-bottom: 24px; border: 1px solid #17171435; border-radius: 18px; padding: 18px 24px; background: #f7f7ec; }.write-status p { margin: 0 0 12px; font-weight: 600; }.write-status p span { display: block; margin-top: 6px; color: #77796f; font-size: 13px; font-weight: 400; }.write-status div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; padding: 7px 0; font-size: 13px; }.write-status time { color: #85887d; }
+.write-status { margin-bottom: 24px; border: 1px solid color-mix(in srgb, var(--ej-ink) 21%, transparent); border-radius: 18px; padding: 18px 24px; background: var(--ej-canvas); }.write-status p { margin: 0 0 12px; font-weight: 600; }.write-status p span { display: block; margin-top: 6px; color: var(--ej-body); font-size: 13px; font-weight: 400; }.write-status div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; padding: 7px 0; font-size: 13px; }.write-status time { color: var(--ej-body); }
 .profile-topics { grid-column: 1 / -1; }
-.memory-page { min-height: 100vh; color: #171714; }
-.navbar { display: flex; align-items: center; gap: 24px; padding: 0 3.2vw; height: 96px; border-bottom: 1px solid #17171430; background: #f1efe8; }
-.logo { color: inherit; font-size: 26px; font-weight: 850; text-decoration: none; }.page-title { flex: 1; color: #77786e; }
+.memory-page { min-height: 100vh; color: var(--ej-ink); }
+.navbar { display: flex; align-items: center; gap: 24px; padding: 0 3.2vw; height: 96px; border-bottom: 1px solid color-mix(in srgb, var(--ej-ink) 19%, transparent); background: var(--ej-canvas); }
+.logo { color: inherit; font-size: 26px; font-weight: 850; text-decoration: none; }.page-title { flex: 1; color: var(--ej-body); }
 .memory-layout { max-width: 1140px; padding: 44px 28px 80px; margin: auto; }
-.memory-heading,.section-heading { display: flex; gap: 18px; align-items: center; justify-content: space-between; }.memory-heading { margin-bottom: 32px; }.memory-heading h1 { font-size: 28px; margin: 0 0 10px; }.memory-heading p,.memory-explanation { font-size: 14px; color: #76796e; line-height: 1.8; }.memory-card { background: #fffdf5; border: 1px solid #171714; border-radius: 22px; padding: 26px; box-shadow: 4px 5px 0 #1717140b; }.profile-card { margin-bottom: 36px; }.memory-eyebrow { font-size: 11px; letter-spacing: 1px; color: #74776c; }.section-heading h2 { font-size: 20px; margin: 8px 0 0; }.profile-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px 32px; margin: 26px 0; }.profile-grid span { font-size: 13px; color: #76796e; }.profile-grid p { margin: 8px 0; line-height: 1.7; overflow-wrap: anywhere; }.memory-meta { display: flex; gap: 8px; flex-direction: column; font-size: 12px; color: #85887d; margin: 0; }.memory-meta a { color: #676d5a; text-decoration: none; }.memory-button { display: inline-block; padding: 10px 18px; border: 1px solid #171714; background: #fffdf5; color: #171714; border-radius: 24px; cursor: pointer; text-decoration: none; font-size: 14px; white-space: nowrap; }.memory-button.primary { background: #ccff45; }.memory-button:hover { background: #e9eddf; }.memory-button:disabled,.text-button:disabled { opacity: .5; cursor: wait; }.text-button { border: 0; background: transparent; color: #5b654d; font-size: 13px; cursor: pointer; padding: 8px; }.danger { color: #ae503f; }.memory-tabs { display: flex; gap: 10px; margin-top: 24px; }.memory-tabs button { border: 1px solid transparent; padding: 8px 16px; border-radius: 24px; background: transparent; cursor: pointer; }.memory-tabs .active { background: #ccff45; border-color: #171714; }.record-card { margin: 16px 0; transition: transform .2s, box-shadow .2s; }.record-card:hover { transform: translateY(-2px); box-shadow: 4px 7px 0 #17171412; }.record-top { display: flex; align-items: center; gap: 12px; font-size: 12px; color: #76796e; }.memory-kind { border: 1px solid #9fa78e; color: #414b31; border-radius: 20px; padding: 4px 10px; background: #eef2e5; }.inactive .memory-kind { background: #eeeae2; color: #777; }.record-content { line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; margin: 20px 0; }.record-footer { display: flex; justify-content: space-between; gap: 20px; border-top: 1px solid #17171418; padding-top: 16px; margin-top: 18px; }.record-actions { display: flex; align-items: center; }summary { font-size: 13px; cursor: pointer; color: #707763; }blockquote { border-left: 2px solid #c0caa9; padding-left: 14px; margin: 12px 0; font-size: 14px; line-height: 1.7; color: #77796f; }.profile-form { margin-top: 24px; display: grid; gap: 16px; }.profile-form label { font-size: 14px; display: grid; gap: 8px; }.profile-form small,small { color: #85887d; font-size: 12px; }input,textarea { width: 100%; box-sizing: border-box; border: 1px solid #17171435; background: #f4f3ec; padding: 12px; border-radius: 12px; color: #171714; font: inherit; }input:focus,textarea:focus { outline: 2px solid #bde64d; outline-offset: 2px; }.preference-row { display: grid; grid-template-columns: 150px 1fr 30px; gap: 10px; }.preference-row button { border: 0; background: none; cursor: pointer; }.form-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }.load-more { display: block; margin: 26px auto; }
+.memory-heading,.section-heading { display: flex; gap: 18px; align-items: center; justify-content: space-between; }.memory-heading { margin-bottom: 32px; }.memory-heading h1 { font-size: 28px; margin: 0 0 10px; }.memory-heading p,.memory-explanation { font-size: 14px; color: var(--ej-body); line-height: 1.8; }.memory-card { background: var(--ej-canvas); border: 1px solid var(--ej-ink); border-radius: 22px; padding: 26px; box-shadow: 4px 5px 0 #1717140b; }.profile-card { margin-bottom: 36px; }.memory-eyebrow { font-size: 11px; letter-spacing: 1px; color: var(--ej-body); }.section-heading h2 { font-size: 20px; margin: 8px 0 0; }.profile-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px 32px; margin: 26px 0; }.profile-grid span { font-size: 13px; color: var(--ej-body); }.profile-grid p { margin: 8px 0; line-height: 1.7; overflow-wrap: anywhere; }.memory-meta { display: flex; gap: 8px; flex-direction: column; font-size: 12px; color: var(--ej-body); margin: 0; }.memory-meta a { color: var(--ej-body); text-decoration: none; }.memory-button { display: inline-block; padding: 10px 18px; border: 1px solid var(--ej-ink); background: var(--ej-canvas); color: var(--ej-ink); border-radius: 24px; cursor: pointer; text-decoration: none; font-size: 14px; white-space: nowrap; }.memory-button.primary { background: #ccff45; color: var(--ej-on-color); }.memory-button:hover { background: var(--ej-canvas); }.memory-button:disabled,.text-button:disabled { opacity: .5; cursor: wait; }.text-button { border: 0; background: transparent; color: var(--ej-body); font-size: 13px; cursor: pointer; padding: 8px; }.danger { color: #ae503f; }.memory-tabs { display: flex; gap: 10px; margin-top: 24px; }.memory-tabs button { border: 1px solid transparent; padding: 8px 16px; border-radius: 24px; background: transparent; cursor: pointer; }.memory-tabs .active { background: #ccff45; border-color: var(--ej-ink); color: var(--ej-on-color); }.record-card { margin: 16px 0; transition: transform .2s, box-shadow .2s; }.record-card:hover { transform: translateY(-2px); box-shadow: 4px 7px 0 #17171412; }.record-top { display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--ej-body); }.memory-kind { border: 1px solid var(--ej-line); color: color-mix(in srgb, #414b31 var(--ej-shade), var(--ej-ink)); border-radius: 20px; padding: 4px 10px; background: var(--ej-canvas); }.inactive .memory-kind { background: var(--ej-canvas); color: var(--ej-body); }.record-content { line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; margin: 20px 0; }.record-footer { display: flex; justify-content: space-between; gap: 20px; border-top: 1px solid color-mix(in srgb, var(--ej-ink) 9%, transparent); padding-top: 16px; margin-top: 18px; }.record-actions { display: flex; align-items: center; }summary { font-size: 13px; cursor: pointer; color: var(--ej-body); }blockquote { border-left: 2px solid #c0caa9; padding-left: 14px; margin: 12px 0; font-size: 14px; line-height: 1.7; color: var(--ej-body); }.profile-form { margin-top: 24px; display: grid; gap: 16px; }.profile-form label { font-size: 14px; display: grid; gap: 8px; }.profile-form small,small { color: var(--ej-body); font-size: 12px; }input,textarea { width: 100%; box-sizing: border-box; border: 1px solid color-mix(in srgb, var(--ej-ink) 21%, transparent); background: var(--ej-canvas); padding: 12px; border-radius: 12px; color: var(--ej-ink); font: inherit; }input:focus,textarea:focus { outline: 2px solid #bde64d; outline-offset: 2px; }.preference-row { display: grid; grid-template-columns: 150px 1fr 30px; gap: 10px; }.preference-row button { border: 0; background: none; cursor: pointer; }.form-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }.load-more { display: block; margin: 26px auto; }
 @media(max-width: 720px) { .navbar { height: auto; min-height: 82px; flex-wrap: wrap; padding: 18px; gap: 10px; }.memory-layout { padding: 26px 16px 60px; }.memory-heading { align-items: flex-start; flex-direction: column; }.memory-card { padding: 20px; }.profile-grid { grid-template-columns: 1fr; }.record-footer { flex-direction: column; gap: 12px; }.preference-row { grid-template-columns: 90px 1fr 24px; gap: 6px; }.memory-tabs { flex-wrap: wrap; } }
 @media(prefers-reduced-motion: reduce) { .record-card { transition: none; }.record-card:hover { transform: none; } }
 </style>

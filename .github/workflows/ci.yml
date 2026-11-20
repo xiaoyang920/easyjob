@@ -12,7 +12,7 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
-      - run: mvn -B -f gateway/pom.xml verify
+      - run: mvn -B -f services/gateway/pom.xml verify
   java:
     runs-on: ubuntu-latest
     steps:
@@ -22,7 +22,8 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
-      - run: mvn -B '-Dtest=!EasyjobApplicationTests' test
+      - run: mvn -B -f services/blog-service/pom.xml '-Dtest=!EasyjobApplicationTests' test
+      - run: mvn -B -f services/search-index-service/pom.xml verify
   frontend:
     runs-on: ubuntu-latest
     defaults:
@@ -49,7 +50,7 @@ jobs:
           --health-interval=5s --health-timeout=3s --health-retries=12
     defaults:
       run:
-        working-directory: python-agent
+        working-directory: services/python-agent
     env:
       DEEPSEEK_API_KEY: offline-test-key
       ZHIPUAI_API_KEY: offline-test-key
@@ -64,10 +65,10 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
-          cache-dependency-path: python-agent/requirements.txt
+          cache-dependency-path: services/python-agent/requirements.txt
       - run: pip install -r requirements.txt
       - name: Verify shared Protobuf contracts
-        run: python ../scripts/generate-rpc.py --check
+        run: python ../../scripts/generate-rpc.py --check
       - name: Validate dependency metadata and MCP imports
         run: |
           python -m pip check
@@ -90,12 +91,12 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
-          cache-dependency-path: python-agent/requirements.txt
-      - run: pip install -r python-agent/requirements.txt
+          cache-dependency-path: services/python-agent/requirements.txt
+      - run: pip install -r services/python-agent/requirements.txt
       - name: Real Dubbo Triple and Python gRPC interoperability
-        run: RPC_TEST_PYTHON="$(command -v python)" mvn -B -Dtest=RpcTransportTests,RpcInteropTests test
+        run: RPC_TEST_PYTHON="$(command -v python)" mvn -B -f services/blog-service/pom.xml -Dtest=RpcTransportTests,RpcInteropTests test
       - name: Isolated RPC endpoint churn and fault load
-        run: python scripts/rpc-stability-check.py --users 16 --seconds 5 --churn 64
+        run: python scripts/checks/rpc-stability-check.py --users 16 --seconds 5 --churn 64
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -311,9 +311,9 @@ onUnmounted(() => {
   left: 0;
   right: 0;
   height: 70px;
-  background: rgba(255, 255, 255, 0.95);
+  background: color-mix(in srgb, var(--ej-surface) 95%, transparent);
   backdrop-filter: blur(10px);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+  border-bottom: 1px solid color-mix(in srgb, var(--ej-ink) 10%, transparent);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -349,7 +349,7 @@ onUnmounted(() => {
 
 .page-title {
   font-size: 16px;
-  color: #666;
+  color: var(--ej-body);
   margin-left: 16px;
 }
 
@@ -360,7 +360,7 @@ onUnmounted(() => {
 
 .nav-btn {
   background: transparent;
-  color: #666;
+  color: var(--ej-body);
   border: none;
   padding: 10px 20px;
   border-radius: 20px;
@@ -382,26 +382,26 @@ onUnmounted(() => {
 .revision-filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 26px; }
 .revision-filters button { padding: 8px 18px; border: 1px solid var(--ej-line); border-radius: 999px; color: var(--ej-ink); background: transparent; font: inherit; font-size: 13px; cursor: pointer; transition: background 180ms, border-color 180ms; }
 .revision-filters button:hover { background: var(--ej-surface); border-color: var(--ej-ink); }
-.revision-filters button.active { background: var(--studio-lime); border-color: var(--ej-ink); }
+.revision-filters button.active { background: var(--studio-lime); border-color: var(--ej-ink); color: var(--ej-on-color); }
 .draft-list { display: flex; flex-direction: column; gap: 18px; }
 #app .draft-box-page .draft-card { display: grid; grid-template-columns: 150px minmax(0, 1fr); align-items: start; gap: 24px; padding: 22px; overflow: hidden; }
 .draft-cover { width: 150px; height: 130px; position: relative; overflow: hidden; border-radius: 12px; background: var(--ej-canvas); border: 1px solid var(--ej-line); }
 .draft-cover img { width: 100%; height: 100%; object-fit: cover; }
-.draft-placeholder { display: flex; flex-direction: column; align-items: center; justify-content: space-between; height: 100%; padding: 14px 8px 12px; color: var(--ej-ink); background: linear-gradient(135deg, #eff4d6 0%, #eff4d6 65%, #e3e9cc 65%); }
+.draft-placeholder { display: flex; flex-direction: column; align-items: center; justify-content: space-between; height: 100%; padding: 14px 8px 12px; color: var(--ej-on-color); background: linear-gradient(135deg, #eff4d6 0%, #eff4d6 65%, #e3e9cc 65%); }
 .draft-placeholder svg { width: 42px; height: 42px; }
 .placeholder-label { font-size: 8px; letter-spacing: 1px; }
 .placeholder-version { font-size: 10px; letter-spacing: 1.3px; }
 .draft-content { min-width: 0; }
 .revision-label { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; font-size: 11px; color: var(--ej-muted); margin-bottom: 10px; }
-.revision-badge { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 4px 9px; color: #56613f; background: #edf1e4; font-weight: 600; }
+.revision-badge { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 4px 9px; color: color-mix(in srgb, #56613f var(--ej-shade), var(--ej-ink)); background: var(--ej-canvas); font-weight: 600; }
 .revision-badge::before { content: ''; width: 5px; height: 5px; background: currentColor; border-radius: 50%; }
-.revision-badge.state-1 { background: #fff0d1; color: #8b631a; }
-.revision-badge.state-3 { background: #ffe4dc; color: #994735; }
-.revision-badge.state-4 { background: #eeebe5; color: #706d64; }
+.revision-badge.state-1 { background: color-mix(in srgb, #fff0d1 var(--ej-tint), var(--ej-surface)); color: color-mix(in srgb, #8b631a var(--ej-shade), var(--ej-ink)); }
+.revision-badge.state-3 { background: color-mix(in srgb, #ffe4dc var(--ej-tint), var(--ej-surface)); color: color-mix(in srgb, #994735 var(--ej-shade), var(--ej-ink)); }
+.revision-badge.state-4 { background: var(--ej-canvas); color: var(--ej-body); }
 .public-version { padding-left: 10px; border-left: 1px solid var(--ej-line); }
 #app .draft-box-page .draft-title { font-size: 18px; line-height: 1.5; margin: 0 0 8px; overflow-wrap: anywhere; }
 #app .draft-box-page .draft-summary { font-size: 13px; line-height: 1.8; color: var(--ej-muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; margin: 0; }
-.revision-reason { display: flex; gap: 10px; padding: 10px 12px; margin-top: 12px; background: #fff1e9; border-left: 2px solid var(--studio-coral); border-radius: 0 8px 8px 0; font-size: 13px; line-height: 1.7; color: #8b4939; overflow-wrap: anywhere; }
+.revision-reason { display: flex; gap: 10px; padding: 10px 12px; margin-top: 12px; background: color-mix(in srgb, #fff1e9 var(--ej-tint), var(--ej-surface)); border-left: 2px solid var(--studio-coral); border-radius: 0 8px 8px 0; font-size: 13px; line-height: 1.7; color: color-mix(in srgb, #8b4939 var(--ej-shade), var(--ej-ink)); overflow-wrap: anywhere; }
 .revision-reason strong { flex-shrink: 0; font-weight: 600; }
 .draft-footer { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px 20px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--ej-line); }
 .draft-meta { color: var(--ej-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
@@ -409,10 +409,10 @@ onUnmounted(() => {
 .draft-button { display: inline-flex; align-items: center; justify-content: center; gap: 12px; border: 1px solid transparent; border-radius: 999px; padding: 8px 14px; min-height: 36px; font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap; color: var(--ej-ink); background: transparent; transition: background 180ms, box-shadow 200ms, border-color 180ms; }
 .draft-button.primary { background: var(--ej-ink); color: var(--ej-surface); border-color: var(--ej-ink); }
 .draft-button.secondary { border-color: var(--ej-line); }
-.draft-button:not(:disabled):hover { background: var(--studio-lime); border-color: var(--ej-ink); color: var(--ej-ink); }
+.draft-button:not(:disabled):hover { background: var(--studio-lime); border-color: var(--ej-ink); color: var(--ej-on-color); }
 .draft-button.primary:not(:disabled):hover { box-shadow: 2px 2px 0 var(--ej-ink); }
 .draft-button.quiet { color: var(--ej-muted); padding: 8px 10px; }
-.draft-button.danger:not(:disabled):hover { color: #994735; background: #ffe4dc; border-color: transparent; }
+.draft-button.danger:not(:disabled):hover { color: color-mix(in srgb, #994735 var(--ej-shade), var(--ej-ink)); background: color-mix(in srgb, #ffe4dc var(--ej-tint), var(--ej-surface)); border-color: transparent; }
 .draft-button:disabled { opacity: .45; }
 button:focus-visible { outline: 2px solid var(--ej-ink); outline-offset: 3px; }
 .empty-state { text-align: center; padding: 70px 20px; color: var(--ej-muted); }

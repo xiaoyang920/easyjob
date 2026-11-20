@@ -70,6 +70,11 @@ const router = createRouter({
       component: () => import('@/views/EditProfile.vue')
     },
     {
+      path: '/space-customization',
+      name: 'SpaceCustomization',
+      component: () => import('@/views/SpaceCustomization.vue')
+    },
+    {
       path: '/followers-following',
       name: 'FollowersFollowing',
       component: () => import('@/views/FollowersFollowing.vue')
@@ -101,7 +106,7 @@ const router = createRouter({
 // 路由守卫 - 需要登录的页面
 router.beforeEach((to, _from, next) => {
   const token = localStorage.getItem('token')
-  const needAuth = ['AccountSecurity', 'AdminConsole', 'CreateArticle', 'EditArticle', 'DraftBox', 'EditProfile', 'FollowersFollowing', 'Chat', 'AiChat', 'MemoryManagement', 'Notifications']
+  const needAuth = ['AccountSecurity', 'AdminConsole', 'CreateArticle', 'EditArticle', 'DraftBox', 'EditProfile', 'SpaceCustomization', 'FollowersFollowing', 'Chat', 'AiChat', 'MemoryManagement', 'Notifications']
   
   if ((to.name === 'GrowthShop' || needAuth.includes(to.name as string)) && !token) {
     // 跳转到首页并触发登录弹窗

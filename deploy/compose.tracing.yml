@@ -1,0 +1,44 @@
+x-java-tracing: &java-tracing
+  JAVA_TOOL_OPTIONS: -javaagent:/otel/opentelemetry-javaagent.jar -Dotel.javaagent.configuration-file=/otel/otel-java.properties
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://collector:4318
+  LOGGING_PATTERN_LEVEL: '%5p [trace=%X{otel_trace_id:-} span=%X{otel_span_id:-}]'
+
+x-java-agent-volume: &java-agent-volume
+  type: bind
+  source: ../tools/observability
+  target: /otel
+  read_only: true
+  bind: {create_host_path: false}
+
+services:
+  storage-init:
+    extends: {file: observability/compose.yaml, service: storage-init}
+  jaeger:
+    extends: {file: observability/compose.yaml, service: jaeger}
+  collector:
+    extends: {file: observability/compose.yaml, service: collector}
+  gateway:
+    environment: {<<: *java-tracing, OTEL_SERVICE_NAME: easyjob-gateway}
+    volumes: [*java-agent-volume]
+  auth:
+    environment: {<<: *java-tracing, OTEL_SERVICE_NAME: easyjob-auth}
+    volumes: [*java-agent-volume]
+  blog:
+    environment: {<<: *java-tracing, OTEL_SERVICE_NAME: easyjob-blog}
+    volumes: [*java-agent-volume]
+  excel:
+    environment: {<<: *java-tracing, OTEL_SERVICE_NAME: easyjob-excel}
+    volumes: [*java-agent-volume]
+  search-index:
+    environment: {<<: *java-tracing, OTEL_SERVICE_NAME: easyjob-search-index}
+    volumes: [*java-agent-volume]
+  agent:
+    environment:
+      EASYJOB_TRACING_ENABLED: 'true'
+      EASYJOB_TRACING_LAB_ONLY: 'true'
+      OTEL_SERVICE_NAME: easyjob-agent
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://collector:4318
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}
+
+volumes:
+  jaeger-data: {}

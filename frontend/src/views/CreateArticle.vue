@@ -803,7 +803,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .writing-ai-trigger{display:inline-flex;align-items:center;justify-content:center;gap:7px;flex-shrink:0;padding:10px 17px;border:1px solid var(--ej-ink);border-radius:99px;background:var(--ej-surface);color:var(--ej-ink);font:inherit;font-size:13px;cursor:pointer;white-space:nowrap}
 .writing-ai-trigger > span{font-size:18px;line-height:1}
-.writing-ai-trigger:hover,.writing-ai-trigger[aria-expanded="true"]{background:var(--studio-lime,#cbff46)}
+.writing-ai-trigger:hover,.writing-ai-trigger[aria-expanded="true"]{background:var(--studio-lime,#cbff46); color: var(--ej-on-color);}
 .writing-ai-trigger:focus-visible{outline:2px solid var(--ej-ink);outline-offset:3px}
 .writing-ai-trigger:disabled{opacity:.45;cursor:default}
 @media(min-width:1200px){
@@ -846,13 +846,13 @@ onBeforeUnmount(() => {
   left: 0;
   right: 0;
   height: 60px;
-  background: rgba(255, 255, 255, 0.95);
+  background: color-mix(in srgb, var(--ej-surface) 95%, transparent);
   backdrop-filter: blur(10px);
   padding: 0 30px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+  border-bottom: 1px solid color-mix(in srgb, var(--ej-ink) 10%, transparent);
   z-index: 1000;
 }
 
@@ -885,7 +885,7 @@ onBeforeUnmount(() => {
 
 .page-title {
   font-size: 16px;
-  color: #666;
+  color: var(--ej-muted);
   margin-left: 16px;
 }
 
@@ -911,8 +911,8 @@ onBeforeUnmount(() => {
 
 .btn-cancel {
   background: rgba(0, 0, 0, 0.05);
-  color: #666;
-  border: 1px solid rgba(0, 0, 0, 0.1);
+  color: var(--ej-muted);
+  border: 1px solid color-mix(in srgb, var(--ej-ink) 10%, transparent);
 }
 
 .btn-cancel:hover {
@@ -921,22 +921,22 @@ onBeforeUnmount(() => {
 
 .btn-draft {
   background: rgba(0, 0, 0, 0.05);
-  color: #666;
-  border: 1px solid rgba(0, 0, 0, 0.2);
+  color: var(--ej-muted);
+  border: 1px solid color-mix(in srgb, var(--ej-ink) 20%, transparent);
 }
 
 .btn-draft:hover {
   background: rgba(0, 0, 0, 0.1);
-  border-color: rgba(0, 0, 0, 0.3);
+  border-color: color-mix(in srgb, var(--ej-ink) 30%, transparent);
 }
 
 .btn-publish {
-  background: white;
-  color: #333;
+  background: var(--ej-surface);
+  color: var(--ej-ink);
 }
 
 .btn-publish:hover {
-  background: #f0f0f0;
+  background: var(--ej-canvas);
 }
 
 /* 编辑器容器 */
@@ -962,38 +962,38 @@ onBeforeUnmount(() => {
 .title-input {
   width: 100%;
   padding: 20px 24px;
-  background: white;
+  background: var(--ej-surface);
   border: none;
   border-radius: 12px 12px 0 0;
   font-size: 28px;
   font-weight: 600;
-  color: #333;
+  color: var(--ej-ink);
   outline: none;
 }
 
 .title-input::placeholder {
-  color: #ccc;
+  color: var(--ej-muted);
 }
 
 .summary-input {
   width: 100%;
   padding: 15px 24px;
-  background: white;
+  background: var(--ej-surface);
   border: none;
-  border-top: 1px solid #f0f0f0;
+  border-top: 1px solid var(--ej-hairline);
   font-size: 15px;
-  color: #666;
+  color: var(--ej-muted);
   outline: none;
   resize: none;
 }
 
 .summary-input::placeholder {
-  color: #bbb;
+  color: var(--ej-muted);
 }
 
 .editor-wrapper {
   flex: 1;
-  background: white;
+  background: var(--ej-surface);
   border-radius: 0 0 12px 12px;
   overflow: visible;
   display: flex;
@@ -1003,7 +1003,7 @@ onBeforeUnmount(() => {
 }
 
 .toolbar {
-  border-bottom: 1px solid #e8e8e8 !important;
+  border-bottom: 1px solid var(--ej-hairline) !important;
 }
 
 .editor {
@@ -1017,7 +1017,7 @@ onBeforeUnmount(() => {
 
 :deep(.w-e-text-placeholder) {
   font-style: normal;
-  color: #bbb;
+  color: var(--ej-muted);
   line-height: 1.8;
 }
 
@@ -1026,10 +1026,10 @@ onBeforeUnmount(() => {
 .editor-hint {
   margin-top: 12px;
   padding: 12px 16px;
-  background: rgba(255, 255, 255, 0.9);
+  background: color-mix(in srgb, var(--ej-surface) 90%, transparent);
   border-radius: 8px;
   font-size: 13px;
-  color: #666;
+  color: var(--ej-muted);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1043,7 +1043,7 @@ onBeforeUnmount(() => {
 }
 
 .editor-hint strong {
-  color: #333;
+  color: var(--ej-ink);
 }
 
 /* 右侧边栏 */
@@ -1056,7 +1056,7 @@ onBeforeUnmount(() => {
 }
 
 .sidebar-card {
-  background: rgba(255, 255, 255, 0.95);
+  background: color-mix(in srgb, var(--ej-surface) 95%, transparent);
   border-radius: 12px;
   padding: 20px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
@@ -1065,10 +1065,10 @@ onBeforeUnmount(() => {
 .sidebar-card h3 {
   font-size: 16px;
   font-weight: 600;
-  color: #333;
+  color: var(--ej-ink);
   margin-bottom: 20px;
   padding-bottom: 12px;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--ej-hairline);
 }
 
 .setting-item {
@@ -1082,7 +1082,7 @@ onBeforeUnmount(() => {
 .setting-item > label {
   display: block;
   font-size: 14px;
-  color: #666;
+  color: var(--ej-muted);
   margin-bottom: 10px;
   font-weight: 500;
 }
@@ -1091,7 +1091,7 @@ onBeforeUnmount(() => {
   position: relative;
   width: 100%;
   height: 140px;
-  border: 2px dashed #e0e0e0;
+  border: 2px dashed var(--ej-line);
   border-radius: 10px;
   overflow: hidden;
   cursor: pointer;
@@ -1100,7 +1100,7 @@ onBeforeUnmount(() => {
 
 .cover-upload:hover {
   border-color: var(--ej-accent);
-  background: rgba(17, 17, 15, 0.02);
+  background: color-mix(in srgb, var(--ej-ink) 2%, transparent);
 }
 
 .cover-preview {
@@ -1117,7 +1117,7 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  color: #999;
+  color: var(--ej-muted);
   font-size: 14px;
 }
 
@@ -1197,7 +1197,7 @@ onBeforeUnmount(() => {
 }
 
 .required {
-  color: var(--studio-coral);
+  color: var(--ej-coral-text);
   margin-left: 4px;
 }
 
@@ -1211,7 +1211,7 @@ onBeforeUnmount(() => {
 .tag-input {
   flex: 1;
   padding: 10px 12px;
-  border: 1px solid #e0e0e0;
+  border: 1px solid var(--ej-line);
   border-radius: 8px;
   font-size: 14px;
   outline: none;
@@ -1226,7 +1226,7 @@ onBeforeUnmount(() => {
   width: 40px;
   height: 40px;
   border: 1px solid var(--ej-accent);
-  background: white;
+  background: var(--ej-surface);
   color: var(--ej-accent);
   border-radius: 8px;
   font-size: 20px;
@@ -1236,7 +1236,7 @@ onBeforeUnmount(() => {
 
 .tag-add-btn:hover {
   background: var(--ej-accent);
-  color: white;
+  color: var(--ej-surface);
 }
 
 /* 标签联想列表 */
@@ -1245,8 +1245,8 @@ onBeforeUnmount(() => {
   top: calc(100% + 4px);
   left: 0;
   right: 48px;
-  background: white;
-  border: 1px solid #e0e0e0;
+  background: var(--ej-surface);
+  border: 1px solid var(--ej-line);
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
   max-height: 200px;
@@ -1264,17 +1264,17 @@ onBeforeUnmount(() => {
 }
 
 .tag-suggestion-item:hover {
-  background: #f8f9fa;
+  background: var(--ej-canvas);
 }
 
 .tag-name {
   font-size: 14px;
-  color: #333;
+  color: var(--ej-ink);
 }
 
 .tag-count {
   font-size: 12px;
-  color: #999;
+  color: var(--ej-muted);
 }
 
 /* 热门标签 */
@@ -1288,13 +1288,13 @@ onBeforeUnmount(() => {
 
 .hot-tags-label {
   font-size: 12px;
-  color: #999;
+  color: var(--ej-muted);
 }
 
 .hot-tag-item {
   display: inline-block;
   padding: 4px 12px;
-  background: #f8f9fa;
+  background: var(--ej-canvas);
   color: var(--ej-accent);
   border-radius: 12px;
   font-size: 12px;
@@ -1303,7 +1303,7 @@ onBeforeUnmount(() => {
 }
 
 .hot-tag-item:hover {
-  background: rgba(17, 17, 15, 0.1);
+  background: color-mix(in srgb, var(--ej-ink) 10%, transparent);
   transform: translateY(-2px);
 }
 
@@ -1319,7 +1319,7 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 6px;
   padding: 6px 12px;
-  background: rgba(17, 17, 15, 0.1);
+  background: color-mix(in srgb, var(--ej-ink) 10%, transparent);
   color: var(--ej-accent);
   border-radius: 16px;
   font-size: 13px;
@@ -1340,7 +1340,7 @@ onBeforeUnmount(() => {
 .tag-hint {
   margin-top: 10px;
   font-size: 12px;
-  color: #999;
+  color: var(--ej-muted);
 }
 
 /* 快捷键提示 */
@@ -1353,20 +1353,20 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   align-items: center;
   padding: 8px 0;
-  color: #666;
+  color: var(--ej-muted);
 }
 
 .shortcut-item:not(:last-child) {
-  border-bottom: 1px solid #f5f5f5;
+  border-bottom: 1px solid var(--ej-hairline);
 }
 
 .key {
-  background: #f0f0f0;
+  background: var(--ej-canvas);
   padding: 3px 8px;
   border-radius: 4px;
   font-family: monospace;
   font-size: 12px;
-  color: #333;
+  color: var(--ej-ink);
 }
 
 /* 响应式：窄屏把设置面板排到正文下方。分类是必填项，面板不能隐藏；快捷键只对实体键盘有意义 */
@@ -1540,7 +1540,7 @@ onBeforeUnmount(() => {
 :global(#app .article-editor-page .editor-container){max-width:none;gap:20px;padding-left:16px;padding-right:16px}
 @media(min-width:1200px){:global(#app .article-editor-page .editor-container){padding-left:192px}}
 @media(min-width:1200px) and (max-width:1599px){:global(#app .article-editor-page.with-writing-assistant .editor-container){padding-left:16px}}
-.editor-main{overflow:visible!important;background:var(--ej-surface,#fffdf7);border-radius:14px}
+.editor-main{overflow:visible!important;background:var(--ej-surface,var(--ej-canvas));border-radius:14px}
 .title-input{background:transparent!important;padding-bottom:12px}
 .summary-toggle{align-self:flex-start;margin:0 24px 12px;padding:4px 0;border:0;background:transparent;color:var(--ej-muted);cursor:pointer}
 .save-status-button{border:0;background:transparent;text-align:left;cursor:pointer}

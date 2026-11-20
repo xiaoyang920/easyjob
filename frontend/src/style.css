@@ -28,11 +28,11 @@ body {
   min-height: 100vh;
 }
 /* Reading growth follows the shared cream, ink and lime palette. */
-.reading-level-badge { display: inline-flex; padding: 5px 10px; border: 1px solid #252520; border-radius: 999px; background: #edffd0; color: #252520; font-size: 12px; margin-bottom: 12px; }
-.reading-lock { padding: 30px 0; border-top: 1px solid #ddd9cb; }
+.reading-level-badge { display: inline-flex; padding: 5px 10px; border: 1px solid var(--ej-ink); border-radius: 999px; background: #edffd0; color: var(--ej-on-color); font-size: 12px; margin-bottom: 12px; }
+.reading-lock { padding: 30px 0; border-top: 1px solid var(--ej-line); }
 .reading-lock h2 { font-size: 22px; margin: 8px 0 14px; }
-.reading-lock p { color: #737669; line-height: 1.8; margin-bottom: 20px; }
-.reading-admin { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding-top: 24px; margin-top: 24px; border-top: 1px solid #ddd9cb; font-size: 13px; }
-.reading-admin select { padding: 9px 14px; background: #fffdf6; border: 1px solid #252520; border-radius: 12px; }
-.reading-admin span { color: #737669; }
+.reading-lock p { color: var(--ej-muted); line-height: 1.8; margin-bottom: 20px; }
+.reading-admin { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding-top: 24px; margin-top: 24px; border-top: 1px solid var(--ej-line); font-size: 13px; }
+.reading-admin select { padding: 9px 14px; background: var(--ej-surface); border: 1px solid var(--ej-ink); border-radius: 12px; }
+.reading-admin span { color: var(--ej-muted); }
 .article-reading-progress, .space-reading-progress { margin-bottom: 20px; }

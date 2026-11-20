@@ -97,6 +97,7 @@ services:
       BLOG_DB_PASSWORD: ${BLOG_DB_PASSWORD:?Set separate BLOG_DB_PASSWORD}
       AGENT_DB_PASSWORD: ${AGENT_DB_PASSWORD:?Set separate AGENT_DB_PASSWORD}
       EXCEL_DB_PASSWORD: ${EXCEL_DB_PASSWORD:?Set separate EXCEL_DB_PASSWORD}
+      INDEX_DB_PASSWORD: ${INDEX_DB_PASSWORD:?Set separate INDEX_DB_PASSWORD}
     volumes: [mysql-socket:/var/run/mysqld:ro]
     depends_on: {migrate: {condition: service_completed_successfully}}
     restart: "no"
@@ -118,6 +119,7 @@ services:
       EASYJOB_AUTH_BASE_URL: http://auth:8081
       EASYJOB_EXCEL_URL: http://excel:8083
       EASYJOB_EXCEL_SERVICE_KEY: ${EASYJOB_EXCEL_SERVICE_KEY:?Set EASYJOB_EXCEL_SERVICE_KEY}
+      SEARCH_INDEX_SERVICE_KEY: ${SEARCH_INDEX_SERVICE_KEY:?Set SEARCH_INDEX_SERVICE_KEY}
       EASYJOB_AUTH_SERVICE_KEY: ${AUTH_SERVICE_KEY:?Set AUTH_SERVICE_KEY}
       EASYJOB_AUTH_GATEWAY_PUBLIC_KEY_FILE: /run/auth-keys/gateway-public.json
       EASYJOB_AUTH_BLOG_PRIVATE_KEY_FILE: /run/auth-keys/blog-delegation-private.json
@@ -139,6 +141,28 @@ services:
     healthcheck: {test: [CMD, curl, -fsS, 'http://localhost:8080/actuator/health'], interval: 10s, timeout: 5s, retries: 30, start_period: 60s}
     restart: unless-stopped
     stop_grace_period: 330s
+  search-index:
+    build: {context: .., dockerfile: deploy/Dockerfile.java, target: search-index}
+    environment:
+      TZ: Asia/Shanghai
+      SEARCH_INDEX_BIND: 0.0.0.0
+      SEARCH_INDEX_BLOG_URL: http://blog:8080
+      SEARCH_INDEX_SERVICE_KEY: ${SEARCH_INDEX_SERVICE_KEY:?Set SEARCH_INDEX_SERVICE_KEY}
+      SEARCH_INDEX_LOCK_URL: jdbc:mysql://mysql:3306/?useSSL=false&allowPublicKeyRetrieval=true
+      SEARCH_INDEX_LOCK_USER: ej_index_runtime
+      SEARCH_INDEX_LOCK_PASSWORD: ${INDEX_DB_PASSWORD}
+      SPRING_ELASTICSEARCH_URIS: http://elasticsearch:9200
+      REDIS_HOST: redis
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USERNAME: easyjob
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      ZHIPUAI_API_KEY: ${ZHIPUAI_API_KEY}
+    depends_on:
+      database-permissions: {condition: service_completed_successfully}
+      blog: {condition: service_healthy}
+    healthcheck: {test: [CMD, curl, -fsS, 'http://localhost:8084/actuator/health'], interval: 10s, timeout: 5s, retries: 20, start_period: 30s}
+    stop_grace_period: 150s
+    restart: unless-stopped
   excel:
     build: {context: .., dockerfile: deploy/Dockerfile.java, target: excel}
     environment:
@@ -171,6 +195,11 @@ services:
       BLOG_RPC_TARGET: blog:20881
       SERVICE_ADVERTISE_HOST: agent
       AGENT_CHECKPOINT_SUCCESS_RETENTION_DAYS: ${AGENT_CHECKPOINT_SUCCESS_RETENTION_DAYS:-1}
+      BROWSER_EXTENSION_ID: ${BROWSER_EXTENSION_ID:-}
+      AGENT_BROWSER_MAX_STEPS: ${AGENT_BROWSER_MAX_STEPS:-24}
+      BROWSER_VISION_URL: ${BROWSER_VISION_URL:-}
+      BROWSER_VISION_MODEL: ${BROWSER_VISION_MODEL:-}
+      BROWSER_VISION_API_KEY: ${BROWSER_VISION_API_KEY:-}
       AGENT_CHECKPOINT_FAILURE_RETENTION_DAYS: ${AGENT_CHECKPOINT_FAILURE_RETENTION_DAYS:-7}
     volumes: [uploads:/uploads:ro, './secrets/blog-delegation-public.json:/run/auth-keys/blog-delegation-public.json:ro', './secrets/gateway-public.json:/run/auth-keys/gateway-public.json:ro']
     depends_on:
@@ -227,13 +256,19 @@ services:
       REDIS_HOST: redis
       CONSUL_HOST: consul
       GATEWAY_BIND: 0.0.0.0
-    volumes: ['./secrets/gateway-private.json:/run/auth-keys/gateway-private.json:ro']
+      GATEWAY_TRUSTED_CLIENT_IP_PROXIES: ${EASYJOB_EDGE_WEB_IP:-172.29.253.2}
+      GATEWAY_IP_LOCATION_DB_DIR: /run/ip-location
+    volumes: ['./secrets/gateway-private.json:/run/auth-keys/gateway-private.json:ro', '../temp/ip-location:/run/ip-location:ro']
+    networks: [default, web-ingress]
     depends_on: {auth: {condition: service_healthy}, blog: {condition: service_healthy}, consul: {condition: service_healthy}, redis: {condition: service_healthy}}
     healthcheck: {test: [CMD, curl, -fsS, 'http://localhost:8090/actuator/health'], interval: 10s, timeout: 5s, retries: 30, start_period: 30s}
     restart: unless-stopped
   web:
     build: {context: .., dockerfile: deploy/Dockerfile.web}
     ports: ['127.0.0.1:${WEB_PORT:-8088}:80']
+    networks:
+      web-ingress:
+        ipv4_address: ${EASYJOB_EDGE_WEB_IP:-172.29.253.2}
     depends_on: {gateway: {condition: service_healthy}}
     healthcheck: {test: [CMD, wget, -q, -O, /dev/null, 'http://127.0.0.1/health'], interval: 10s, timeout: 3s, retries: 10}
     restart: unless-stopped
@@ -242,6 +277,11 @@ services:
     profiles: [tools]
     volumes: [uploads:/data/uploads, checkpoint-data:/data/checkpoint, es-snapshots:/data/es-snapshots, excel-exports:/data/excel-exports]
     entrypoint: [sh, -c]
+networks:
+  web-ingress:
+    ipam:
+      config:
+        - subnet: ${EASYJOB_EDGE_SUBNET:-172.29.253.0/29}
 volumes:
   mysql-data:
   mysql-socket:

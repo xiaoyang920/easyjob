@@ -1,28 +1,65 @@
 # Documentation and generated reports
-/python-agent/evaluation/results/
+/services/python-agent/evaluation/results/
 /docs/
-/python-agent/docs/*
+/services/python-agent/docs/*
 *.md
 *.docx
 *.pdf
 !README.md
-!python-agent/evaluation/README.md
-!python-agent/docs/main-evidence-assessment.md
+!/scripts/README.md
+!services/python-agent/evaluation/README.md
 !/docs/
 /docs/*
+!/docs/README.md
+!/docs/architecture/
+/docs/architecture/*
+!/docs/architecture/README.md
+!/docs/architecture/project-overview.md
+!/docs/architecture/current-runtime.md
+!/docs/architecture/persistence-layer.md
+!/docs/architecture/service-boundaries.md
+!/docs/architecture/unified-auth-service-plan.md
+!/docs/architecture/unified-auth-service.md
 !/docs/operations/
+/docs/operations/*
+!/docs/operations/README.md
+!/docs/operations/embedding-pool.md
 !/docs/operations/excel-service.md
-!/docs/service-boundaries.md
-!/docs/runtime-quality.md
-!/docs/chinese-search.md
-!/docs/embedding-pool.md
-!/docs/article-quote-comments.md
-!/docs/human-answer-review.md
-!/docs/checkpoint-storage.md
-!/docs/unified-auth-service-plan.md
-!/docs/unified-auth-service.md
-!python-agent/docs/tool-recovery.md
-!python-agent/app/skills/definitions/*.md
+!/docs/operations/local-startup.md
+!/docs/operations/runtime-quality.md
+!/docs/agent/
+/docs/agent/*
+!/docs/agent/README.md
+!/docs/agent/runtime/
+/docs/agent/runtime/*
+!/docs/agent/runtime/agent-direct-gateway.md
+!/docs/agent/runtime/checkpoint-storage.md
+!/docs/agent/runtime/human-answer-review.md
+!/docs/agent/runtime/main-evidence-assessment.md
+!/docs/agent/runtime/tool-recovery.md
+!/docs/features/
+/docs/features/*
+!/docs/features/space-artwork.md
+!/docs/features/README.md
+!/docs/features/articles/
+/docs/features/articles/*
+!/docs/features/articles/article-quote-comments.md
+!/docs/features/growth/
+/docs/features/growth/*
+!/docs/features/growth/growth-seckill.md
+!/docs/features/search/
+/docs/features/search/*
+!/docs/features/search/chinese-search.md
+!/docs/learning/
+/docs/learning/*
+!/docs/learning/traceid/
+/docs/learning/traceid/*
+!/docs/learning/traceid/README.md
+!/docs/assets/
+/docs/assets/*
+!/docs/assets/examples/
+!/docs/assets/examples/pelican-bike.svg
+!services/python-agent/app/skills/definitions/*.md
 
 # Local IDE and AI assistant state
 /deploy/secrets/
@@ -40,6 +77,7 @@
 /target/
 **/target/
 *.class
+/tools/observability/opentelemetry-javaagent.jar
 
 # Frontend dependencies and build outputs
 **/node_modules/
@@ -63,9 +101,9 @@ venv/
 .env.*
 !.env.example
 !**/.env.example
-/src/main/resources/application.yml
-/src/main/resources/application-dev.yml
-/src/main/resources/application-prod.yml
+/services/blog-service/src/main/resources/application.yml
+/services/blog-service/src/main/resources/application-dev.yml
+/services/blog-service/src/main/resources/application-prod.yml
 *.pem
 *.key
 *.p12
@@ -78,13 +116,13 @@ logs/
 uploads/
 temp/
 tmp/
+/artifacts/
+/backups/
+/output/
 /frontend/tests/.*-qa-*.mjs
 
-# Root-level local media; application assets under public/static remain tracked
-/wangzhantouxiang.jpg
-
 # Legacy debug pages; test assets belong under test/
-/src/main/resources/static/test-*.html
+/services/blog-service/src/main/resources/static/test-*.html
 
 # Operating-system files
 .DS_Store
@@ -93,12 +131,3 @@ Desktop.ini
 
 /deploy/.env
 /backups/
-
-# Local study materials and observability downloads
-/docs/academic/
-/docs/reference/
-/docs/validation/
-/docs/assets/
-/docs/learning/interviews/
-/artifacts/
-/tools/observability/*.jar

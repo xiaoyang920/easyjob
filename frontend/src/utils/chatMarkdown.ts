@@ -11,7 +11,7 @@ function escapeHtml(text: string): string {
  * 代码块输出 highlight.js 标记，配色与文章页共用 styles/theme.css 中的墨色代码块。
  * 使用独立实例而不是全局 marked，避免高亮标记进入草稿编辑器的 HTML。
  */
-const chatMarked = new Marked({
+const chatOptions = {
   breaks: true,
   gfm: true,
   renderer: {
@@ -22,9 +22,21 @@ const chatMarked = new Marked({
       return `<pre><code class="hljs${known ? ` language-${language}` : ''}">${body}</code></pre>\n`
     },
   },
+}
+
+const chatMarked = new Marked(chatOptions)
+const userChatMarked = new Marked({
+  ...chatOptions,
+  // A pasted code sample can start without indentation, then contain an
+  // indented paragraph. Only explicit fences should turn it into a code block.
+  tokenizer: { code: () => undefined },
 })
 
 /** 渲染结果仍需经过 safeHtml 才能插入页面 */
 export function renderChatMarkdown(markdown: string): string {
   return chatMarked.parse(markdown, { async: false })
+}
+
+export function renderUserChatMarkdown(markdown: string): string {
+  return userChatMarked.parse(markdown, { async: false })
 }

@@ -21,7 +21,7 @@ const glyph = computed(() => nameInitial(props.label) || nameInitial(props.title
 #app .cover-glyph {
   position: relative; width: 100%; height: 100%; overflow: hidden;
   background-color: var(--card-paper, var(--studio-lime-soft));
-  background-image: repeating-linear-gradient(135deg, #11110f12 0 1px, transparent 1px 13px);
+  background-image: repeating-linear-gradient(135deg, #11110f12 0 1px, transparent 1px 13px); color: var(--ej-on-color);
 }
 #app .cover-glyph-char {
   position: absolute; right: 10%; bottom: -.2em;

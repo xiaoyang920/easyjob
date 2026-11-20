@@ -26,7 +26,7 @@ MySQL 索引锁由 `ArticleIndexLock` 封装。它持有一个 SqlSession，在�
 验证包含既有单元测试、搜索/锁专项测试、XML 动态条件测试与分层回归检查。
 `PersistenceLayerTests` 防止 Java 业务代码再次加入 JDBC、SQL 注解或 Wrapper.last 手写片段。
 
-本地真实接口回归可使用 `scripts/mapper-layer-check.py`，覆盖管理指标的三种来源、
+本地真实接口回归可使用 `scripts/checks/mapper-layer-check.py`，覆盖管理指标的三种来源、
 用户资料与阅读时长的并发校验、分类迁移及审计；样例在 finally 中按测试身份清理。
 其他回归入口包括 reading-level、recommendation-reading、recommendation-access-sync、
 admin-console、maintenance、article-review、agent-draft-workspace 和 message-delivery 的 check 脚本。

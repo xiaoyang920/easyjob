@@ -7,7 +7,7 @@ from pathlib import Path
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
-ASSETS = ROOT/'src/main/resources/elasticsearch'
+ASSETS = ROOT/'services/blog-service/src/main/resources/elasticsearch'
 
 
 def prepare(home):

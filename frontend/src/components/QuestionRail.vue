@@ -240,14 +240,14 @@ onUnmounted(() => {
   width: 10px;
   height: 2px;
   border-radius: 2px;
-  background: #11110f33;
+  background: color-mix(in srgb, var(--ej-ink) 20%, transparent);
   transition: width 220ms var(--studio-spring), background 180ms ease, height 180ms ease;
 }
 
 .rail-tick:hover .rail-line,
 .rail-tick:focus-visible .rail-line {
   width: 16px;
-  background: #11110f80;
+  background: color-mix(in srgb, var(--ej-ink) 50%, transparent);
 }
 
 .rail-tick.active .rail-line {
@@ -298,7 +298,7 @@ onUnmounted(() => {
   display: -webkit-box;
   margin: 6px 0 0;
   overflow: hidden;
-  color: #47453f;
+  color: var(--ej-ink);
   font-size: 12px;
   line-height: 1.6;
   -webkit-line-clamp: 2;

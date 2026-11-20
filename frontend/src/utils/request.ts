@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { ensureAccessToken, recoverAccessToken, expireSession, waitForLogout } from './authSession'
+import { traceIdFrom } from './traceId'
 
 type AuthConfig = import('axios').InternalAxiosRequestConfig & { _authRetried?: boolean; _authUser?: string | null }
 
@@ -53,7 +54,9 @@ request.interceptors.response.use(
         return retryAuth(response.config)
       }
       // 抛出业务错误，message 来自后端
-      return Promise.reject(Object.assign(new Error(res.message || '操作失败'), {code: res.code}))
+      return Promise.reject(Object.assign(new Error(res.message || '操作失败'), {
+        code: res.code, traceId: traceIdFrom(response.headers),
+      }))
     }
     
     return res
@@ -76,6 +79,7 @@ request.interceptors.response.use(
     const retrySeconds = Number(error.response?.headers?.['retry-after'])
     return Promise.reject(Object.assign(new Error(message), {
       code: error.response?.status || error.response?.data?.code,
+      traceId: traceIdFrom(error.response?.headers),
       retryAfterMs: Number.isFinite(retrySeconds) && retrySeconds > 0 ? Math.min(300000, retrySeconds * 1000) : undefined
     }))
   }

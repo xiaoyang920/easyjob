@@ -8,8 +8,8 @@ from dotenv import load_dotenv
 from redis import Redis
 
 ROOT = Path(__file__).resolve().parents[1]
-load_dotenv(ROOT / "python-agent/.env.runtime.local")
-load_dotenv(ROOT / "python-agent/.env")
+load_dotenv(ROOT / "services/python-agent/.env.runtime.local")
+load_dotenv(ROOT / "services/python-agent/.env")
 
 
 def check_redis(prefix, default_port, modules=False):

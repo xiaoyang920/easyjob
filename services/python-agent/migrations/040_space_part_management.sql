@@ -1,0 +1,1 @@
+ALTER TABLE space_dress_part ADD COLUMN version INT UNSIGNED NOT NULL DEFAULT 0;

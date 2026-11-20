@@ -9,7 +9,7 @@ from pathlib import Path
 import sys
 import argparse
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'python-agent'))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'services/python-agent'))
 from app.clients.mysql_client import db
 from app.services.execution_admission import ExecutionAdmission
 

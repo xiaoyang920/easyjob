@@ -7,7 +7,7 @@ function Get-JavaTracingArguments {
         [string]$ProjectRoot,
 
         [Parameter(Mandatory = $true)]
-        [ValidateSet('easyjob-auth', 'easyjob-blog', 'easyjob-gateway', 'easyjob-excel')]
+        [ValidateSet('easyjob-auth', 'easyjob-blog', 'easyjob-gateway', 'easyjob-search-index', 'easyjob-excel')]
         [string]$ServiceName
     )
 

@@ -1,4 +1,5 @@
 server:
+  forward-headers-strategy: none
   port: ${GATEWAY_PORT:8090}
   address: ${GATEWAY_BIND:127.0.0.1}
 spring:

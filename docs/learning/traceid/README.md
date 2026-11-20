@@ -91,17 +91,17 @@ traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
 
 | 文件（相对项目根目录） | 目前已有能力 | 本教程要补的能力 |
 | --- | --- | --- |
-| `gateway/src/main/java/com/easyjob/gateway/UnifiedIdentityFilter.java` | 生成并传递 `X-Request-Id` | 由 Java Agent 传播标准上下文 |
-| `gateway/src/main/java/com/easyjob/gateway/RequestTraceFilter.java` | 打印网关请求日志和总耗时 | 日志关联标准 Trace 和 Span |
-| `src/main/java/com/easyjob/observability/RequestTrace.java` | 保存旧关联号到 MDC | 保留，避免与 OTel 的 MDC 键冲突 |
-| `src/main/java/com/easyjob/agent/rpc/AgentRpcClient.java` | Java 查询 Python 的后台统计、运维和用户偏好 | 普通 RPC CLIENT Span 和上下文传播 |
-| `src/main/java/com/easyjob/agent/rpc/BlogRpcProvider.java` | Python 调用 Java 的业务入口 | RPC SERVER Span 和业务状态 |
+| `services/gateway/src/main/java/com/easyjob/gateway/UnifiedIdentityFilter.java` | 生成并传递 `X-Request-Id` | 由 Java Agent 传播标准上下文 |
+| `services/gateway/src/main/java/com/easyjob/gateway/RequestTraceFilter.java` | 打印网关请求日志和总耗时 | 日志关联标准 Trace 和 Span |
+| `services/blog-service/src/main/java/com/easyjob/observability/RequestTrace.java` | 保存旧关联号到 MDC | 保留，避免与 OTel 的 MDC 键冲突 |
+| `services/blog-service/src/main/java/com/easyjob/agent/rpc/AgentRpcClient.java` | Java 查询 Python 的后台统计、运维和用户偏好 | 普通 RPC CLIENT Span 和上下文传播 |
+| `services/blog-service/src/main/java/com/easyjob/agent/rpc/BlogRpcProvider.java` | Python 调用 Java 的业务入口 | RPC SERVER Span 和业务状态 |
 | `contracts/easyjob_rpc.proto` | 内部普通 RPC 协议，Identity 中有旧 `trace_id` | 标准追踪上下文走 metadata，不增加业务字段 |
-| `python-agent/app/security/gateway.py` | 验证网关身份断言并设置旧 trace | HTTP 标准上下文由插桩读取 |
-| `python-agent/app/rpc/server.py` | Python 内部 ServiceQuery，只有 unary | 普通 RPC SERVER Span |
-| `src/main/resources/growth/reserve.lua` | 原子预扣并写 Stream | 在同一次 XADD 中写追踪元数据 |
-| `src/main/java/com/easyjob/growth/GrowthWorkers.java` | Stream 转发、MQ 消费、关单、补偿 | 每条消息单独提取和激活上下文 |
-| `python-agent/app/services/stream_delivery.py` | 后台生产 SSE，浏览器订阅不拥有执行 | 独立记录真实 Agent 执行 |
+| `services/python-agent/app/security/gateway.py` | 验证网关身份断言并设置旧 trace | HTTP 标准上下文由插桩读取 |
+| `services/python-agent/app/rpc/server.py` | Python 内部 ServiceQuery，只有 unary | 普通 RPC SERVER Span |
+| `services/blog-service/src/main/resources/growth/reserve.lua` | 原子预扣并写 Stream | 在同一次 XADD 中写追踪元数据 |
+| `services/blog-service/src/main/java/com/easyjob/growth/GrowthWorkers.java` | Stream 转发、MQ 消费、关单、补偿 | 每条消息单独提取和激活上下文 |
+| `services/python-agent/app/services/stream_delivery.py` | 后台生产 SSE，浏览器订阅不拥有执行 | 独立记录真实 Agent 执行 |
 
 目前 Java HTTP 过滤器的 `http_dispatch` 耗时只覆盖 Servlet 分派阶段；异步响应时，它不等于整个 SSE 生命周期。后续应优先结合自动 HTTP Span、RPC 流 Span 和 Agent 执行 Span 来分析。
 
@@ -130,7 +130,7 @@ New-Item -ItemType Directory -Force -Path deploy/observability | Out-Null
 New-Item -ItemType Directory -Force -Path tools/observability | Out-Null
 ```
 
-本教程的 Python 依赖文件要手敲到 `python-agent/requirements-tracing.txt`。Java 公共辅助类放在根项目的 `src/main/java/com/easyjob/observability/`。
+本教程的 Python 依赖文件要手敲到 `services/python-agent/requirements-tracing.txt`。Java 公共辅助类放在 `services/blog-service/src/main/java/com/easyjob/observability/`。
 
 三个 Java 应用分别构建，根项目不是包含 gateway 和 auth-service 的聚合 Maven 工程。后面的依赖和启动选项都需要分别处理。
 
@@ -529,8 +529,8 @@ Get-FileHash -LiteralPath $otelAgentPath -Algorithm SHA256
 
 ```text
 D:\workspace\easyjob\pom.xml
-D:\workspace\easyjob\gateway\pom.xml
-D:\workspace\easyjob\auth-service\pom.xml
+D:\workspace\easyjob\services\gateway\pom.xml
+D:\workspace\easyjob\services\auth-service\pom.xml
 ```
 
 在每个 POM 的 `<dependencyManagement><dependencies>` 内加入下面这个依赖。如果该 POM 没有 dependencyManagement，就新建这个区块；已有的 Spring Cloud / Spring AI BOM 继续保留。
@@ -677,7 +677,7 @@ function Get-JavaTracingArguments {
 
 ### 6.1 新建 TraceSupport.java
 
-目标路径：`D:\workspace\easyjob\src\main\java\com\easyjob\observability\TraceSupport.java`。
+目标路径：`D:\workspace\easyjob\services\blog-service\src\main\java\com\easyjob\observability\TraceSupport.java`。
 
 ```java
 package com.easyjob.observability;
@@ -764,7 +764,7 @@ public final class TraceSupport {
 
 ### 6.2 给网关返回 X-Trace-Id
 
-新建：`D:\workspace\easyjob\gateway\src\main\java\com\easyjob\gateway\TraceResponseWebFilter.java`。
+新建：`D:\workspace\easyjob\services\gateway\src\main\java\com\easyjob\gateway\TraceResponseWebFilter.java`。
 
 ```java
 package com.easyjob.gateway;
@@ -809,9 +809,9 @@ public class TraceResponseWebFilter implements WebFilter, Ordered {
 分别新建同名文件：
 
 ```text
-D:\workspace\easyjob\src\main\resources\application-tracing.yml
-D:\workspace\easyjob\gateway\src\main\resources\application-tracing.yml
-D:\workspace\easyjob\auth-service\src\main\resources\application-tracing.yml
+D:\workspace\easyjob\services\blog-service\src\main\resources\application-tracing.yml
+D:\workspace\easyjob\services\gateway\src\main\resources\application-tracing.yml
+D:\workspace\easyjob\services\auth-service\src\main\resources\application-tracing.yml
 ```
 
 三个文件内容相同：
@@ -849,7 +849,7 @@ Get-Content temp/trace-http-headers.txt
 
 ### 7.1 新建并安装独立依赖文件
 
-新建 `D:\workspace\easyjob\python-agent\requirements-tracing.txt`：
+新建 `D:\workspace\easyjob\services\python-agent\requirements-tracing.txt`：
 
 ```text
 opentelemetry-api==1.45.0
@@ -864,15 +864,15 @@ opentelemetry-instrumentation-redis==0.66b0
 
 ```powershell
 Set-Location 'D:\workspace\easyjob'
-& './python-agent/.venv/Scripts/python.exe' -m pip install -r python-agent/requirements-tracing.txt
-& './python-agent/.venv/Scripts/python.exe' -m pip check
+& './services/python-agent/.venv/Scripts/python.exe' -m pip install -r services/python-agent/requirements-tracing.txt
+& './services/python-agent/.venv/Scripts/python.exe' -m pip check
 ```
 
 当前项目安装的 Langfuse 也依赖 OpenTelemetry。先对齐已使用的 `1.45.0`，不要只升级其中一个包。若 pip check 报已有依赖冲突，应确认具体包后处理，不要直接批量升级整个环境。
 
 ### 7.2 新建 app/services/tracing.py
 
-目标路径：`D:\workspace\easyjob\python-agent\app\services\tracing.py`。
+目标路径：`D:\workspace\easyjob\services\python-agent\app\services\tracing.py`。
 
 ```python
 """Project tracing; each exporter is explicitly bound to our own provider."""
@@ -1040,7 +1040,7 @@ if os.getenv("EASYJOB_TRACING_LAB_ONLY", "false").lower() == "true":
 
 ### 7.3 在 main.py 接入初始化和关闭
 
-在 `python-agent/app/main.py` 导入区加入：
+在 `services/python-agent/app/main.py` 导入区加入：
 
 ```python
 from app.services.tracing import init_tracing, shutdown_tracing
@@ -1163,7 +1163,7 @@ Set-Location 'D:\workspace\easyjob\python-agent'
 
 ### 7.5 在 Python 日志中加入当前标准 Trace
 
-修改 `python-agent/app/services/logging_config.py`。导入区加入：
+修改 `services/python-agent/app/services/logging_config.py`。导入区加入：
 
 ```python
 from opentelemetry import trace as otel_trace
@@ -1194,7 +1194,7 @@ fmt = "%(asctime)s | %(levelname)-5s | [trace=%(otel_trace_id)s span=%(otel_span
 
 项目使用 `databases + aiomysql`。这里提供显式包装，避免直接套用另一个 MySQL 驱动的插桩并误以为已经生效。
 
-新建 `D:\workspace\easyjob\python-agent\app\services\traced_database.py`：
+新建 `D:\workspace\easyjob\services\python-agent\app\services\traced_database.py`：
 
 ```python
 from databases import Database
@@ -1236,7 +1236,7 @@ class TracedDatabase(Database):
                     yield row
 ```
 
-修改 `python-agent/app/clients/mysql_client.py`，完整内容为：
+修改 `services/python-agent/app/clients/mysql_client.py`，完整内容为：
 
 ```python
 from app.config import settings
@@ -1276,7 +1276,7 @@ Java Agent 的 apache-dubbo / grpc 自动插桩保持关闭，Python 不再额�
 
 ### 8.2 Java：新增 Dubbo metadata Filter 并注册 SPI
 
-新建 D:\workspace\easyjob\src\main\java\com\easyjob\observability\RpcMetadataFilter.java：
+新建 D:\workspace\easyjob\services\blog-service\src\main\java\com\easyjob\observability\RpcMetadataFilter.java：
 
 ~~~java
 package com.easyjob.observability;
@@ -1383,7 +1383,7 @@ Span 名称统一为“RPC 接口全名/方法名”。Java 从 invoker.getInter
 
 本节通用于 Triple / gRPC 接口命名，不是跨协议组件；Filter 会跳过非 tri 协议。统一 Reply 的业务错误映射继续保留，其它响应 DTO 需要按自己的业务约定扩展映射，RPC 异常仍会记录。
 
-新建 D:\workspace\easyjob\src\main\resources\META-INF\dubbo\org.apache.dubbo.rpc.Filter，这是没有扩展名的文本文件，完整内容：
+新建 D:\workspace\easyjob\services\blog-service\src\main\resources\META-INF\dubbo\org.apache.dubbo.rpc.Filter，这是没有扩展名的文本文件，完整内容：
 
 ~~~properties
 easyjob-rpc-tracing=com.easyjob.observability.RpcMetadataFilter
@@ -1395,7 +1395,7 @@ Dubbo 通过 SPI 和 @Activate 加载，不使用 Spring @Component。只有 Jav
 
 ### 8.3 Java：普通 RPC 客户端 Span
 
-新建 D:\workspace\easyjob\src\main\java\com\easyjob\observability\TracingAgentRpc.java：
+新建 D:\workspace\easyjob\services\blog-service\src\main\java\com\easyjob\observability\TracingAgentRpc.java：
 
 ~~~java
 package com.easyjob.observability;
@@ -1468,7 +1468,7 @@ public final class TracingAgentRpc {
 
 普通调用返回后结束 Span，CompletionStage 等待异步结果完成。AtomicBoolean 防止重复结束，业务消息不复制、不修改。当前内部 RPC 协议不再提供聊天流、运行事件流等方法。
 
-修改 src/main/java/com/easyjob/agent/rpc/AgentRpcClient.java 的构造方法：
+修改 services/blog-service/src/main/java/com/easyjob/agent/rpc/AgentRpcClient.java 的构造方法：
 
 ~~~java
 public AgentRpcClient(AgentRpc remote, AgentServiceAuth auth) {
@@ -1491,7 +1491,7 @@ Python 调 Java 的 BlogRpc 只有文章 / 草稿读取、草稿保存、维护�
 
 ### 8.5 Python：新增客户端和服务端 gRPC 拦截器
 
-新建 D:\workspace\easyjob\python-agent\app\services\trace_rpc.py：
+新建 D:\workspace\easyjob\services\python-agent\app\services\trace_rpc.py：
 
 ~~~python
 """gRPC metadata propagation, independent of business Protobuf fields."""
@@ -1584,7 +1584,7 @@ Python 服务端同样动态解析服务名，当前拦截器只覆盖 unary-una
 
 ### 8.6 Python → Java：注册所有客户端 Channel
 
-修改 python-agent/app/rpc/blog_client.py，导入：
+修改 services/python-agent/app/rpc/blog_client.py，导入：
 
 ~~~python
 from app.services.trace_rpc import RpcClientTracingInterceptor
@@ -1624,7 +1624,7 @@ def client():
 
 ### 8.7 Python 接收 Java：注册服务端拦截器
 
-修改 python-agent/app/rpc/server.py，导入：
+修改 services/python-agent/app/rpc/server.py，导入：
 
 ~~~python
 from app.services.trace_rpc import RpcServerTracingInterceptor
@@ -1691,6 +1691,12 @@ Python 的本地回归命令，在 python-agent 目录执行：
 .\.venv\Scripts\python.exe -m unittest tests.test_rpc_tracing tests.test_rpc_transport tests.test_rpc_trace tests.test_rpc_stability tests.test_rpc_readiness tests.test_tracing -v
 ~~~
 
+真实 HTTP、Redis 协议和 OTLP 上报的两项追踪集成测试使用本机回环地址，在同一目录单独运行：
+
+~~~powershell
+.\.venv\Scripts\python.exe -m unittest discover -s ../../tests/integration -p test_agent_tracing.py -v
+~~~
+
 其中 test_rpc_tracing 使用回环地址的真实 gRPC 连接，验证固定地址与服务发现连接池、动态接口名、父子 Span、24 路并发、异常与取消，并检查现有认证仍然生效。测试使用内存导出器和测试业务处理器，不连接项目数据库、模型服务或 Jaeger；跨语言验收仍需按上面的 Java / Python ID 关系检查。
 
 ## 九、接通 Redis Stream 和 RabbitMQ
@@ -1703,7 +1709,7 @@ Python 的本地回归命令，在 python-agent 目录执行：
 
 ### 9.2 完整替换 GrowthReservations.java
 
-目标：`D:\workspace\easyjob\src\main\java\com\easyjob\growth\GrowthReservations.java`。
+目标：`D:\workspace\easyjob\services\blog-service\src\main\java\com\easyjob\growth\GrowthReservations.java`。
 
 ```java
 package com.easyjob.growth;
@@ -1806,7 +1812,7 @@ public class GrowthReservations {
 
 ### 9.3 完整替换 growth/reserve.lua
 
-目标：`D:\workspace\easyjob\src\main\resources\growth\reserve.lua`。
+目标：`D:\workspace\easyjob\services\blog-service\src\main\resources\growth\reserve.lua`。
 
 ```lua
 -- KEYS and ARGV[1..7] retain their existing business meanings.
@@ -1842,7 +1848,7 @@ Lua 不会请求 Collector，也不会向 RabbitMQ 发送网络消息。它只�
 
 ### 9.4 完整替换 GrowthWorkers.java
 
-目标：`D:\workspace\easyjob\src\main\java\com\easyjob\growth\GrowthWorkers.java`。
+目标：`D:\workspace\easyjob\services\blog-service\src\main\java\com\easyjob\growth\GrowthWorkers.java`。
 
 ```java
 package com.easyjob.growth;
@@ -2093,26 +2099,26 @@ from app.services.tracing import trace_stage
 然后在对应的原函数定义前增加装饰器，函数体保持原样：
 
 ```python
-# python-agent/app/graph/main_agent.py
+# services/python-agent/app/graph/main_agent.py
 @trace_stage("agent.main")
 async def main_agent_node(state):
 ```
 
 ```python
-# python-agent/app/services/main_context.py
+# services/python-agent/app/services/main_context.py
 @trace_stage("agent.context.prepare")
 async def prepare_context(state, render, schemas, *, fence=None):
 ```
 
 ```python
-# python-agent/app/graph/tool_executor.py
+# services/python-agent/app/graph/tool_executor.py
 @trace_stage("agent.worker.tools")
 async def run_tool_agent(
 ```
 
 上面最后一个示例只表示在现有多行函数定义之前加入装饰器，不要删除其后原有的参数列表和函数体。
 
-`python-agent/app/services/grounding.py` 的三个函数分别加入：
+`services/python-agent/app/services/grounding.py` 的三个函数分别加入：
 
 ```python
 @trace_stage("agent.grounding.review")
@@ -2133,7 +2139,7 @@ async def verify_delivery(state, text, citations, *, draft=False, allow_retrieva
 
 ### 10.2 单独记录每次模型调用
 
-新建 `D:\workspace\easyjob\python-agent\app\services\traced_models.py`：
+新建 `D:\workspace\easyjob\services\python-agent\app\services\traced_models.py`：
 
 ```python
 from contextlib import aclosing
@@ -2249,7 +2255,7 @@ response = GroundingReview.model_validate(await traced_ainvoke(
 其它 ainvoke 接入点用下面命令盘点，再逐个按原变量和参数替换。不要用全局字符串替换吞掉 with_structured_output、回调、取消或输出预算配置。
 
 ```powershell
-rg -n '\.ainvoke\(|\.astream\(' python-agent/app/graph python-agent/app/services
+rg -n '\.ainvoke\(|\.astream\(' services/python-agent/app/graph services/python-agent/app/services
 ```
 
 包装只记录调用阶段和响应中已经存在的 usage_metadata。structured output 没有保留 usage_metadata 时，不捏造 token 数，继续看现有 RunMetrics 的真实统计。
@@ -2281,7 +2287,7 @@ async with aclosing(traced_astream(model, messages, config=config)) as chunks:
 
 ### 10.4 单独记录真正的 Agent 后台执行
 
-修改 `python-agent/app/services/stream_delivery.py`。这部分很重要：浏览器订阅断开时，项目中的 Agent 后台执行仍可能继续。
+修改 `services/python-agent/app/services/stream_delivery.py`。这部分很重要：浏览器订阅断开时，项目中的 Agent 后台执行仍可能继续。
 
 导入：
 
@@ -2328,7 +2334,7 @@ except Exception as error:
 
 ### 11.1 Java 自定义线程池
 
-新建 `D:\workspace\easyjob\src\main\java\com\easyjob\observability\TraceContextTaskDecorator.java`：
+新建 `D:\workspace\easyjob\services\blog-service\src\main\java\com\easyjob\observability\TraceContextTaskDecorator.java`：
 
 ```java
 package com.easyjob.observability;
@@ -2343,7 +2349,7 @@ public final class TraceContextTaskDecorator implements TaskDecorator {
 }
 ```
 
-在现有 `src/main/java/com/easyjob/agent/config/EmbeddingExecutionConfiguration.java` 中，`return executor;` 前加入：
+在现有 `services/blog-service/src/main/java/com/easyjob/agent/config/EmbeddingExecutionConfiguration.java` 中，`return executor;` 前加入：
 
 ```java
 executor.setTaskDecorator(new com.easyjob.observability.TraceContextTaskDecorator());
@@ -2361,7 +2367,7 @@ Java Agent 也会传播部分标准 Executor 上下文。这里显式展示业�
 
 ### 11.3 现有 DurableJobs 入队时保存上下文
 
-修改 `python-agent/app/services/durable_jobs.py`。导入：
+修改 `services/python-agent/app/services/durable_jobs.py`。导入：
 
 ```python
 from app.services.tracing import attach_job_trace, durable_job_span
@@ -2492,20 +2498,20 @@ const traceId = response.headers.get('X-Trace-Id')
 ```powershell
 Set-Location 'D:\workspace\easyjob'
 $traceMaven = 'D:\IntelliJ IDEA Community Edition 2025.1.3\plugins\maven\lib\maven3\bin\mvn.cmd'
-& $traceMaven -f pom.xml -DskipTests compile
+& $traceMaven -f services/blog-service/pom.xml -DskipTests compile
 if ($LASTEXITCODE -ne 0) { throw 'Blog compile failed' }
-& $traceMaven -f gateway/pom.xml -DskipTests compile
+& $traceMaven -f services/gateway/pom.xml -DskipTests compile
 if ($LASTEXITCODE -ne 0) { throw 'Gateway compile failed' }
-& $traceMaven -f auth-service/pom.xml -DskipTests compile
+& $traceMaven -f services/auth-service/pom.xml -DskipTests compile
 if ($LASTEXITCODE -ne 0) { throw 'Auth compile failed' }
 ```
 
 确认编译后再运行原有相关测试，最后 package。上面的 skipTests 只是先定位编译错误，不是最终验收。
 
 ```powershell
-& $traceMaven -f pom.xml -DskipTests package
-& $traceMaven -f gateway/pom.xml -DskipTests package
-& $traceMaven -f auth-service/pom.xml -DskipTests package
+& $traceMaven -f services/blog-service/pom.xml -DskipTests package
+& $traceMaven -f services/gateway/pom.xml -DskipTests package
+& $traceMaven -f services/auth-service/pom.xml -DskipTests package
 ```
 
 根项目有特殊的 easyjob.build.directory 构建目录参数时，沿用自己的构建流程；不要打包到另一个目录后却启动旧 JAR。
@@ -2513,8 +2519,8 @@ if ($LASTEXITCODE -ne 0) { throw 'Auth compile failed' }
 ### 13.2 Python 和前端静态检查
 
 ```powershell
-& './python-agent/.venv/Scripts/python.exe' -m compileall -q python-agent/app/services/tracing.py python-agent/app/services/trace_rpc.py python-agent/app/services/traced_database.py python-agent/app/services/traced_models.py
-& './python-agent/.venv/Scripts/python.exe' scripts/generate-rpc.py --check
+& './services/python-agent/.venv/Scripts/python.exe' -m compileall -q services/python-agent/app/services/tracing.py services/python-agent/app/services/trace_rpc.py services/python-agent/app/services/traced_database.py services/python-agent/app/services/traced_models.py
+& './services/python-agent/.venv/Scripts/python.exe' scripts/generate-rpc.py --check
 Set-Location 'D:\workspace\easyjob\frontend'
 & 'D:\applications\nodejs\node.exe' node_modules/typescript/bin/tsc --noEmit
 Set-Location 'D:\workspace\easyjob'
@@ -2522,7 +2528,27 @@ Set-Location 'D:\workspace\easyjob'
 
 compileall 只能发现语法问题，无法证明传播正确，因此还要做后面的实际请求检查。
 
-### 13.3 推荐启动顺序
+### 13.3 当前项目的启动方式
+
+在项目根目录运行 `./启动项目.cmd -Tracing`，本地启动脚本会在业务服务之前启动 Collector 和 Jaeger。Excel 随项目启动，调试时可加 `-SkipExcel`。打开 [本机 Jaeger](http://127.0.0.1:16686)，或从另一个终端执行 `./scripts/checks/verify-trace.ps1`。验收脚本只读文章列表，通过 `X-Trace-Id` 等待 Jaeger 返回同一条 Trace 里的 Gateway 和 Blog。
+
+容器部署可以在原有 Compose 文件之后叠加 `deploy/compose.tracing.yml`，并提前准备好第 5.1 节的 Java Agent JAR。
+
+```powershell
+docker compose --env-file deploy/.env -f deploy/compose.yml -f deploy/compose.tracing.yml up -d --build
+```
+
+同一台机器上，本地追踪容器和 Compose 叠加部署会使用同一 Jaeger UI 端口。切换部署前先停止原有容器。两种 Compose 项目默认各用独立的 Badger 数据卷。
+
+秒杀的预约、Redis Stream 转发及 RabbitMQ 创建订单处于同一 Trace。Agent 的阶段和模型调用可以在当次运行的 Trace 中查看。MySQL 持久化的 Agent 后台任务各自创建 Trace，用 Span Link 指向入队时的 Span。秒杀的 MySQL 补偿扫描与搜索索引、Excel 定时队列仍各自开始追踪。
+
+本地启动后，可运行下面的命令创建一笔测试预约并核对秒杀链路的三个直接父子关系。脚本会清理本次创建的测试账号、活动和订单。
+
+```powershell
+& './services/python-agent/.venv/Scripts/python.exe' './scripts/checks/growth-seckill-smoke.py' --jaeger-url http://127.0.0.1:16686
+```
+
+手动启动时可按下面顺序运行。
 
 1. 原有 MySQL、Redis、checkpoint Redis、RabbitMQ、Consul、Elasticsearch。
 2. 本教程存储目录初始化、Jaeger（Badger）和 Collector。

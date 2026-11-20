@@ -77,6 +77,47 @@ test('new chat stays unknown until streamed request usage arrives', async ({ pag
   expect(errors).toEqual([])
 })
 
+test('pasted screenshots preview and send through the chat image upload', async ({ page }) => {
+  await page.routeWebSocket(/\/ws\/chat/, () => {})
+  await setup(page)
+  const uploads: string[] = []
+  const imagePaths: string[] = []
+  await page.route('**/api/file/upload-ai-chat', route => {
+    uploads.push(route.request().postDataBuffer()?.toString('latin1') ?? '')
+    return route.fulfill({ json: { code: 200, data: { path: `ai-chat/screenshot-${uploads.length}.png` } } })
+  })
+  await page.route('**/api/agent/chat/stream', route => {
+    imagePaths.push(...route.request().postDataJSON().imagePaths)
+    return route.fulfill({ contentType: 'text/event-stream', body:
+      'data:__CONV_ID__:101\n\ndata:__REPLY__:{"content":"已收到图片"}\n\ndata:[DONE]\n\n' })
+  })
+  await page.goto('/ai-chat')
+  const composer = page.getByRole('textbox', { name: '消息内容' })
+  await composer.fill('看看这两张截图')
+  const textPrevented = await composer.evaluate(element => {
+    const clipboard = new DataTransfer()
+    clipboard.setData('text/plain', '普通文字')
+    return !element.dispatchEvent(new ClipboardEvent('paste', { clipboardData: clipboard, bubbles: true, cancelable: true }))
+  })
+  expect(textPrevented).toBe(false)
+  await composer.evaluate(element => {
+    const clipboard = new DataTransfer()
+    const bytes = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aC7sAAAAASUVORK5CYII='), c => c.charCodeAt(0))
+    for (const name of ['first.png', 'second.png']) {
+      clipboard.items.add(new File([bytes], name, { type: 'image/png' }))
+    }
+    element.dispatchEvent(new ClipboardEvent('paste', { clipboardData: clipboard, bubbles: true, cancelable: true }))
+  })
+  await expect(page.locator('.image-preview-item:not(.uploading)')).toHaveCount(2)
+  await expect(composer).toHaveValue('看看这两张截图')
+  expect(uploads).toHaveLength(2)
+  expect(uploads[0]).toContain('filename="first.png"')
+  expect(uploads[1]).toContain('filename="second.png"')
+  await page.getByRole('button', { name: '发送消息', exact: true }).click()
+  await expect(page.locator('.message-item.assistant').last()).toContainText('已收到图片')
+  expect(imagePaths).toEqual(['ai-chat/screenshot-1.png', 'ai-chat/screenshot-2.png'])
+})
+
 test('a late previous-conversation response cannot replace the selected context', async ({ page }) => {
   await setup(page)
   let release!: () => void

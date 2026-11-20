@@ -1,0 +1,20 @@
+"""Add conversation metadata, durable feedback and successful-message/run association."""
+import asyncio
+import sys
+from pathlib import Path
+sys.path.insert(0,str(Path(__file__).resolve().parents[2]/'services/python-agent'))
+from app.clients.mysql_client import db
+from app.migrate import apply_product_features
+
+async def main():
+    await db.connect()
+    try:
+        await apply_product_features(db)
+        await apply_product_features(db,'023_draft_create_request.sql')
+        await apply_product_features(db,'024_feedback_review.sql')
+        await apply_product_features(db,'025_article_comment_anchors.sql')
+        await apply_product_features(db,'026_writing_conversations.sql')
+        print('Product feature migrations 022 through 026 applied.')
+    finally:await db.disconnect()
+
+if __name__=='__main__':asyncio.run(main())

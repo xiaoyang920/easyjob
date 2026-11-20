@@ -1,9 +1,9 @@
 """Generate ignored Java overrides from existing Python local secrets; never print them.
 
-Run with python-agent/.venv/Scripts/python.exe. Does not migrate the database.
+Run with services/python-agent/.venv/Scripts/python.exe. Does not migrate the database.
 """
-import os
 import secrets
+import os
 import sys
 from http.client import HTTPConnection, HTTPException
 from pathlib import Path
@@ -73,12 +73,43 @@ if sys.argv[1:] in (["--check-excel-blog"], ["--check-excel-worker"]):
         raise SystemExit(f"Could not reach {'Blog on port 8080' if check_blog else 'Excel on port 8083'}.") from None
     sys.exit(0)
 
-env_file = root / "python-agent/.env"
+env_file = root / "services/python-agent/.env"
 if not env_file.exists():
-    raise SystemExit("Create python-agent/.env with local database/API configuration first.")
+    raise SystemExit("Create services/python-agent/.env with local database/API configuration first.")
 values = dotenv_values(env_file)
 runtime_env = env_file.with_name(".env.runtime.local")
 local_values = dotenv_values(runtime_env) if runtime_env.exists() else {}
+if sys.argv[1:] == ["--search-index"]:
+    shared_output = root / "temp/search-index-blog.yml"
+    worker_output = root / "temp/search-index-runtime.yml"
+    previous = yaml.safe_load(shared_output.read_text(encoding="utf-8")) if shared_output.exists() else {}
+    key = os.environ.get("SEARCH_INDEX_SERVICE_KEY") or (previous or {}).get("SEARCH_INDEX_SERVICE_KEY") or secrets.token_urlsafe(48)
+    if len(key.encode()) < 32:
+        raise SystemExit("SEARCH_INDEX_SERVICE_KEY must contain at least 32 bytes.")
+    local = {**values, **local_values, **os.environ}
+    host = local.get("MYSQL_HOST") or "localhost"
+    port = local.get("MYSQL_PORT") or "3306"
+    lock_url = f"jdbc:mysql://{host}:{port}/?useSSL=false"
+    if local.get("MYSQL_SERVER_RSA_PUBLIC_KEY"):
+        lock_url += "&serverRSAPublicKeyFile=" + quote(local["MYSQL_SERVER_RSA_PUBLIC_KEY"], safe="")
+    config = {
+        "SEARCH_INDEX_LOCK_URL": local.get("SEARCH_INDEX_LOCK_URL") or lock_url,
+        "SEARCH_INDEX_LOCK_USER": local.get("SEARCH_INDEX_LOCK_USER") or local.get("MYSQL_USER") or "root",
+        "SEARCH_INDEX_LOCK_PASSWORD": local.get("SEARCH_INDEX_LOCK_PASSWORD", local.get("MYSQL_PASSWORD") or ""),
+        "ZHIPUAI_API_KEY": local.get("ZHIPUAI_API_KEY") or "",
+        "REDIS_DB": local.get("REDIS_DB") or "3",
+    }
+    for name in ("RABBITMQ_HOST", "RABBITMQ_PORT", "RABBITMQ_USERNAME", "RABBITMQ_PASSWORD",
+                 "RABBITMQ_VIRTUAL_HOST", "REDIS_HOST", "REDIS_PORT", "REDIS_PASSWORD", "ES_HOST", "ES_PORT",
+                 "ZHIPUAI_BASE_URL", "ZHIPU_EMBEDDING_MODEL", "ZHIPU_EMBEDDING_DIMENSIONS"):
+        if local.get(name):
+            config[name] = local[name]
+    shared_output.parent.mkdir(exist_ok=True)
+    shared_output.write_text(yaml.safe_dump({"SEARCH_INDEX_SERVICE_KEY": key}), encoding="utf-8")
+    worker_output.write_text(yaml.safe_dump(config), encoding="utf-8")
+    print("Prepared ignored search index runtime configuration. Credentials were not printed.")
+    sys.exit(0)
+
 if sys.argv[1:] == ["--excel"]:
     previous = yaml.safe_load(excel_output.read_text(encoding="utf-8")) if excel_output.exists() else {}
     key = previous.get("EASYJOB_EXCEL_SERVICE_KEY") or secrets.token_urlsafe(48)
@@ -147,7 +178,7 @@ config['agent'] = {'web-search': {
 output = root / "temp/application-runtime.yml"
 output.parent.mkdir(exist_ok=True)
 output.write_text(yaml.safe_dump(config, allow_unicode=True), encoding="utf-8")
-java_config = yaml.safe_load((root / 'src/main/resources/application.yml').read_text(encoding='utf-8'))
+java_config = yaml.safe_load((root / 'services/blog-service/src/main/resources/application.yml').read_text(encoding='utf-8'))
 jwt = java_config.get('easyjob', {}).get('jwt', {}).get('secret-key')
 if not jwt or str(jwt).startswith('${'):
     jwt = local_values.get('JWT_SECRET_KEY') or values.get('JWT_SECRET_KEY')

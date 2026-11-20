@@ -9,8 +9,8 @@ from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
 os.environ['SERVICE_DISCOVERY_ENABLED'] = 'false'
-sys.path.insert(0, str(root / 'python-agent'))
-sys.path.insert(0, str(root / 'python-agent' / 'tests'))
+sys.path.insert(0, str(root / 'services/python-agent'))
+sys.path.insert(0, str(root / 'services/python-agent' / 'tests'))
 attempts = []
 current_test = ''
 
@@ -39,7 +39,7 @@ class OfflineResult(unittest.TextTestResult):
 if __name__ == '__main__':
     # Audit hooks cannot be removed by an accidentally unmocked API client.
     sys.addaudithook(deny_network)
-    suite = unittest.defaultTestLoader.discover(str(root / 'python-agent' / 'tests'))
+    suite = unittest.defaultTestLoader.discover(str(root / 'services/python-agent' / 'tests'))
     result = unittest.TextTestRunner(verbosity=2 if '-v' in sys.argv else 1, resultclass=OfflineResult).run(suite)
     print(json.dumps({'tests': result.testsRun, 'blocked_network_attempts': attempts}, ensure_ascii=False))
     raise SystemExit(0 if result.wasSuccessful() and not attempts else 1)

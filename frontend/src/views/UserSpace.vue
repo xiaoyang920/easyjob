@@ -4,13 +4,11 @@
     <div class="space-header">
       <ContentState v-if="profileLoading" kind="loading" title="正在加载个人空间" />
       <ContentState v-else-if="profileError" kind="error" title="个人空间暂时无法加载" :description="profileError" @retry="fetchUserInfo" />
-      <div v-else class="header-content">
-        <img 
-          :src="avatarUrl(userInfo.avatar, userInfo.nickName)"
-          alt="用户头像" 
-          class="user-avatar"
-          @error="onAvatarError($event, userInfo.nickName)"
-        >
+      <div v-else class="space-profile-card">
+        <SpaceBanner :url="userInfo.spaceBannerUrl" :position="userInfo.spaceBannerView?.y ?? userInfo.spaceBannerPosition ?? 50"
+          :x="userInfo.spaceBannerView?.x" :ratio="userInfo.spaceBannerView?.ratio" />
+        <div class="header-content">
+        <SpaceAvatar class="user-avatar" :src="userInfo.avatar" :name="userInfo.nickName" :pendant-url="pendantUrl" alt="用户头像" />
         <div class="user-info">
           <div class="space-kicker">个人空间</div>
           <div class="username">
@@ -36,7 +34,9 @@
         </div>
         <div class="header-actions">
           <template v-if="isOwner">
-            <button class="action-btn" @click="openEditModal">编辑资料</button>
+            <RouterLink class="action-btn" to="/edit-profile">编辑资料</RouterLink>
+            <RouterLink class="action-btn" to="/growth-shop">硬币商城</RouterLink>
+            <RouterLink class="action-btn" to="/space-customization">空间装扮</RouterLink>
           </template>
           <template v-else>
             <FollowButton :user-id="userId" @changed="followRelationshipChanged" />
@@ -47,6 +47,7 @@
               私聊
             </button>
           </template>
+        </div>
         </div>
       </div>
     </div>
@@ -61,7 +62,7 @@
             :class="['tab-item', { active: currentTab === 'article' }]"
             @click="switchTab('article')"
           >
-            <svg viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zM6 20V4h7v5h5v11H6z"/></svg>
+            <SpaceIcon :pack="iconPack" name="article"><svg viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zM6 20V4h7v5h5v11H6z"/></svg></SpaceIcon>
             文章
             <span class="tab-badge">{{ userInfo.articleCount || 0 }}</span>
           </div>
@@ -69,19 +70,19 @@
             :class="['tab-item', { active: currentTab === 'collect' }]"
             @click="switchTab('collect')"
           >
-            <svg viewBox="0 0 1059 1024"><path d="M253.488042 1024c-16.9 0-33.2875-5.1125-47.6125-15.3625-26.625-18.425-39.425-49.6625-34.3125-81.925l40.9625-251.9c1.5375-10.2375-1.5375-20.475-8.7-27.65L28.213042 466.4375c-22.0125-22.525-29.1875-55.3-19.45-84.9875 9.725-29.7 35.325-51.2 66.05-55.8125l237.575-36.35c10.75-1.5375 19.4625-8.1875 24.0625-17.925L441.388042 48.125c13.825-29.7 42.5-48.125 75.2625-48.125s61.4375 18.4375 75.2625 48.125l104.45 223.2375c4.6125 9.725 13.825 16.375 24.0625 17.925L958.000542 325.625a82.355 82.355 0 0 1 66.05 55.8125c10.2375 29.7 2.5625 62.4625-19.45 84.9875l-175.625 180.7375c-7.1625 7.175-10.2375 17.925-8.7 27.65l40.9625 251.9c5.125 31.75-8.1875 63.4875-34.3 81.925-26.1125 18.4375-59.9 20.4875-88.0625 4.6125l-206.85-114.6875c-9.725-5.1125-20.9875-5.1125-30.7125 0l-207.3625 115.2c-12.8125 6.65-26.6375 10.2375-40.4625 10.2375zM516.650542 51.2c-12.8 0-23.55 7.1625-29.1875 18.4375L383.525542 292.875c-11.775 25.0875-35.325 43.0125-62.975 47.1l-237.575 36.35c-12.2875 2.05-21.5 9.7375-25.6 21.5-4.1 11.775-1.025 24.0625 7.675 32.775L240.688042 611.325c18.4375 18.95 26.625 45.5625 22.525 71.675L222.250542 934.9125c-2.05 12.8 3.075 24.575 13.3125 31.7375 10.2375 7.175 23.0375 7.6875 33.7875 1.5375l207.3625-115.2c25.0875-13.825 55.3-13.825 80.3875 0l207.3625 115.2c10.75 6.1375 23.55 5.625 33.8-1.5375 10.2375-7.1625 15.3625-18.95 13.3125-31.7375L770.625542 683.0125c-4.1-26.1125 4.1-52.7375 22.525-71.675l175.625-180.7375c8.7-8.7 11.2625-20.9875 7.675-32.775-4.0875-11.775-13.3125-19.9625-25.6-21.5l-237.5625-36.35c-27.65-4.0875-51.2-22.0125-62.975-47.1L545.838042 69.6375c-5.625-11.2625-16.375-18.4375-29.1875-18.4375z m0 0" fill="currentColor"/></svg>
+            <SpaceIcon :pack="iconPack" name="collect"><svg viewBox="0 0 1059 1024"><path d="M253.488042 1024c-16.9 0-33.2875-5.1125-47.6125-15.3625-26.625-18.425-39.425-49.6625-34.3125-81.925l40.9625-251.9c1.5375-10.2375-1.5375-20.475-8.7-27.65L28.213042 466.4375c-22.0125-22.525-29.1875-55.3-19.45-84.9875 9.725-29.7 35.325-51.2 66.05-55.8125l237.575-36.35c10.75-1.5375 19.4625-8.1875 24.0625-17.925L441.388042 48.125c13.825-29.7 42.5-48.125 75.2625-48.125s61.4375 18.4375 75.2625 48.125l104.45 223.2375c4.6125 9.725 13.825 16.375 24.0625 17.925L958.000542 325.625a82.355 82.355 0 0 1 66.05 55.8125c10.2375 29.7 2.5625 62.4625-19.45 84.9875l-175.625 180.7375c-7.1625 7.175-10.2375 17.925-8.7 27.65l40.9625 251.9c5.125 31.75-8.1875 63.4875-34.3 81.925-26.1125 18.4375-59.9 20.4875-88.0625 4.6125l-206.85-114.6875c-9.725-5.1125-20.9875-5.1125-30.7125 0l-207.3625 115.2c-12.8125 6.65-26.6375 10.2375-40.4625 10.2375zM516.650542 51.2c-12.8 0-23.55 7.1625-29.1875 18.4375L383.525542 292.875c-11.775 25.0875-35.325 43.0125-62.975 47.1l-237.575 36.35c-12.2875 2.05-21.5 9.7375-25.6 21.5-4.1 11.775-1.025 24.0625 7.675 32.775L240.688042 611.325c18.4375 18.95 26.625 45.5625 22.525 71.675L222.250542 934.9125c-2.05 12.8 3.075 24.575 13.3125 31.7375 10.2375 7.175 23.0375 7.6875 33.7875 1.5375l207.3625-115.2c25.0875-13.825 55.3-13.825 80.3875 0l207.3625 115.2c10.75 6.1375 23.55 5.625 33.8-1.5375 10.2375-7.1625 15.3625-18.95 13.3125-31.7375L770.625542 683.0125c-4.1-26.1125 4.1-52.7375 22.525-71.675l175.625-180.7375c8.7-8.7 11.2625-20.9875 7.675-32.775-4.0875-11.775-13.3125-19.9625-25.6-21.5l-237.5625-36.35c-27.65-4.0875-51.2-22.0125-62.975-47.1L545.838042 69.6375c-5.625-11.2625-16.375-18.4375-29.1875-18.4375z m0 0" fill="currentColor"/></svg></SpaceIcon>
             收藏
           </div>
           <div 
             :class="['tab-item', { active: currentTab === 'like' }]"
             @click="switchTab('like')"
           >
-            <svg viewBox="0 0 1024 1024">
+            <SpaceIcon :pack="iconPack" name="like"><svg viewBox="0 0 1024 1024">
               <path d="M939.358251 423.424662c-23.01825-37.252439-62.924121-60.779272-107.019409-63.209624-2.755764-0.38681-5.510504-0.579191-8.347109-0.579191l-152.202471-0.121773c6.649444-28.975938 10.015098-58.653865 10.015098-88.657202 0-28.223808-3.213181-57.139372-9.556657-85.952604-0.447185-2.043542-1.098008-4.006244-1.932002-5.866614-15.820314-57.302077-67.37755-96.841605-127.282918-96.841605-72.827679 0-132.081201 59.254545-132.081201 132.081201 0 3.334955 0.132006 6.66991 0.406253 10.015098-2.196015 57.211003-32.108279 109.947088-80.269162 141.363611-14.447037 9.42465-18.524912 28.773324-9.099239 43.220361 9.414417 14.437827 28.752858 18.535145 43.220361 9.099239 65.811892-42.925648 106.429984-115.325585 108.656699-193.684234 0.030699-1.332345-0.010233-2.663666-0.14224-3.996011-0.203638-2.012843-0.304945-4.016477-0.304945-6.019087 0-38.381146 31.233352-69.614497 69.614497-69.614497 32.57593 0 60.474326 22.204721 67.824735 53.997821 0.356111 1.534959 0.823761 3.019777 1.402953 4.453429 4.696975 22.814612 7.076162 45.579081 7.076162 67.743894 0 37.485753-6.222725 74.352405-18.494213 109.592001-3.324722 9.546424-1.819438 20.111037 4.02671 28.345582 5.856381 8.245801 15.332197 13.146415 25.448602 13.156648l193.226816 0.101307c1.423419 0.264013 2.857071 0.426719 4.300956 0.477884 24.116257 0.9967 45.935192 13.614066 58.603723 34.090423 7.838525 12.31242 11.438517 26.800389 10.431583 41.939181-0.080841 0.945535-0.121773 1.911536-0.11154 2.877537 0 0.854461 0.040932 1.697665 0.11154 2.53166 0.010233 0.335644-0.030699 0.661056-0.11154 0.976234-0.101307 0.376577-0.193405 0.772596-0.284479 1.159406l-74.972529 330.391802c-0.914836 1.281179-1.738597 2.6432-2.449795 4.046153-5.937223 11.762905-14.660908 21.48329-25.346271 28.172643-10.746762 6.812149-23.059182 10.614755-35.757388 11.06194-0.854461-0.061398-513.766226-0.224104-513.766226-0.224104-0.467651-0.020466-0.935302-0.030699-1.402953-0.030699 0 0-111.01542 0.172939-112.718201 0.457418-1.932002 0-3.446495-1.50426-3.446495-3.415796l0.299829-416.334173c0-1.901303 1.545192-3.446495 3.01466-3.456728l1.245364 0.121773c1.174756 0.132006 2.653433 0.284479 3.52836 0.193405l83.82822-0.222057 0 339.367221c0 17.253966 13.979386 31.233352 31.233352 31.233352s31.233352-13.979386 31.233352-31.233352L281.009092 435.350273c0-1.778506 0-8.631588 0-10.411117 0-17.253966-13.979386-30.928407-31.233352-30.928407-1.50426 0-117.547183 0.304945-119.402437 0.304945-36.34272 0-65.913199 29.566386-65.913199 65.893756l-0.299829 416.334173c0 36.337603 29.571503 65.902966 65.913199 65.902966 2.541893 0 111.406323-0.457418 111.406323-0.457418 0.457418 0.020466 0.925069 0.030699 1.382487 0.030699 0 0 511.458671 0.274246 512.505513 0.274246 25.469068 0 50.296523-7.197936 71.647807-20.73116 19.612687-12.281721 35.777855-29.881564 46.839795-50.967812 3.660366-5.622044 6.435573-11.875468 8.256034-18.615986 0.11154-0.416486 0.213871-0.823761 0.304945-1.240247l74.881454-330.340637c1.596358-6.212492 2.257413-12.586666 2.00261-18.992563C960.892707 473.366098 953.948551 446.331371 939.358251 423.424662z" fill="currentColor"/>
               <path d="M450.027553 518.650467c-17.253966 0-31.233352 13.979386-31.233352 31.233352l0 30.470989c0 17.253966 13.979386 31.233352 31.233352 31.233352 17.253966 0 31.233352-13.979386 31.233352-31.233352l0-30.470989C481.260905 532.629853 467.281519 518.650467 450.027553 518.650467z" fill="currentColor"/>
               <path d="M693.805696 518.650467c-17.253966 0-31.233352 13.979386-31.233352 31.233352l0 30.470989c0 17.253966 13.979386 31.233352 31.233352 31.233352 17.253966 0 31.233352-13.979386 31.233352-31.233352l0-30.470989C725.039048 532.629853 711.058638 518.650467 693.805696 518.650467z" fill="currentColor"/>
               <path d="M648.940882 660.09492c-14.304797-9.393951-33.592073-5.398964-43.159986 8.763594-0.132006 0.193405-13.614066 19.754926-34.171264 19.754926-19.98824 0-32.423457-18.09717-33.266661-19.368116-9.17087-14.427594-28.254507-18.809391-42.834574-9.770528-14.650675 9.109472-19.155269 28.366048-10.055007 43.016723 11.214413 18.047028 41.96988 48.588625 86.156242 48.588625 43.962258 0 75.104535-30.318516 86.572728-48.222281C667.404396 688.461991 663.216004 669.500127 648.940882 660.09492z" fill="currentColor"/>
-            </svg>
+            </svg></SpaceIcon>
             点赞
           </div>
         </div>
@@ -133,7 +134,7 @@
               <CoverPlaceholder v-else class="no-cover-placeholder" :title="stripHtmlTags(article.title)" />
             </div>
             <div class="article-info">
-              <div class="space-card-index"><span class="space-card-kicker"><span class="card-dot" aria-hidden="true"></span>{{ String(articleIndex + 1).padStart(2, '0') }}</span><span aria-hidden="true">↗</span></div>
+              <div class="space-card-index"><span class="space-card-kicker"><span class="card-dot" aria-hidden="true"></span>{{ String(articleIndex + 1).padStart(2, '0') }}</span><span aria-hidden="true"><SpaceIcon :pack="iconPack" name="link">↗</SpaceIcon></span></div>
               <div class="article-title">{{ article.title }}</div>
               <div class="article-meta">
                 <span v-if="article.requiredLevel > 0" class="reading-level-badge">L{{ article.requiredLevel }} 阅读</span>
@@ -170,7 +171,7 @@
         <ReadingProgress v-if="userInfo.readingProgress" :progress="userInfo.readingProgress" class="space-reading-progress" />
         <!-- 空间公告 -->
         <div class="sidebar-card">
-          <div class="card-title">空间公告</div>
+          <div class="card-title"><SpaceIcon :pack="iconPack" name="notice" /> 空间公告</div>
           <div class="notice-content">
             {{ userInfo.noticeInfo || '暂无公告' }}
           </div>
@@ -246,79 +247,6 @@
       </div>
     </div>
 
-    <Teleport to="body">
-    <!-- 编辑资料弹窗 -->
-    <div v-if="showEditModal" class="modal-overlay" @click.self="closeEditModal">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h2>编辑资料</h2>
-          <button class="modal-close" @click="closeEditModal">×</button>
-        </div>
-        <div class="modal-body">
-          <!-- 头像 -->
-          <div class="edit-avatar-section">
-            <div class="edit-avatar-upload">
-              <img v-if="!avatarUploading" :src="avatarUrl(editProfile.avatar, editProfile.nickName)" alt="头像" class="edit-avatar-preview" @error="onAvatarError($event, editProfile.nickName)">
-              <div v-if="avatarUploading" class="edit-avatar-progress">
-                <div class="progress-bar" :style="{ height: avatarProgress + '%' }"></div>
-                <span class="progress-text">{{ avatarProgress }}%</span>
-              </div>
-              <div v-if="!avatarUploading" class="edit-avatar-overlay">
-                <span>更换头像</span>
-              </div>
-              <input type="file" accept="image/*" @change="uploadAvatar" class="edit-file-input">
-            </div>
-          </div>
-          
-          <!-- 昵称 -->
-          <div class="edit-form-item">
-            <label>昵称 <span class="required">*</span></label>
-            <input v-model="editProfile.nickName" type="text" placeholder="请输入昵称" maxlength="20">
-          </div>
-          
-          <!-- 性别和生日 -->
-          <div class="edit-form-row">
-            <div class="edit-form-item">
-              <label>性别</label>
-              <AppSelect aria-label="性别" v-model="editProfile.sex">
-                <AppSelectOption :value="2">未知</AppSelectOption>
-                <AppSelectOption :value="1">男</AppSelectOption>
-                <AppSelectOption :value="0">女</AppSelectOption>
-              </AppSelect>
-            </div>
-            <div class="edit-form-item">
-              <label>生日</label>
-              <input v-model="editProfile.birthday" type="date">
-            </div>
-          </div>
-          
-          <!-- 学校 -->
-          <div class="edit-form-item">
-            <label>学校</label>
-            <input v-model="editProfile.school" type="text" placeholder="请输入学校名称" maxlength="100">
-          </div>
-          
-          <!-- 个人简介 -->
-          <div class="edit-form-item">
-            <label>个人简介</label>
-            <textarea v-model="editProfile.personIntroduction" placeholder="介绍一下自己吧~" rows="2" maxlength="200"></textarea>
-          </div>
-          
-          <!-- 空间公告 -->
-          <div class="edit-form-item">
-            <label>空间公告</label>
-            <textarea v-model="editProfile.noticeInfo" placeholder="设置你的空间公告" rows="2" maxlength="200"></textarea>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button class="modal-cancel" @click="closeEditModal">取消</button>
-          <button class="modal-submit" @click="saveProfile" :disabled="saving">{{ saving ? '保存中...' : '保存' }}</button>
-        </div>
-      </div>
-    </div>
-
-    </Teleport>
-
     <!-- 登录弹窗 -->
     <el-dialog v-model="showLoginDialog" title="" :width="dialogWidth" :close-on-click-modal="true" class="modern-dialog ej-dialog" append-to-body>
       <LoginForm @success="handleLoginSuccess" @switchToRegister="switchToRegister" />
@@ -342,9 +270,11 @@ import LoginForm from '../components/LoginForm.vue'
 import RegisterForm from '../components/RegisterForm.vue'
 import request from '../utils/request'
 import ReadingProgress from '@/components/ReadingProgress.vue'
+import SpaceBanner from '@/components/SpaceBanner.vue'
+import SpaceAvatar from '@/components/SpaceAvatar.vue'
+import SpaceIcon from '@/components/SpaceIcon.vue'
+import { avatarPendantSlot, pendantImage, spaceIconsSlot } from '@/utils/spaceSkins'
 import { getThumbUrl } from '../utils/image'
-import { uploadFile } from '../utils/upload'
-import { avatarUrl, onAvatarError } from '../utils/avatar'
 import { updateCardTilt, resetCardTilt } from '../utils/cardMotion'
 import { eventBus, EVENT_AUTH_EXPIRED, EVENT_AUTH_CHANGED } from '../utils/eventBus'
 
@@ -353,6 +283,8 @@ const router = useRouter()
 const accountUserId = ref(localStorage.getItem('token') ? localStorage.getItem('userId') : null)
 
 const userInfo = ref<any>({})
+const pendantUrl = computed(() => pendantImage(userInfo.value.equippedArtworks?.[avatarPendantSlot]))
+const iconPack = computed(() => userInfo.value.equippedArtworks?.[spaceIconsSlot])
 const articles = ref<any[]>([])
 const loading = ref(false)
 const profileLoading = ref(false)
@@ -369,21 +301,6 @@ const totalPages = ref(0)
 const isFollowing = ref(false)
 const initialized = ref(false)
 const searchKeyword = ref('')
-
-// 编辑资料弹窗
-const showEditModal = ref(false)
-const saving = ref(false)
-const avatarUploading = ref(false)
-const avatarProgress = ref(0)
-const editProfile = ref({
-  nickName: '',
-  avatar: '',
-  sex: 2,
-  birthday: '',
-  school: '',
-  personIntroduction: '',
-  noticeInfo: ''
-})
 
 function moveCard(event: PointerEvent) { updateCardTilt(event.currentTarget as HTMLElement, event) }
 function resetCard(event: PointerEvent) { resetCardTilt(event.currentTarget as HTMLElement) }
@@ -557,116 +474,6 @@ function goToFollowers() {
 // 跳转到关注页
 function goToFollowing() {
   router.push(`/followers-following?userId=${userId.value}&tab=following`)
-}
-
-// 打开编辑资料弹窗
-function openEditModal() {
-  editProfile.value = {
-    nickName: userInfo.value.nickName || '',
-    avatar: userInfo.value.avatar || '',
-    sex: userInfo.value.sex ?? 2,
-    birthday: userInfo.value.birthday || '',
-    school: userInfo.value.school || '',
-    personIntroduction: userInfo.value.personIntroduction || '',
-    noticeInfo: userInfo.value.noticeInfo || ''
-  }
-  showEditModal.value = true
-}
-
-// 关闭编辑资料弹窗
-function closeEditModal() {
-  if (saving.value || avatarUploading.value) return
-  showEditModal.value = false
-}
-
-// 保存资料
-async function saveProfile() {
-  if (saving.value || avatarUploading.value) return
-  if (!editProfile.value.nickName.trim()) {
-    notify.warning('请输入昵称')
-    return
-  }
-  
-  if (editProfile.value.nickName.length < 2 || editProfile.value.nickName.length > 20) {
-    notify.warning('昵称长度应在2-20个字符之间')
-    return
-  }
-  
-  saving.value = true
-  try {
-    const res = await request.put('/user/update', {
-      nickName: editProfile.value.nickName,
-      avatar: editProfile.value.avatar,
-      sex: editProfile.value.sex,
-      birthday: editProfile.value.birthday || null,
-      school: editProfile.value.school,
-      personIntroduction: editProfile.value.personIntroduction,
-      noticeInfo: editProfile.value.noticeInfo
-    })
-    
-    if (res.code === 200) {
-      localStorage.setItem('nickName', editProfile.value.nickName)
-      localStorage.setItem('avatar', editProfile.value.avatar)
-      eventBus.emit(EVENT_AUTH_CHANGED)
-      // 更新页面显示
-      userInfo.value.nickName = editProfile.value.nickName
-      userInfo.value.avatar = editProfile.value.avatar
-      userInfo.value.sex = editProfile.value.sex
-      userInfo.value.birthday = editProfile.value.birthday
-      userInfo.value.school = editProfile.value.school
-      userInfo.value.personIntroduction = editProfile.value.personIntroduction
-      userInfo.value.noticeInfo = editProfile.value.noticeInfo
-      
-      showEditModal.value = false
-      notify.success('资料已保存')
-    } else {
-      notify.error(res.message || '保存失败')
-    }
-  } catch (error) {
-    console.error('保存失败:', error)
-    notify.error(errorMessage(error, '保存失败，请重试'))
-  } finally {
-    saving.value = false
-  }
-}
-
-// 上传头像
-async function uploadAvatar(event: Event) {
-  const target = event.target as HTMLInputElement
-  const file = target.files?.[0]
-  if (!file) return
-  
-  if (file.size > 15 * 1024 * 1024) {
-    notify.warning('文件大小不能超过15MB')
-    return
-  }
-  
-  avatarUploading.value = true
-  avatarProgress.value = 0
-  
-  try {
-    const res = await uploadFile({
-      url: '/file/upload-avatar',
-      file,
-      onProgress: (percent) => {
-        avatarProgress.value = percent
-      }
-    })
-    
-    if (res.code === 200 && res.data?.url) {
-      editProfile.value.avatar = res.data.url
-      notify.success('头像已上传，保存资料后生效')
-    } else {
-      notify.error(res.message || '上传失败')
-    }
-  } catch (error: any) {
-    console.error('上传失败:', error)
-    notify.error(error.message || '上传失败')
-  } finally {
-    avatarUploading.value = false
-    avatarProgress.value = 0
-    target.value = ''
-  }
 }
 
 // 搜索处理
@@ -847,10 +654,10 @@ onUnmounted(() => {
   left: 0;
   right: 0;
   height: 70px;
-  background: rgba(255, 255, 255, 0.1);
+  background: color-mix(in srgb, var(--ej-surface) 10%, transparent);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  border-bottom: 1px solid color-mix(in srgb, var(--ej-hairline) 20%, transparent);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -890,17 +697,17 @@ onUnmounted(() => {
   width: 100%;
   height: 40px;
   padding: 0 45px 0 18px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--ej-line);
   border-radius: 20px;
   font-size: 14px;
   outline: none;
   transition: all 0.3s;
-  background: white;
-  color: #333;
+  background: var(--ej-surface);
+  color: var(--ej-ink);
 }
 
 .search-box input::placeholder {
-  color: #999;
+  color: var(--ej-muted);
 }
 
 /* 隐藏原生搜索清除按钮 */
@@ -911,7 +718,7 @@ onUnmounted(() => {
 
 .search-box input:focus {
   border-color: var(--ej-accent);
-  background: white;
+  background: var(--ej-surface);
 }
 
 .search-btn {
@@ -924,7 +731,7 @@ onUnmounted(() => {
   background: var(--ej-accent);
   border: none;
   border-radius: 50%;
-  color: white;
+  color: var(--ej-surface);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -944,7 +751,7 @@ onUnmounted(() => {
 
 .nav-btn {
   background: transparent;
-  color: #666;
+  color: var(--ej-muted);
   border: none;
   padding: 10px 20px;
   border-radius: 20px;
@@ -954,13 +761,13 @@ onUnmounted(() => {
 }
 
 .nav-btn:hover {
-  background: #eee;
+  background: var(--ej-canvas);
   transform: translateY(-2px);
 }
 
 .nav-btn.primary {
   background: var(--ej-accent);
-  color: white;
+  color: var(--ej-surface);
   font-weight: 600;
 }
 
@@ -982,7 +789,7 @@ onUnmounted(() => {
   margin-top: 70px;
   height: 280px;
   background: var(--ej-canvas);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  border-bottom: 1px solid color-mix(in srgb, var(--ej-ink) 5%, transparent);
   position: relative;
   overflow: hidden;
 }
@@ -1025,7 +832,7 @@ onUnmounted(() => {
   width: 120px;
   height: 120px;
   border-radius: 50%;
-  border: 4px solid white;
+  border: 4px solid var(--ej-hairline);
   box-shadow: 0 4px 12px rgba(0,0,0,0.15);
   object-fit: cover;
 }
@@ -1033,7 +840,7 @@ onUnmounted(() => {
 .user-info {
   margin-left: 30px;
   flex: 1;
-  color: #333;
+  color: var(--ej-ink);
 }
 
 .username {
@@ -1047,9 +854,9 @@ onUnmounted(() => {
 
 .user-badge {
   display: inline-block;
-  background: rgba(17, 17, 15, 0.8);
-  border: 1px solid rgba(17, 17, 15, 0.9);
-  color: white;
+  background: color-mix(in srgb, var(--ej-ink) 80%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ej-ink) 90%, transparent);
+  color: var(--ej-surface);
   padding: 3px 12px;
   border-radius: 3px;
   font-size: 12px;
@@ -1059,7 +866,7 @@ onUnmounted(() => {
 
 .user-badge.admin {
   background: #FF3B3F;
-  border-color: transparent;
+  border-color: transparent; color: var(--ej-on-color);
 }
 
 .user-intro {
@@ -1089,7 +896,7 @@ onUnmounted(() => {
 .stat-value {
   font-size: 20px;
   font-weight: bold;
-  color: #333;
+  color: var(--ej-ink);
 }
 
 .stat-label {
@@ -1103,14 +910,18 @@ onUnmounted(() => {
 }
 
 .action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 10px 24px;
-  border: 1px solid #ddd;
-  background: white;
-  color: #666;
+  border: 1px solid var(--ej-line);
+  background: var(--ej-surface);
+  color: var(--ej-muted);
   border-radius: 20px;
   cursor: pointer;
   font-size: 14px;
   font-weight: 500;
+  text-decoration: none;
   transition: all 0.3s;
 }
 
@@ -1123,12 +934,12 @@ onUnmounted(() => {
 .action-btn.primary {
   background: var(--ej-accent);
   border-color: var(--ej-accent);
-  color: white;
+  color: var(--ej-surface);
 }
 
 .action-btn.primary:hover {
   background: var(--ej-ink);
-  color: white;
+  color: var(--ej-surface);
 }
 
 .action-btn.chat-btn {
@@ -1144,7 +955,7 @@ onUnmounted(() => {
 
 .action-btn.chat-btn:hover {
   background: var(--ej-accent);
-  color: white;
+  color: var(--ej-surface);
   border-color: var(--ej-accent);
 }
 
@@ -1167,8 +978,8 @@ onUnmounted(() => {
 
 /* 标签页 */
 .tabs {
-  background: white;
-  border: 1px solid #eee;
+  background: var(--ej-surface);
+  border: 1px solid var(--ej-hairline);
   border-radius: 15px;
   padding: 0 20px;
   margin-bottom: 20px;
@@ -1179,7 +990,7 @@ onUnmounted(() => {
 
 .tab-item {
   padding: 18px 0;
-  color: #666;
+  color: var(--ej-muted);
   font-size: 15px;
   cursor: pointer;
   position: relative;
@@ -1208,14 +1019,14 @@ onUnmounted(() => {
 
 .tab-badge {
   margin-left: 6px;
-  color: #999;
+  color: var(--ej-muted);
   font-size: 13px;
 }
 
 /* 过滤器 */
 .filter-bar {
-  background: white;
-  border: 1px solid #eee;
+  background: var(--ej-surface);
+  border: 1px solid var(--ej-hairline);
   border-radius: 15px;
   padding: 15px 20px;
   margin-bottom: 20px;
@@ -1226,9 +1037,9 @@ onUnmounted(() => {
 
 .filter-btn {
   padding: 8px 20px;
-  border: 1px solid #eee;
-  background: #f8f9fa;
-  color: #666;
+  border: 1px solid var(--ej-hairline);
+  background: var(--ej-canvas);
+  color: var(--ej-muted);
   border-radius: 20px;
   cursor: pointer;
   font-size: 14px;
@@ -1236,13 +1047,13 @@ onUnmounted(() => {
 }
 
 .filter-btn:hover {
-  background: #eee;
+  background: var(--ej-canvas);
   transform: translateY(-2px);
 }
 
 .filter-btn.active {
   background: var(--ej-accent);
-  color: white;
+  color: var(--ej-surface);
   border-color: var(--ej-accent);
 }
 
@@ -1254,8 +1065,8 @@ onUnmounted(() => {
 }
 
 .article-card {
-  background: #f7f9fc;
-  border: 1px solid rgba(0, 0, 0, 0.1);
+  background: var(--ej-canvas);
+  border: 1px solid color-mix(in srgb, var(--ej-ink) 10%, transparent);
   border-radius: 15px;
   overflow: hidden;
   cursor: pointer;
@@ -1298,7 +1109,7 @@ onUnmounted(() => {
 .article-card .cover-wrapper {
   width: 100%;
   height: 160px;
-  background: #f0f0f0;
+  background: var(--ej-canvas);
   overflow: hidden;
   position: relative;
 }
@@ -1310,7 +1121,7 @@ onUnmounted(() => {
 .article-title {
   font-size: 16px;
   font-weight: 600;
-  color: #333;
+  color: var(--ej-ink);
   margin-bottom: 10px;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -1323,7 +1134,7 @@ onUnmounted(() => {
   display: flex;
   gap: 15px;
   font-size: 12px;
-  color: #999;
+  color: var(--ej-muted);
 }
 
 /* 分页 */
@@ -1337,19 +1148,19 @@ onUnmounted(() => {
 
 .page-btn {
   padding: 10px 24px;
-  background: rgba(255, 255, 255, 0.9);
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: color-mix(in srgb, var(--ej-surface) 90%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ej-hairline) 30%, transparent);
   border-radius: 20px;
-  color: #666;
+  color: var(--ej-muted);
   cursor: pointer;
   font-size: 14px;
   transition: all 0.3s;
 }
 
 .page-btn:hover:not(:disabled) {
-  background: white;
-  border-color: #333;
-  color: #333;
+  background: var(--ej-surface);
+  border-color: var(--ej-ink);
+  color: var(--ej-ink);
 }
 
 .page-btn:disabled {
@@ -1358,7 +1169,7 @@ onUnmounted(() => {
 }
 
 .page-info {
-  color: #666;
+  color: var(--ej-muted);
   font-size: 14px;
 }
 
@@ -1367,17 +1178,17 @@ onUnmounted(() => {
 .empty-state {
   text-align: center;
   padding: 60px 20px;
-  color: #999;
+  color: var(--ej-muted);
   font-size: 16px;
-  background: white;
-  border: 1px solid #eee;
+  background: var(--ej-surface);
+  border: 1px solid var(--ej-hairline);
   border-radius: 15px;
 }
 
 /* 右侧边栏 */
 .sidebar-card {
-  background: white;
-  border: 1px solid #eee;
+  background: var(--ej-surface);
+  border: 1px solid var(--ej-hairline);
   border-radius: 15px;
   padding: 20px;
   margin-bottom: 20px;
@@ -1387,10 +1198,10 @@ onUnmounted(() => {
 .card-title {
   font-size: 16px;
   font-weight: 600;
-  color: #333;
+  color: var(--ej-ink);
   margin-bottom: 15px;
   padding-bottom: 10px;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--ej-hairline);
 }
 
 .coin-info {
@@ -1411,17 +1222,17 @@ onUnmounted(() => {
 
 .coin-label {
   font-size: 12px;
-  color: #999;
+  color: var(--ej-muted);
 }
 
 .notice-content {
   font-size: 14px;
-  color: #666;
+  color: var(--ej-muted);
   line-height: 1.6;
   padding: 12px;
-  background: #f8f9fa;
+  background: var(--ej-canvas);
   border-radius: 8px;
-  border: 1px solid #eee;
+  border: 1px solid var(--ej-hairline);
   min-height: 60px;
 }
 
@@ -1438,7 +1249,7 @@ onUnmounted(() => {
   gap: 10px;
   min-width: 0;
   font-size: 13px;
-  color: #47453f;
+  color: var(--ej-body);
 }
 
 .detail-item > span:last-child {
@@ -1478,19 +1289,19 @@ onUnmounted(() => {
 .live-status {
   text-align: center;
   padding: 15px;
-  background: #f8f9fa;
+  background: var(--ej-canvas);
   border-radius: 8px;
-  border: 1px solid #eee;
+  border: 1px solid var(--ej-hairline);
 }
 
 .live-tip {
   font-size: 14px;
-  color: #999;
+  color: var(--ej-muted);
   margin-bottom: 12px;
 }
 
 .live-btn {
-  background: white;
+  background: var(--ej-surface);
   color: var(--ej-accent);
   border: 1px solid var(--ej-accent);
   padding: 10px 24px;
@@ -1502,7 +1313,7 @@ onUnmounted(() => {
 
 .live-btn:hover {
   background: var(--ej-accent);
-  color: white;
+  color: var(--ej-surface);
   transform: scale(1.02);
 }
 
@@ -1766,287 +1577,6 @@ onUnmounted(() => {
     font-size: 11px;
   }
   
-  /* 编辑资料弹窗 */
-  .modal-content {
-    width: 95%;
-    max-height: 90vh;
-    border-radius: 15px;
-  }
-  
-  .modal-header h2 {
-    font-size: 18px;
-  }
-  
-  .modal-body {
-    padding: 20px 15px;
-  }
 }
 
-/* 编辑资料弹窗 */
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(5px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 2000;
-  animation: fadeIn 0.2s ease;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-.modal-content {
-  background: white;
-  border-radius: 20px;
-  width: 90%;
-  max-width: 500px;
-  max-height: 85vh;
-  overflow: hidden;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-  animation: slideUp 0.3s ease;
-}
-
-@keyframes slideUp {
-  from { transform: translateY(30px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
-}
-
-.modal-header {
-  padding: 20px 25px;
-  border-bottom: 1px solid #f0f0f0;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.modal-header h2 {
-  font-size: 20px;
-  font-weight: 600;
-  color: #333;
-  margin: 0;
-}
-
-.modal-close {
-  width: 32px;
-  height: 32px;
-  border: none;
-  background: #f5f5f5;
-  border-radius: 50%;
-  font-size: 20px;
-  color: #666;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.modal-close:hover {
-  background: #e8e8e8;
-  color: #333;
-}
-
-.modal-body {
-  padding: 25px;
-  max-height: 55vh;
-  overflow-y: auto;
-}
-
-.edit-avatar-section {
-  text-align: center;
-  margin-bottom: 25px;
-}
-
-.edit-avatar-upload {
-  position: relative;
-  width: 100px;
-  height: 100px;
-  margin: 0 auto;
-  cursor: pointer;
-}
-
-.edit-avatar-preview {
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  object-fit: cover;
-  border: 3px solid #f0f0f0;
-  transition: all 0.3s;
-}
-
-.edit-avatar-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0;
-  transition: all 0.3s;
-}
-
-.edit-avatar-overlay span {
-  color: white;
-  font-size: 12px;
-}
-
-.edit-avatar-upload:hover .edit-avatar-overlay {
-  opacity: 1;
-}
-
-.edit-avatar-upload:hover .edit-avatar-preview {
-  border-color: var(--ej-accent);
-}
-
-.edit-file-input {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0;
-  cursor: pointer;
-}
-
-/* 头像上传进度条 */
-.edit-avatar-progress {
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.95);
-  border: 3px solid #f0f0f0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  overflow: hidden;
-}
-
-.edit-avatar-progress .progress-bar {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  width: 100%;
-  background: rgba(17, 17, 15, 0.3);
-  transition: height 0.3s ease;
-}
-
-.edit-avatar-progress .progress-text {
-  position: relative;
-  z-index: 1;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--ej-accent);
-}
-
-.edit-form-item {
-  margin-bottom: 18px;
-}
-
-.edit-form-item > label {
-  display: block;
-  font-size: 14px;
-  font-weight: 500;
-  color: #333;
-  margin-bottom: 8px;
-}
-
-.edit-form-item > label .required {
-  color: #ff6b9d;
-}
-
-.edit-form-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 15px;
-}
-
-.edit-form-item input,
-.edit-form-item textarea,
-.edit-form-item select {
-  width: 100%;
-  padding: 12px 15px;
-  border: 1.5px solid #e0e0e0;
-  border-radius: 10px;
-  font-size: 14px;
-  color: #333;
-  transition: all 0.3s;
-  background: white;
-}
-
-.edit-form-item input:focus,
-.edit-form-item textarea:focus,
-.edit-form-item select:focus {
-  outline: none;
-  border-color: var(--ej-accent);
-  box-shadow: 0 0 0 3px rgba(17, 17, 15, 0.1);
-}
-
-.edit-form-item select {
-  cursor: pointer;
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%23666' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10l-5 5z'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 12px center;
-}
-
-.edit-form-item textarea {
-  resize: vertical;
-  min-height: 60px;
-}
-
-.modal-footer {
-  padding: 20px 25px;
-  border-top: 1px solid #f0f0f0;
-  display: flex;
-  gap: 12px;
-}
-
-.modal-cancel {
-  flex: 1;
-  padding: 12px;
-  background: white;
-  border: 1.5px solid #e0e0e0;
-  border-radius: 10px;
-  color: #666;
-  font-size: 14px;
-  cursor: pointer;
-  transition: all 0.3s;
-}
-
-.modal-cancel:hover {
-  border-color: #999;
-  color: #333;
-}
-
-.modal-submit {
-  flex: 1;
-  padding: 12px;
-  background: var(--ej-accent);
-  border: none;
-  border-radius: 10px;
-  color: white;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.3s;
-}
-
-.modal-submit:hover:not(:disabled) {
-  background: var(--ej-ink);
-}
-
-.modal-submit:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
 </style>

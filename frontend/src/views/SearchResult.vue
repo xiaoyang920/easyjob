@@ -82,7 +82,7 @@
               <div class="article-meta">
                 <span v-if="item.requiredLevel > 0" class="reading-level-badge">L{{ item.requiredLevel }} 阅读</span>
                 <div class="author-info" @click.stop="viewUser(item.userId)">
-                  <img :src="avatarUrl(item.authorAvatar, item.authorName)" alt="" class="author-avatar" @error="onAvatarError($event, item.authorName)">
+                  <SpaceAvatar :src="item.authorAvatar" :name="item.authorName" :user-id="item.userId" alt="" class="author-avatar" />
                   <span class="author-name">{{ item.authorName || '匿名' }}</span>
                 </div>
                 <div class="stats">
@@ -103,7 +103,7 @@
             class="result-card user-card"
             @click="viewUser(item.userId)"
           >
-            <img :src="avatarUrl(item.avatar, item.nickName)" :alt="`${item.nickName || '用户'}的头像`" class="user-avatar" @error="onAvatarError($event, item.nickName)">
+            <SpaceAvatar :src="item.avatar" :name="item.nickName" :user-id="item.userId" :alt="`${item.nickName || '用户'}的头像`" class="user-avatar" />
             <div class="user-info">
               <h3 class="user-name"><SearchHighlight :text="item.nickName" :keyword="submittedKeyword" /></h3>
               <p class="user-intro">{{ item.personIntroduction || '这个人很懒，什么都没有留下~' }}</p>
@@ -151,7 +151,7 @@ import { eventBus, EVENT_AUTH_CHANGED, EVENT_AUTH_EXPIRED } from '@/utils/eventB
 import { useRoute, useRouter } from 'vue-router'
 import request from '../utils/request'
 import { getThumbUrl } from '../utils/image'
-import { avatarUrl, onAvatarError } from '../utils/avatar'
+import SpaceAvatar from '@/components/SpaceAvatar.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -371,9 +371,9 @@ onUnmounted(() => {
   left: 0;
   right: 0;
   height: 70px;
-  background: rgba(255, 255, 255, 0.1);
+  background: color-mix(in srgb, var(--ej-surface) 10%, transparent);
   backdrop-filter: blur(10px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  border-bottom: 1px solid color-mix(in srgb, var(--ej-hairline) 20%, transparent);
   display: flex;
   align-items: center;
   padding: 0 50px;
@@ -413,16 +413,16 @@ onUnmounted(() => {
   width: 100%;
   height: 42px;
   padding: 0 50px 0 20px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--ej-line);
   border-radius: 21px;
   font-size: 15px;
   outline: none;
-  background: white;
-  color: #333;
+  background: var(--ej-surface);
+  color: var(--ej-ink);
 }
 
 .search-box input::placeholder {
-  color: #999;
+  color: var(--ej-muted);
 }
 
 /* 隐藏原生搜索清除按钮 */
@@ -433,7 +433,7 @@ onUnmounted(() => {
 
 .search-box input:focus {
   border-color: var(--ej-accent);
-  background: white;
+  background: var(--ej-surface);
 }
 
 .search-btn {
@@ -446,7 +446,7 @@ onUnmounted(() => {
   background: var(--ej-accent);
   border: none;
   border-radius: 50%;
-  color: white;
+  color: var(--ej-surface);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -464,7 +464,7 @@ onUnmounted(() => {
 
 .nav-btn {
   background: transparent;
-  color: #666;
+  color: var(--ej-body);
   border: none;
   padding: 10px 20px;
   border-radius: 20px;
@@ -473,7 +473,7 @@ onUnmounted(() => {
 }
 
 .nav-btn:hover {
-  background: #eee;
+  background: var(--ej-canvas);
 }
 
 .container {
@@ -487,13 +487,13 @@ onUnmounted(() => {
 }
 
 .search-header h1 {
-  color: #333;
+  color: var(--ej-ink);
   font-size: 28px;
   margin-bottom: 10px;
 }
 
 .search-info {
-  color: #666;
+  color: var(--ej-body);
   font-size: 16px;
 }
 
@@ -503,7 +503,7 @@ onUnmounted(() => {
 }
 
 .filter-bar {
-  background: rgba(255, 255, 255, 0.95);
+  background: color-mix(in srgb, var(--ej-surface) 95%, transparent);
   border-radius: 12px;
   padding: 15px 20px;
   margin-bottom: 20px;
@@ -519,12 +519,12 @@ onUnmounted(() => {
 
 .filter-tab {
   padding: 8px 20px;
-  border: 1px solid #ddd;
-  background: white;
+  border: 1px solid var(--ej-line);
+  background: var(--ej-surface);
   border-radius: 20px;
   cursor: pointer;
   font-size: 14px;
-  color: #666;
+  color: var(--ej-body);
   transition: all 0.3s;
 }
 
@@ -544,12 +544,12 @@ onUnmounted(() => {
   align-items: center;
   gap: 8px;
   font-size: 14px;
-  color: #666;
+  color: var(--ej-body);
 }
 
 .sort-options select {
   padding: 6px 12px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--ej-line);
   border-radius: 6px;
   font-size: 14px;
   outline: none;
@@ -560,9 +560,9 @@ onUnmounted(() => {
 .empty-state {
   text-align: center;
   padding: 80px 20px;
-  background: rgba(255, 255, 255, 0.95);
+  background: color-mix(in srgb, var(--ej-surface) 95%, transparent);
   border-radius: 16px;
-  color: #666;
+  color: var(--ej-body);
 }
 
 .empty-icon {
@@ -572,7 +572,7 @@ onUnmounted(() => {
 
 .empty-tip {
   font-size: 14px;
-  color: #999;
+  color: var(--ej-muted);
   margin-top: 10px;
 }
 
@@ -659,7 +659,7 @@ onUnmounted(() => {
 
 .article-summary {
   font-size: 13px;
-  color: #47453f;
+  color: var(--ej-ink);
   line-height: 1.75;
   flex: 1;
   overflow: hidden;
@@ -705,7 +705,7 @@ onUnmounted(() => {
 }
 
 .author-info:hover {
-  background: var(--studio-lime-soft);
+  background: var(--studio-lime-soft); color: var(--ej-on-color);
 }
 
 .author-avatar {
@@ -757,7 +757,7 @@ onUnmounted(() => {
 .user-name {
   font-size: 18px;
   font-weight: 600;
-  color: #333;
+  color: var(--ej-ink);
   margin-bottom: 6px;
 }
 
@@ -768,7 +768,7 @@ onUnmounted(() => {
 
 .user-intro {
   font-size: 14px;
-  color: #666;
+  color: var(--ej-body);
   margin-bottom: 8px;
 }
 
@@ -776,7 +776,7 @@ onUnmounted(() => {
   display: flex;
   gap: 15px;
   font-size: 13px;
-  color: #999;
+  color: var(--ej-muted);
 }
 
 /* 配色与已关注状态见 styles/theme.css */
@@ -800,10 +800,10 @@ onUnmounted(() => {
 
 .page-btn {
   padding: 10px 24px;
-  background: white;
-  border: 1px solid #ddd;
+  background: var(--ej-surface);
+  border: 1px solid var(--ej-line);
   border-radius: 20px;
-  color: #666;
+  color: var(--ej-body);
   cursor: pointer;
   font-size: 14px;
   transition: all 0.3s;
@@ -820,7 +820,7 @@ onUnmounted(() => {
 }
 
 .page-info {
-  color: #666;
+  color: var(--ej-body);
   font-size: 14px;
 }
 

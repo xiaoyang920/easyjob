@@ -10,6 +10,11 @@ async function account(page: Page, role = 1, status = 1) {
     const path = new URL(route.request().url()).pathname
     let data: any = []
     if (path.endsWith('/user/space/7')) data = { role, status, followingCount: 4, followerCount: 3, articleCount: 9, readingProgress: { level: 4 } }
+    else if (path.endsWith('/growth/wallet')) data = { balance: 20 }
+    else if (path.endsWith('/user/space-customization')) data = {
+      appearance: { spaceBannerUrl: null, spaceBannerPosition: 50, equippedArtworks: {} },
+      products: [], artworks: [], ownedArtworks: [], quotes: {}, balance: 20,
+    }
     else if (path.endsWith('/agent/library')) data = { rows: [], total: 0 }
     else if (path.endsWith('/agent/run-overview')) data = { items: [] }
     else if (path.endsWith('/chat/total-unread-count') || path.endsWith('/notify/unread-count')) data = 0
@@ -26,7 +31,7 @@ test('account popover keeps personal settings while the avatar stays anchored du
   const panel = page.locator('#app-account-panel')
   await expect(panel.getByRole('link', { name: '编辑资料', exact: true })).toBeVisible()
   await expect(panel.getByLabel('阅读等级 L4')).toBeVisible()
-  await expect(panel.locator('.app-account-items a')).toHaveText(['编辑资料', '账号安全'])
+  await expect(panel.locator('.app-account-items a')).toHaveText(['编辑资料', '账号安全', '硬币商城'])
   await expect(panel.locator('.app-account-stats a')).toHaveCount(3)
   await expect(page.locator('.app-nav-links .app-nav-link')).toHaveCount(6)
   await expect(panel.locator('a[href="/"],a[href="/draft-box"],a[href="/chat"],a[href="/notifications"],a[href="/ai-chat"],a[href="/ai-memory"],a[href="/create-article"]')).toHaveCount(0)
@@ -44,11 +49,49 @@ test('administrator entry is retained and keyboard closing works with the compac
   await avatar.focus(); await page.keyboard.press('ArrowDown')
   const panel = page.locator('#app-account-panel')
   await expect(panel.getByRole('link', { name: '管理后台', exact: true })).toBeVisible()
-  await expect(panel.locator('.app-account-items a')).toHaveText(['编辑资料', '账号安全', '管理后台'])
+  await expect(panel.locator('.app-account-items a')).toHaveText(['编辑资料', '账号安全', '硬币商城', '管理后台'])
   await expect(panel.getByRole('button', { name: '退出登录', exact: true })).toBeVisible()
   await page.screenshot({ path: '../logs/account-menu-desktop.png', animations: 'disabled' })
   await page.screenshot({ path: '../logs/account-menu-preview.png', clip: { x: 840, y: 0, width: 420, height: 530 }, animations: 'disabled' })
   await page.keyboard.press('Escape'); await expect(panel).toHaveCount(0)
+})
+
+test('the display mode control and the gap beside it do not open the account card', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.emulateMedia({ colorScheme: 'light' })
+  await account(page)
+  const mode = page.locator('.theme-mode summary')
+  const avatar = page.getByRole('button', { name: '账户菜单', exact: true })
+  const panel = page.locator('#app-account-panel')
+  await expect(mode).toBeVisible()
+  const bounds = (await mode.boundingBox())!
+
+  await page.mouse.move(bounds.x + bounds.width + 6, bounds.y + bounds.height / 2)
+  await expect(avatar).toHaveAttribute('aria-expanded', 'false')
+  await mode.click()
+  await page.getByRole('button', { name: '夜间', exact: true }).click()
+  await expect(page.locator('html')).toHaveClass(/dark/)
+  await expect(panel).toHaveCount(0)
+
+  await avatar.hover()
+  await expect(panel).toBeVisible()
+  await mode.click()
+  await expect(panel).toHaveCount(0)
+  await page.getByRole('button', { name: '日间', exact: true }).click()
+  await expect(page.locator('html')).not.toHaveClass(/dark/)
+})
+
+test('opens the coin shop from the account menu', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await account(page)
+  await page.getByRole('button', { name: '账户菜单', exact: true }).hover()
+  await page.locator('#app-account-panel').getByRole('link', { name: '硬币商城', exact: true }).click()
+  await expect(page).toHaveURL(/\/growth-shop$/)
+  await expect(page.getByRole('heading', { name: '硬币商城' })).toBeVisible()
+  await expect(page.getByRole('alert')).toContainText('阅读成长加载失败')
+  await page.getByRole('tab', { name: '空间装扮' }).click()
+  await expect(page.getByRole('tab', { name: '空间装扮' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('group', { name: '装扮分类' })).toBeVisible()
 })
 
 test('touch account card fits the screen and hides administrator controls for inactive accounts', async ({ browser, baseURL }) => {

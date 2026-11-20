@@ -33,7 +33,7 @@
 $env:EASYJOB_CHECKPOINT_REDIS_TEST='1'
 .venv/Scripts/python.exe -m unittest discover -s tests -p test_checkpoint_store.py -v
 # 项目根目录：本机临时用户/会话验证 MySQL 保留规则、状态和清理。
-python-agent/.venv/Scripts/python.exe scripts/optimization-check.py
+services/python-agent/.venv/Scripts/python.exe scripts/checks/optimization-check.py
 ```
 
 Redis 测试覆盖进程重建后的嵌套审批、旧格式审批、原生并行节点部分失败、生产委派产物复用、DAG 与草稿审批、修改后二次审批、拒绝不保存以及夹具键完整删除。合成长状态对照报告在 `logs/checkpoint-storage-comparison.json`，分别统计完整快照和整次运行各类键的内存；不代表线上平均占用。

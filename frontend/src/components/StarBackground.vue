@@ -43,7 +43,7 @@ function createStars() {
   position: absolute;
   width: 2px;
   height: 2px;
-  background: white;
+  background: var(--ej-surface);
   border-radius: 50%;
   box-shadow: 0 0 4px rgba(255, 255, 255, 0.8), 0 0 8px rgba(255, 255, 255, 0.4);
   animation: twinkle 3s infinite;

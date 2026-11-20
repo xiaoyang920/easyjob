@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.easyjob.mapper.SpaceBannerReviewMapper">
+    <sql id="metadata">
+        SELECT r.review_id, CAST(r.user_id AS CHAR) AS user_id, u.nick_name AS nickname,
+               r.state, r.position, r.reason, r.created_at, r.view_json
+        FROM space_banner_review r JOIN user_info u ON u.user_id = r.user_id
+    </sql>
+    <select id="current" resultType="com.easyjob.vo.SpaceBannerSubmission">
+        <include refid="metadata"/> WHERE r.user_id = #{userId}
+    </select>
+    <select id="pending" resultType="com.easyjob.vo.SpaceBannerSubmission">
+        <include refid="metadata"/> WHERE r.state = 'PENDING' AND u.status = 1
+        ORDER BY r.created_at, r.user_id LIMIT #{size} OFFSET #{offset}
+    </select>
+    <resultMap id="savedImage" type="com.easyjob.mapper.SpaceBannerReviewMapper$StoredImage">
+        <constructor><arg column="image" javaType="_byte[]"/></constructor>
+    </resultMap>
+    <select id="image" resultMap="savedImage">
+        SELECT image FROM space_banner_review WHERE user_id = #{userId} AND review_id = #{reviewId} AND state = 'PENDING'
+    </select>
+    <insert id="submit">
+        INSERT INTO space_banner_review (user_id, review_id, state, position, image)
+        VALUES (#{userId}, #{reviewId}, 'PENDING', 50, #{image,jdbcType=BLOB})
+        ON DUPLICATE KEY UPDATE review_id = #{reviewId}, state = 'PENDING', position = 50,
+            image = #{image,jdbcType=BLOB}, created_at = CURRENT_TIMESTAMP(3),
+            reason = NULL, reviewer_id = NULL, reviewed_at = NULL, view_json = NULL
+    </insert>
+    <update id="position">
+        UPDATE space_banner_review SET position = #{position}, view_json = #{view}
+        WHERE user_id = #{userId} AND review_id = #{reviewId} AND state = 'PENDING'
+    </update>
+    <update id="decide">
+        UPDATE space_banner_review SET state = #{state}, reason = #{reason}, reviewer_id = #{reviewerId},
+            reviewed_at = CURRENT_TIMESTAMP(3), image = NULL
+        WHERE user_id = #{userId} AND review_id = #{reviewId} AND state = 'PENDING'
+    </update>
+    <delete id="withdraw">
+        DELETE FROM space_banner_review WHERE user_id = #{userId} AND review_id = #{reviewId} AND state = 'PENDING'
+    </delete>
+</mapper>

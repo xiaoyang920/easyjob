@@ -12,6 +12,6 @@
 
 点击引用先检查原位置和前后文；文章内容移动时用前后文重新寻找。找不到原文或重复内容存在歧义时保留原始引用，提示“原文已修改或位置无法确认”，不会指向其他段落。本文能力面向文章阅读讨论，尚不包含多人编辑、评论解决状态和飞书完整协作工作流。
 
-数据库增量迁移：`python-agent/migrations/025_article_comment_anchors.sql`，通过现有 `python -m app.migrate` 或 `scripts/migrate-product-features.py` 执行。新增引用表，旧评论不需回填；外键保证删除评论时一并删除引用。所有新业务 SQL 位于 Mapper XML。
+数据库增量迁移：`services/python-agent/migrations/025_article_comment_anchors.sql`，通过现有 `python -m app.migrate` 或 `scripts/migrations/migrate-product-features.py` 执行。新增引用表，旧评论不需回填；外键保证删除评论时一并删除引用。所有新业务 SQL 位于 Mapper XML。
 
-验证：前端定位单测覆盖跨段、内联标签、代码、重复句、文本移动及 Emoji；浏览器覆盖发布、刷新、回复、删除、冲突保留输入、原文失效、手机和登录。Java 单测验证引用、权限和原子创建边界。`scripts/comment-anchors-http-smoke.py` 使用临时账号和文章测试真实网关/Java/MySQL 链路，并清理临时数据。
+验证：前端定位单测覆盖跨段、内联标签、代码、重复句、文本移动及 Emoji；浏览器覆盖发布、刷新、回复、删除、冲突保留输入、原文失效、手机和登录。Java 单测验证引用、权限和原子创建边界。`scripts/checks/comment-anchors-http-smoke.py` 使用临时账号和文章测试真实网关/Java/MySQL 链路，并清理临时数据。

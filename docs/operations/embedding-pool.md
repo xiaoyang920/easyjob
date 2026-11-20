@@ -50,13 +50,13 @@ spring:
 Windows运行性能对比：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/embedding-pool-benchmark.ps1
+powershell -ExecutionPolicy Bypass -File scripts/benchmarks/embedding-pool-benchmark.ps1
 ```
 
 只运行容量100假设下的消费者/向量化线程联合对照：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/embedding-pool-benchmark.ps1 -Capacity100Only
+powershell -ExecutionPolicy Bypass -File scripts/benchmarks/embedding-pool-benchmark.ps1 -Capacity100Only
 ```
 
 这组新增对照使用2/4/8个固定消费者、4/8/16个共享工作线程、每篇2/4批窗口，并加入单篇512块的窗口诊断。模拟接口允许100个在途请求；这个100是测试条件，不代表已经核实项目账号的`embedding-3`额度。每组重复3次并随机化运行顺序，记录等待消费者的积压耗时、端到端P95、处理P95、成功率和线程/队列峰值。消费者用线程模拟，存储用延迟模拟，不测真实RabbitMQ扩容或数据库连接争抢；HTTP不传输真实2048维向量JSON。
@@ -64,7 +64,7 @@ powershell -ExecutionPolicy Bypass -File scripts/embedding-pool-benchmark.ps1 -C
 也可在任何安装了Java21和Maven的环境运行：
 
 ```bash
-EASYJOB_EMBEDDING_BENCHMARK=1 mvn -Dtest=EmbeddingPoolBenchmarkTests test
+EASYJOB_EMBEDDING_BENCHMARK=1 mvn -f services/search-index-service/pom.xml -Dtest=EmbeddingPoolBenchmarkTests test
 ```
 
 结果保存为 `logs/embedding-pool-benchmark.json`，进度输出带 `embedding-benchmark`。测试使用真实项目线程池、批次编排器和本机回环HTTP接口；不调用收费模型，不访问Redis/MySQL/ES，不启动或关闭项目服务。
@@ -128,7 +128,7 @@ EASYJOB_EMBEDDING_BENCHMARK=1 mvn -Dtest=EmbeddingPoolBenchmarkTests test
 
 在这组容量4、共享线程4的旧对照下，消费者2～4是保守选择：两篇多批次文章已能用满4个向量化线程；短文章或写入等待时，增加到4可填补空闲。实际动态扩容不是瞬间发生，上表模拟固定消费者数量，未验证真实RabbitMQ容器扩容速度。现有文章锁在整个索引期间持有数据库连接，不能仅按CPU核数继续增加消费者。
 
-只运行本对照：`EASYJOB_EMBEDDING_BENCHMARK=1 mvn -Dtest=EmbeddingPoolBenchmarkTests#compareConsumerLimitsOnSameInputs test`。原始结果：`logs/embedding-consumer-benchmark.json`。
+只运行本对照：`EASYJOB_EMBEDDING_BENCHMARK=1 mvn -f services/search-index-service/pom.xml -Dtest=EmbeddingPoolBenchmarkTests#compareConsumerLimitsOnSameInputs test`。原始结果：`logs/embedding-consumer-benchmark.json`。
 
 ## 每篇并行窗口与大队列的直接对比
 
@@ -142,7 +142,7 @@ EASYJOB_EMBEDDING_BENCHMARK=1 mvn -Dtest=EmbeddingPoolBenchmarkTests test
 
 如果目标更偏向当前单机博客的单篇索引速度，4批/队列16是更均衡的候选：单篇速度接近整篇全部提交，短文章等待明显更少。2批/队列8更偏向文章间公平性，但只有一篇长文时只能使用2个工作线程。当时仅新增对照测试，后续容量100的联合对照与默认参数调整见下文。该结论仍来自模拟接口，不代表真实供应商的最优配置。
 
-原始结果：`logs/embedding-window-benchmark.json`。只运行本对照：`EASYJOB_EMBEDDING_BENCHMARK=1 mvn -Dtest=EmbeddingPoolBenchmarkTests#compareArticleWindowsOnSameInputs test`。
+原始结果：`logs/embedding-window-benchmark.json`。只运行本对照：`EASYJOB_EMBEDDING_BENCHMARK=1 mvn -f services/search-index-service/pom.xml -Dtest=EmbeddingPoolBenchmarkTests#compareArticleWindowsOnSameInputs test`。
 
 ## 容量100时，消费者与工作线程的联合对照
 
@@ -193,6 +193,6 @@ EASYJOB_EMBEDDING_BENCHMARK=1 mvn -Dtest=EmbeddingPoolBenchmarkTests test
 
 此对照检验“100额度时原参数是否仍有性能余量”，不能直接证明真实生产最优配置。API额度是上限，当前文章索引还会在整个处理期间占用文章锁的数据库连接；提高到8个消费者前需验证连接池余量和真实ES吞吐。短文章每篇只有一个批次，增加每篇窗口不能让它同时提交更多批次。单篇长文的并发受每篇窗口限制。
 
-测量完成后已更新代码、本地配置及示例配置的默认值为8/8/16、每篇4批、固定4消费者，重启Java后生效。原始结果：`logs/embedding-capacity100-benchmark.json`。只跑本组：`powershell -ExecutionPolicy Bypass -File scripts/embedding-pool-benchmark.ps1 -Capacity100Only`。
+测量完成后已更新代码、本地配置及示例配置的默认值为8/8/16、每篇4批、固定4消费者，重启Java后生效。原始结果：`logs/embedding-capacity100-benchmark.json`。只跑本组：`powershell -ExecutionPolicy Bypass -File scripts/benchmarks/embedding-pool-benchmark.ps1 -Capacity100Only`。
 
 全部243次测量与3915次文章处理完成后，首次最终校验错误地要求“服务端在途峰值≤客户端线程数”。修正该统计断言后，对保存的完整测量记录复核成功，耗时数据未改动；另外重新执行8线程的本机HTTP冒烟测试，连同36条相关功能回归共37条测试通过。首次运行日志为`logs/embedding-capacity100-benchmark.log`，修正后的校验日志为`logs/embedding-capacity100-validation.log`。

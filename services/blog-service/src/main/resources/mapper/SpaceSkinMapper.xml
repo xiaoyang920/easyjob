@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.easyjob.mapper.SpaceSkinMapper">
+    <resultMap id="appearanceRow" type="com.easyjob.vo.SpaceCustomization$Appearance">
+        <constructor>
+            <arg column="space_banner_url" javaType="java.lang.String"/>
+            <arg column="space_banner_position" javaType="_int"/>
+            <arg column="space_banner_view" javaType="java.lang.String"/>
+        </constructor>
+    </resultMap>
+    <resultMap id="productRow" type="com.easyjob.vo.SpaceCustomization$Product">
+        <constructor>
+            <arg column="skin_id" javaType="java.lang.String"/>
+            <arg column="name" javaType="java.lang.String"/>
+            <arg column="coin_price" javaType="_int"/>
+            <arg column="listed" javaType="_boolean"/>
+            <arg column="owned" javaType="_boolean"/>
+            <arg column="sort_order" javaType="_int"/>
+            <arg column="version" javaType="_int"/>
+            <arg column="single_artwork_id" javaType="java.lang.String"/>
+            <arg column="artworks_json" javaType="java.lang.String"/>
+        </constructor>
+    </resultMap>
+    <resultMap id="purchaseOrderRow" type="com.easyjob.vo.SpaceCustomization$PurchaseOrder">
+        <constructor>
+            <arg column="purchase_id" javaType="java.lang.String"/>
+            <arg column="title" javaType="java.lang.String"/>
+            <arg column="paid_coins" javaType="_int"/>
+            <arg column="acquired_at" javaType="java.time.Instant"/>
+        </constructor>
+    </resultMap>
+    <select id="appearance" resultMap="appearanceRow">
+        SELECT space_banner_url, space_banner_position, space_banner_view FROM user_info WHERE user_id = #{userId}
+    </select>
+    <select id="balance" resultType="java.lang.Integer">
+        SELECT COALESCE(current_coin_count, 0) FROM user_info WHERE user_id = #{userId} AND status = 1
+    </select>
+    <select id="lockWallet" resultType="java.lang.Integer" useCache="false" flushCache="true">
+        SELECT COALESCE(current_coin_count, 0) FROM user_info WHERE user_id = #{userId} AND status = 1 FOR UPDATE
+    </select>
+    <sql id="productColumns">
+        s.skin_id, s.name, s.coin_price, s.listed, s.sort_order, s.version,
+        (SELECT a.artwork_id FROM space_product_artwork a WHERE a.skin_id = s.skin_id AND a.standalone) AS single_artwork_id,
+        (SELECT JSON_OBJECTAGG(a.slot, a.artwork_id) FROM space_product_artwork a WHERE a.skin_id = s.skin_id) AS artworks_json
+    </sql>
+    <sql id="userProducts">
+        SELECT <include refid="productColumns"/>, (u.skin_id IS NOT NULL) AS owned
+        FROM space_skin s
+        LEFT JOIN user_space_skin u ON u.skin_id = s.skin_id AND u.user_id = #{userId,jdbcType=BIGINT}
+    </sql>
+    <select id="shopProducts" resultMap="productRow">
+        <include refid="userProducts"/>
+        WHERE s.listed = TRUE OR u.skin_id IS NOT NULL
+        ORDER BY s.sort_order, s.skin_id
+    </select>
+    <select id="product" resultMap="productRow">
+        <include refid="userProducts"/>
+        WHERE s.skin_id = #{productId}
+    </select>
+    <select id="lockProduct" resultMap="productRow" useCache="false" flushCache="true">
+        <include refid="userProducts"/>
+        WHERE s.skin_id = #{productId}
+        FOR SHARE OF s
+    </select>
+    <select id="allProducts" resultMap="productRow">
+        SELECT <include refid="productColumns"/>, FALSE AS owned FROM space_skin s ORDER BY s.sort_order, s.skin_id
+    </select>
+    <resultMap id="artworkRow" type="com.easyjob.vo.SpaceArtwork">
+        <constructor>
+            <arg column="artwork_id" javaType="java.lang.String"/>
+            <arg column="slot" javaType="java.lang.String"/>
+            <arg column="name" javaType="java.lang.String"/>
+            <arg column="artist" javaType="java.lang.String"/>
+            <arg column="version" javaType="_int"/>
+            <arg column="assets" javaType="java.lang.String"/>
+            <arg column="settings" javaType="java.lang.String"/>
+        </constructor>
+    </resultMap>
+    <sql id="artColumns">a.artwork_id, a.slot, a.name, a.artist, a.version, a.assets, a.settings</sql>
+    <select id="artworks" resultMap="artworkRow">
+        SELECT <include refid="artColumns"/> FROM space_artwork a WHERE NOT a.withdrawn ORDER BY a.slot, a.name, a.artwork_id
+    </select>
+    <select id="equippedArtworks" resultMap="artworkRow">
+        SELECT <include refid="artColumns"/> FROM user_equipped_artwork e
+        JOIN space_artwork a ON a.artwork_id = e.artwork_id WHERE e.user_id = #{userId}
+    </select>
+    <resultMap id="wornRow" type="com.easyjob.vo.SpaceArtwork$Worn">
+        <constructor>
+            <arg column="user_id" javaType="java.lang.Long"/>
+            <arg resultMap="artworkRow" javaType="com.easyjob.vo.SpaceArtwork"/>
+        </constructor>
+    </resultMap>
+    <select id="wornArtworks" resultMap="wornRow">
+        SELECT e.user_id, <include refid="artColumns"/> FROM user_equipped_artwork e
+        JOIN user_info u ON u.user_id = e.user_id AND u.status = 1
+        JOIN space_artwork a ON a.artwork_id = e.artwork_id
+        WHERE e.slot = #{slot} AND e.user_id IN
+        <foreach item="id" collection="userIds" open="(" separator="," close=")">#{id}</foreach>
+    </select>
+    <select id="ownedArtworks" resultMap="artworkRow">
+        SELECT DISTINCT <include refid="artColumns"/> FROM user_space_skin u
+        JOIN space_product_artwork p ON p.skin_id = u.skin_id
+        JOIN space_artwork a ON a.artwork_id = p.artwork_id
+        WHERE u.user_id = #{userId} AND a.slot = #{slot}
+        ORDER BY a.name, a.artwork_id
+    </select>
+    <select id="artworksById" resultMap="artworkRow">
+        SELECT <include refid="artColumns"/> FROM space_artwork a WHERE a.artwork_id IN
+        <foreach item="id" collection="ids" open="(" separator="," close=")">#{id}</foreach>
+    </select>
+    <select id="lockArtwork" resultMap="artworkRow" useCache="false" flushCache="true">
+        SELECT <include refid="artColumns"/> FROM space_artwork a
+        WHERE a.artwork_id = #{id} AND NOT a.withdrawn FOR UPDATE
+    </select>
+    <select id="ownsArtwork" resultType="_boolean">
+        SELECT EXISTS(SELECT 1 FROM user_space_skin u JOIN space_product_artwork a ON a.skin_id = u.skin_id
+                      WHERE u.user_id = #{userId} AND a.artwork_id = #{id})
+    </select>
+    <update id="editArtwork">
+        UPDATE space_artwork SET name = #{name}, artist = #{artist}, version = version + 1
+        WHERE artwork_id = #{id} AND version = #{version} AND NOT withdrawn
+    </update>
+    <update id="withdrawArtwork">
+        UPDATE space_artwork SET withdrawn = TRUE, version = version + 1 WHERE artwork_id = #{id}
+          AND version = #{version} AND NOT withdrawn AND NOT EXISTS(
+            SELECT 1 FROM space_product_artwork a JOIN space_skin s ON s.skin_id = a.skin_id
+            WHERE a.artwork_id = #{id} AND (s.listed OR EXISTS(SELECT 1 FROM user_space_skin u WHERE u.skin_id = s.skin_id)))
+    </update>
+    <insert id="insertArtwork">
+        INSERT INTO space_artwork (artwork_id, slot, name, artist, assets, settings)
+        VALUES (#{id}, #{slot}, #{name}, #{artist}, #{assets}, #{settings,jdbcType=VARCHAR})
+    </insert>
+    <insert id="linkArtwork">
+        INSERT INTO space_product_artwork (skin_id, slot, artwork_id, standalone)
+        VALUES (#{product}, #{slot}, #{artwork}, #{single})
+    </insert>
+    <delete id="clearArtworkSlot">
+        DELETE FROM user_equipped_artwork WHERE user_id = #{userId} AND slot = #{slot}
+    </delete>
+    <insert id="equipArtwork">
+        INSERT INTO user_equipped_artwork (user_id, slot, artwork_id) VALUES (#{userId}, #{slot}, #{id})
+    </insert>
+    <select id="productForRequest" resultType="java.lang.String">
+        SELECT skin_id FROM user_space_skin WHERE user_id = #{userId} AND request_id = #{requestId}
+    </select>
+    <insert id="addOwnership">
+        INSERT INTO user_space_skin (user_id, skin_id, request_id, purchase_id, paid_coins)
+        VALUES (#{userId}, #{productId}, #{requestId}, #{purchaseId}, #{price})
+    </insert>
+    <insert id="recordPurchase">
+        INSERT INTO coin_ledger (user_id, order_id, business_type, delta)
+        VALUES (#{userId}, #{purchaseId}, 'SKIN', #{delta})
+    </insert>
+    <select id="purchaseOrders" resultMap="purchaseOrderRow">
+        SELECT u.purchase_id, COALESCE(s.name, u.skin_id) AS title, u.paid_coins, u.acquired_at
+        FROM user_space_skin u
+        LEFT JOIN space_skin s ON s.skin_id = u.skin_id
+        WHERE u.user_id = #{userId} AND u.paid_coins &gt; 0
+        ORDER BY u.acquired_at DESC, u.purchase_id DESC
+    </select>
+    <insert id="insertProduct">
+        INSERT INTO space_skin (skin_id, name, coin_price, listed, sort_order)
+        VALUES (#{productId}, #{name}, #{price}, TRUE, 100)
+    </insert>
+    <update id="updateProduct">
+        UPDATE space_skin SET name = #{edit.name}, coin_price = #{edit.price}, sort_order = #{edit.sortOrder},
+            listed = #{edit.listed}, version = version + 1
+        WHERE skin_id = #{id} AND version = #{edit.version}
+    </update>
+    <update id="saveBanner">
+        UPDATE user_info SET space_banner_url = #{url,jdbcType=VARCHAR}, space_banner_position = #{position},
+            space_banner_view = #{view,jdbcType=VARCHAR} WHERE user_id = #{userId}
+    </update>
+    <update id="saveBannerPosition">
+        UPDATE user_info SET space_banner_position = #{position}, space_banner_view = #{view}
+        WHERE user_id = #{userId}
+    </update>
+</mapper>

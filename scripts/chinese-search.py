@@ -13,7 +13,8 @@ import urllib.request
 from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
-ASSETS = ROOT/'src/main/resources/elasticsearch'
+ASSETS = ROOT/'services/blog-service/src/main/resources/elasticsearch'
+ANALYSIS = ROOT/'search-index-common/src/main/resources/elasticsearch/chinese-analysis.json'
 FIELDS = {'article': ['title', 'summary', 'content'], 'article_vectors': ['title', 'chunk_content', 'section_path']}
 
 
@@ -41,7 +42,7 @@ class Es:
 
 
 def analysis_settings():
-    return json.loads((ASSETS/'chinese-analysis.json').read_text(encoding='utf-8'))
+    return json.loads(ANALYSIS.read_text(encoding='utf-8'))
 
 
 def additions(properties, fields):
@@ -58,8 +59,8 @@ def additions(properties, fields):
 
 
 def asset_hashes():
-    return {name: hashlib.sha256((ASSETS/name).read_bytes()).hexdigest()
-        for name in ['chinese-analysis.json', 'easyjob-technical.dic', 'easyjob-synonyms.txt']}
+    return {path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in (ANALYSIS, ASSETS/'easyjob-technical.dic', ASSETS/'easyjob-synonyms.txt')}
 
 
 def fingerprint(es, index):

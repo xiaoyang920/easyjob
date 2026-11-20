@@ -41,9 +41,11 @@
       <ContentState v-else-if="loadError" kind="error" title="通知暂时无法加载" :description="loadError" @retry="loadList" />
       <div v-else-if="items.length === 0" class="state-block empty">
         <div class="empty-icon">
-          <svg viewBox="0 0 24 24" fill="currentColor">
-            <path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/>
-          </svg>
+          <SpaceIcon site name="notice">
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/>
+            </svg>
+          </SpaceIcon>
         </div>
         <p>{{ emptyText }}</p>
       </div>
@@ -55,13 +57,11 @@
           @click="openNotify(n)"
           role="button" tabindex="0" @keydown.enter="openNotify(n)" @keydown.space.prevent="openNotify(n)"
         >
-          <img
-            :src="avatarUrl(n.senderAvatar, n.senderNickname)"
+          <SpaceAvatar
+            :src="n.senderAvatar" :name="n.senderNickname" :user-id="n.senderId"
             :alt="n.senderNickname || '用户'"
             class="avatar"
-            @click.stop="goToUserSpace(n.senderId)"
-            @error="onAvatarError($event, n.senderNickname)"
-          >
+            @click.stop="goToUserSpace(n.senderId)" />
           <div class="body">
             <div class="line-1">
               <span class="sender" @click.stop="goToUserSpace(n.senderId)">
@@ -76,7 +76,7 @@
             <div v-if="n.targetPreview" class="line-2 target-preview">
               {{ isReviewNotification(n.type) ? '审核意见：' : '“' }}{{ n.targetPreview }}{{ isReviewNotification(n.type) ? '' : '”' }}
             </div>
-            <div v-if="isReviewNotification(n.type)" class="review-action" :class="{ rejected:n.type===7 }">{{ n.type===6 ? '查看已发布文章 ↗' : '查看完整意见与审核版本 ↗' }}</div>
+            <div v-if="isReviewNotification(n.type)" class="review-action" :class="{ rejected:n.type===7 }">{{ n.type===6 ? '查看已发布文章' : '查看完整意见与审核版本' }} <SpaceIcon site name="link">↗</SpaceIcon></div>
           </div>
           <span v-if="n.isRead === 0" class="unread-dot"></span>
         </div>
@@ -97,7 +97,8 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { notificationPath,isReviewNotification } from '@/utils/notificationTarget'
 import { latestRequest } from '@/utils/latestRequest'
-import { avatarUrl, onAvatarError } from '@/utils/avatar'
+import SpaceAvatar from '@/components/SpaceAvatar.vue'
+import SpaceIcon from '@/components/SpaceIcon.vue'
 import { ElMessage } from 'element-plus'
 import request from '@/utils/request'
 import ContentState from '@/components/ContentState.vue'
@@ -251,7 +252,7 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.review-action { margin-top:10px;font-size:12px;color:#52744e; }
+.review-action { margin-top:10px;font-size:12px;color:color-mix(in srgb, #52744e var(--ej-shade), var(--ej-ink)); }
 .review-action.rejected { color:#9b503f; }
 .notify-card:focus-visible { outline:2px solid var(--ej-ink);outline-offset:3px; }
 .notify-page {
@@ -275,10 +276,10 @@ onUnmounted(() => {
   left: 0;
   right: 0;
   height: 70px;
-  background: rgba(255, 255, 255, 0.1);
+  background: color-mix(in srgb, var(--ej-surface) 10%, transparent);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  border-bottom: 1px solid color-mix(in srgb, var(--ej-hairline) 20%, transparent);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -304,12 +305,12 @@ onUnmounted(() => {
 .page-title {
   font-size: 20px;
   font-weight: 600;
-  color: #333;
+  color: var(--ej-ink);
 }
 
 .nav-btn {
   background: transparent;
-  color: #666;
+  color: var(--ej-body);
   border: none;
   padding: 10px 20px;
   border-radius: 20px;
@@ -319,7 +320,7 @@ onUnmounted(() => {
 }
 
 .nav-btn:hover {
-  background: #eee;
+  background: var(--ej-canvas);
   color: var(--ej-accent);
 }
 
@@ -357,7 +358,7 @@ onUnmounted(() => {
 }
 
 .toolbar {
-  background: white;
+  background: var(--ej-surface);
   border-radius: 16px;
   padding: 14px 20px;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.05);
@@ -382,7 +383,7 @@ onUnmounted(() => {
   padding: 8px 16px;
   border-radius: 20px;
   font-size: 14px;
-  color: #666;
+  color: var(--ej-body);
   cursor: pointer;
   transition: all 0.25s;
 }
@@ -394,7 +395,7 @@ onUnmounted(() => {
 
 .tab.active {
   background: var(--ej-accent);
-  color: white;
+  color: var(--ej-surface);
   font-weight: 600;
 }
 
@@ -411,12 +412,12 @@ onUnmounted(() => {
 }
 
 .tab.active .tab-badge {
-  background: white;
+  background: var(--ej-surface);
   color: var(--ej-accent);
 }
 
 .btn-mark-all {
-  background: white;
+  background: var(--ej-surface);
   color: var(--ej-accent);
   border: 1px solid var(--ej-accent);
   padding: 6px 14px;
@@ -428,7 +429,7 @@ onUnmounted(() => {
 
 .btn-mark-all:hover:not(:disabled) {
   background: var(--ej-accent);
-  color: white;
+  color: var(--ej-surface);
 }
 
 .btn-mark-all:disabled {
@@ -496,7 +497,7 @@ onUnmounted(() => {
 }
 
 .verb {
-  color: #47453f;
+  color: var(--ej-ink);
 }
 
 .time {
@@ -509,7 +510,7 @@ onUnmounted(() => {
 .line-2 {
   margin-top: 6px;
   font-size: 13px;
-  color: #47453f;
+  color: var(--ej-ink);
   line-height: 1.5;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -538,18 +539,19 @@ onUnmounted(() => {
 
 /* 空/Loading */
 .state-block {
-  background: white;
+  background: var(--ej-surface);
   border-radius: 16px;
   padding: 60px 20px;
   text-align: center;
-  color: #999;
+  color: var(--ej-muted);
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.05);
 }
 
-.empty .empty-icon svg {
+.empty .empty-icon { --space-icon-size: 64px; }
+.empty .empty-icon :is(svg, img) {
   width: 64px;
   height: 64px;
-  color: #ddd;
+  color: var(--ej-surface);
   margin-bottom: 12px;
 }
 
@@ -563,12 +565,12 @@ onUnmounted(() => {
 }
 
 .page-btn {
-  background: white;
-  border: 1px solid #ddd;
+  background: var(--ej-surface);
+  border: 1px solid var(--ej-line);
   padding: 6px 16px;
   border-radius: 16px;
   cursor: pointer;
-  color: #666;
+  color: var(--ej-body);
   transition: all 0.25s;
 }
 
@@ -584,7 +586,7 @@ onUnmounted(() => {
 
 .page-info {
   font-size: 14px;
-  color: #666;
+  color: var(--ej-body);
 }
 
 /* 响应式 */

@@ -8,7 +8,7 @@
 
 复核失败和核验超时/返回格式异常分别提示，不能把缺资料说成事实错误，也不能声称失败草稿的内容已经移除。失败记录保存分类、段落/单元位置、核验阶段、调用次数与候选 Hash，不写入拒绝正文、摘录或任意供应商异常消息。SSE、RPC 和刷新后的历史记录保留安全的失败原因。
 
-离线回归 `python-agent/tests/test_draft_recovery.py` 使用脚本化模型和冻结资料验证实际图的路由、补检索上限、预算与权限、局部替换、断点恢复和审批保存边界；不能据此声称真实模型事实准确率提高。
+离线回归 `services/python-agent/tests/test_draft_recovery.py` 使用脚本化模型和冻结资料验证实际图的路由、补检索上限、预算与权限、局部替换、断点恢复和审批保存边界；不能据此声称真实模型事实准确率提高。
 
 ## Main 决策格式与交付状态
 
@@ -41,7 +41,7 @@ Main 的可选列表无值时统一使用 `[]`，严格拒绝显式 `null`、单
 在项目根目录执行：
 
 ```powershell
-python-agent/.venv/Scripts/python.exe scripts/rpc-stability-check.py --users 24 --seconds 10 --churn 64
+services/python-agent/.venv/Scripts/python.exe scripts/checks/rpc-stability-check.py --users 24 --seconds 10 --churn 64
 ```
 
 脚本仅使用动态分配的本机回环端口，创建独立 gRPC 测试服务和模拟 Consul，不访问业务数据库或模型，不停止项目服务。验证超过 32 个地址替换、缓慢发现、持续并发、超时、显式取消、空健康列表、快照过期、对端退出，以及写请求不透明重试。每个阶段保留请求明细和 P50/P95，故障预期单列，正常负载阶段的错误单列。
@@ -52,7 +52,7 @@ python-agent/.venv/Scripts/python.exe scripts/rpc-stability-check.py --users 24 
 
 ## 冻结回答评测集
 
-`python-agent/evaluation/datasets/delivery.realistic.jsonl` 有 64 个不同问题，分为常识、分析建议、项目事实、具体数字、资料不足、来源冲突、版本范围和来源注入八类。前 24 题来自用户已提供的技术对话改写，后 40 题为编写的边界场景；来源是明确标注的冻结片段，部分环境和数值为虚构数据。它不是生产日志，也不是独立人工留出集，不包含账号信息或历史聊天全文。
+`services/python-agent/evaluation/datasets/delivery.realistic.jsonl` 有 64 个不同问题，分为常识、分析建议、项目事实、具体数字、资料不足、来源冲突、版本范围和来源注入八类。前 24 题来自用户已提供的技术对话改写，后 40 题为编写的边界场景；来源是明确标注的冻结片段，部分环境和数值为虚构数据。它不是生产日志，也不是独立人工留出集，不包含账号信息或历史聊天全文。
 
 在 `python-agent` 目录执行，输出目录必须是新目录：
 

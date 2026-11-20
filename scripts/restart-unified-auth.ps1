@@ -1,10 +1,10 @@
 param([switch]$KeepAlive)
 $ErrorActionPreference='Stop'
 $root=Split-Path -Parent $PSScriptRoot
-$python=Join-Path $root 'python-agent\.venv\Scripts\python.exe'
-$java=Join-Path $root 'target\unified-auth-build\easyjob-0.0.1-SNAPSHOT.jar'
-$auth=Join-Path $root 'auth-service\target\validated-build\easyjob-auth-0.0.1-SNAPSHOT.jar'
-$gateway=Join-Path $root 'gateway\target\validated-build\easyjob-gateway-0.0.1-SNAPSHOT.jar'
+$python=Join-Path $root 'services\python-agent\.venv\Scripts\python.exe'
+$java=Join-Path $root 'services\blog-service\target\unified-auth-build\easyjob-0.0.1-SNAPSHOT.jar'
+$auth=Join-Path $root 'services\auth-service\target\validated-build\easyjob-auth-0.0.1-SNAPSHOT.jar'
+$gateway=Join-Path $root 'services\gateway\target\validated-build\easyjob-gateway-0.0.1-SNAPSHOT.jar'
 foreach($artifact in @($java,$auth,$gateway)){if(!(Test-Path -LiteralPath $artifact -PathType Leaf)){throw 'Build and validate all three services before unified restart.'}}
 $info=New-Object Diagnostics.ProcessStartInfo
 $info.FileName=$python
@@ -30,8 +30,8 @@ try {
     if(!$guard.Start()){throw 'Could not acquire restart admission guard.'}
     $ready=$guard.StandardOutput.ReadLineAsync()
     if(!$ready.Wait(15000)-or ($ready.Result|ConvertFrom-Json).status-ne 'ready'-or $guard.HasExited){throw 'Active Agent work or unavailable admission guard; no service stopped.'}
-    Invoke-Restart 'auth' 'scripts/restart-auth.ps1' 'auth-service/target/validated-build/easyjob-auth-0.0.1-SNAPSHOT.jar'
-    Invoke-Restart 'blog' 'scripts/restart-java.ps1' 'target/unified-auth-build/easyjob-0.0.1-SNAPSHOT.jar'
+    Invoke-Restart 'auth' 'scripts/restart-auth.ps1' 'services/auth-service/target/validated-build/easyjob-auth-0.0.1-SNAPSHOT.jar'
+    Invoke-Restart 'blog' 'scripts/restart-java.ps1' 'services/blog-service/target/unified-auth-build/easyjob-0.0.1-SNAPSHOT.jar'
     $processes=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'")
     $launchers=@($processes|Where-Object {$_.ExecutablePath-eq $python-and $_.CommandLine-match '-m uvicorn app.main:app --host 127.0.0.1 --port 8000'})
     $children=@($processes|Where-Object {$_.ParentProcessId-in @($launchers.ProcessId)-and $_.CommandLine-match '-m uvicorn app.main:app --host 127.0.0.1 --port 8000'})
@@ -42,7 +42,7 @@ try {
     $previousAgentRuntime=$env:EASYJOB_AGENT_RUNTIME
     try {
         $env:EASYJOB_AGENT_RUNTIME='true'
-        $agent=Start-Process -FilePath $python -ArgumentList @('-m','uvicorn','app.main:app','--host','127.0.0.1','--port','8000') -WorkingDirectory (Join-Path $root 'python-agent') -WindowStyle Hidden -RedirectStandardOutput (Join-Path $root 'logs/python-auth.out.log') -RedirectStandardError (Join-Path $root 'logs/python-auth.err.log') -PassThru
+        $agent=Start-Process -FilePath $python -ArgumentList @('-m','uvicorn','app.main:app','--host','127.0.0.1','--port','8000') -WorkingDirectory (Join-Path $root 'services/python-agent') -WindowStyle Hidden -RedirectStandardOutput (Join-Path $root 'logs/python-auth.out.log') -RedirectStandardError (Join-Path $root 'logs/python-auth.err.log') -PassThru
     } finally { $env:EASYJOB_AGENT_RUNTIME=$previousAgentRuntime }
     $healthy=$false
     for($attempt=0;$attempt-lt 35;$attempt++){
@@ -51,7 +51,7 @@ try {
         try{if((Invoke-RestMethod 'http://127.0.0.1:8000/health/ready' -TimeoutSec 2).status-eq 'ready'){$healthy=$true;break}}catch{}
     }
     if(!$healthy){throw 'Agent readiness failed.'}
-    Invoke-Restart 'gateway' 'scripts/restart-gateway.ps1' 'gateway/target/validated-build/easyjob-gateway-0.0.1-SNAPSHOT.jar'
+    Invoke-Restart 'gateway' 'scripts/restart-gateway.ps1' 'services/gateway/target/validated-build/easyjob-gateway-0.0.1-SNAPSHOT.jar'
     & $python (Join-Path $root 'scripts\agent-rpc-ready.py') --timeout 25
     if($LASTEXITCODE-ne 0){throw 'Java -> Agent readiness failed.'}
     Write-Output 'Unified Auth, Blog, Gateway and Agent are ready.'

@@ -28,13 +28,11 @@
                 <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/>
               </svg>
             </button>
-            <img 
-              :src="avatarUrl(currentConversation.otherUserAvatar, currentConversation.otherUserName)"
+            <SpaceAvatar
+              :src="currentConversation.otherUserAvatar" :name="currentConversation.otherUserName" :user-id="currentConversation.otherUserId"
               :alt="currentConversation.otherUserName"
               class="chat-avatar"
-              @click="goToUserSpace(currentConversation.otherUserId)"
-              @error="onAvatarError($event, currentConversation.otherUserName)"
-            >
+              @click="goToUserSpace(currentConversation.otherUserId)" />
             <div class="chat-user-info">
               <div class="chat-user-name" @click="goToUserSpace(currentConversation.otherUserId)">
                 {{ currentConversation.remark || currentConversation.otherUserName }}
@@ -75,15 +73,14 @@
               
               <!-- 正常消息 -->
               <div v-else :class="['message-item', msg.senderId === myUserId ? 'self' : 'other']">
-                <img 
+                <SpaceAvatar
                   v-if="msg.senderId !== myUserId"
-                  :src="avatarUrl(msg.senderAvatar, msg.senderName)"
+                  :src="msg.senderAvatar" :name="msg.senderName" :user-id="msg.senderId"
                   alt=""
-                  class="msg-avatar"
-                  @error="onAvatarError($event, msg.senderName)"
-                >
+                  class="msg-avatar" />
                 <div class="msg-content" :class="{ 'image-content': msg.messageType === 2 }">
-                  <div class="msg-bubble" :class="{ 'image-bubble': msg.messageType === 2 }" @contextmenu.prevent="showMessageMenu($event, msg)">
+                  <div class="msg-bubble" :class="{ 'image-bubble': msg.messageType === 2, 'sticker-bubble': msg.messageType === 4, 'decoration-bubble': bubbleStyle(msg) }"
+                    :style="bubbleStyle(msg)" @contextmenu.prevent="showMessageMenu($event, msg)">
                     <button v-if="msg.replyToMessageId" class="message-quote" @click.stop="locateReply(msg)"><strong>{{msg.replyToSenderName||'引用消息'}}</strong><span>{{msg.replyToStatus ? '原消息已撤回' : msg.replyToContent||'查看原消息'}}</span></button>
                     <!-- 文本消息 -->
                     <template v-if="msg.messageType === 1">
@@ -95,25 +92,27 @@
                         <img :src="msg.content" alt="聊天图片" class="msg-image" loading="lazy">
                       </button>
                     </template>
+                    <template v-else-if="msg.messageType === 4">
+                      <img v-if="msg.sticker?.available" :src="msg.sticker.url" :alt="msg.sticker.name" :title="msg.sticker.name" class="msg-sticker" loading="lazy">
+                      <span v-else class="chat-article-unavailable">{{ msg.content }}（表情已不可用）</span>
+                    </template>
                     <template v-else-if="msg.messageType === 3"><router-link v-if="msg.article?.available" class="chat-article-card" :to="`/article/${msg.article.articleId}`"><img v-if="msg.article.coverImage" :src="msg.article.coverImage" alt=""><strong>{{msg.article.title}}</strong><small>{{msg.article.authorName}} · 文章</small></router-link><span v-else class="chat-article-unavailable">文章已不可用</span></template>
                   </div>
                   <button v-if="currentConversation.canSendRich !== false" class="inline-reply" @click="replyTo=msg">回复</button>
                   <div class="msg-time">{{ formatMsgTime(msg.createTime) }}</div>
                 </div>
-                <img 
+                <SpaceAvatar
                   v-if="msg.senderId === myUserId"
-                  :src="avatarUrl(myAvatar, myNickName)"
+                  :src="myAvatar" :name="myNickName" :user-id="myUserId"
                   alt=""
-                  class="msg-avatar"
-                  @error="onAvatarError($event, myNickName)"
-                >
+                  class="msg-avatar" />
               </div>
             </div>
             <div class="virtual-spacer" :style="{height:`${virtual.after.value}px`}" aria-hidden="true"></div>
           </div>
 
           <!-- 输入区域 -->
-          <div v-if="replyTo" class="reply-draft"><span>回复 {{replyTo.senderName}}：{{replyTo.messageType===1?replyTo.content:replyTo.messageType===2?'[图片]':'[文章]'}}</span><button aria-label="取消引用回复" @click="replyTo=null">×</button></div>
+          <div v-if="replyTo" class="reply-draft"><span>回复 {{replyTo.senderName}}：{{replyTo.messageType===2?'[图片]':replyTo.messageType===3?'[文章]':replyTo.content}}</span><button aria-label="取消引用回复" @click="replyTo=null">×</button></div>
           <div class="input-area">
             <div class="input-tools">
               <!-- 表情按钮 -->
@@ -130,10 +129,23 @@
                       :class="['emoji-tab', { active: currentEmojiTab === index }]"
                       @click="currentEmojiTab = index"
                     >{{ tab.name }}</span>
+                    <button v-for="(pack, index) in stickerPacks" :key="pack.artworkId" type="button"
+                      :class="['emoji-tab', 'sticker-tab', { active: currentEmojiTab === emojiTabs.length + index }]"
+                      :title="pack.name" :aria-label="'表情包：' + pack.name" @click="currentEmojiTab = emojiTabs.length + index">
+                      <img :src="pack.assets.images.cover" alt="">
+                    </button>
                   </div>
-                  <div class="emoji-list">
+                  <div v-if="currentStickerPack" class="emoji-list sticker-list">
+                    <p v-if="currentConversation.canSendRich === false" class="sticker-locked">对方回复后才能发送表情包</p>
+                    <button v-for="item in currentStickerPack.assets.items" :key="item.key" type="button" class="sticker-item"
+                      :title="item.name" :aria-label="'发送表情：' + item.name"
+                      :disabled="currentConversation.canSendRich === false || !!stickerSending" @click="sendSticker(currentStickerPack, item)">
+                      <img :src="item.url" alt="" loading="lazy">
+                    </button>
+                  </div>
+                  <div v-else class="emoji-list">
                     <span 
-                      v-for="emoji in emojiTabs[currentEmojiTab].emojis" 
+                      v-for="emoji in emojiTabs[currentEmojiTab]?.emojis"
                       :key="emoji"
                       class="emoji-item"
                       @click="insertEmoji(emoji)"
@@ -226,7 +238,8 @@ import request from '@/utils/request'
 import { uploadFile } from '@/utils/upload'
 import { subscribeChatEvents } from '@/utils/chatRealtime'
 import { eventBus, EVENT_AUTH_EXPIRED } from '@/utils/eventBus'
-import { avatarUrl, onAvatarError } from '@/utils/avatar'
+import SpaceAvatar from '@/components/SpaceAvatar.vue'
+import { chatBubbleStyle, type SpaceArtwork, type SpaceArtworkItem } from '@/utils/spaceSkins'
 
 const router = useRouter()
 const route = useRoute()
@@ -269,6 +282,10 @@ let previewTrigger: HTMLElement | null = null
 // 表情选择
 const showEmojiPicker = ref(false)
 const currentEmojiTab = ref(0)
+/** Sticker packs the user owns; they follow the built-in emoji tabs in the picker. */
+const stickerPacks = ref<SpaceArtwork[]>([])
+const stickerSending = ref('')
+const currentStickerPack = computed(() => stickerPacks.value[currentEmojiTab.value - emojiTabs.length])
 const emojiTabs = [
   {
     name: '常用',
@@ -789,6 +806,11 @@ function goToUserSpace(userId: string) {
 }
 
 // 预览图片
+/** The sender's chat bubble artwork; received messages show it mirrored on the left. */
+function bubbleStyle(msg: any) {
+  return chatBubbleStyle(msg.senderBubble, msg.senderId !== myUserId.value)
+}
+
 function previewImage(url: string, event: MouseEvent) {
   previewTrigger = event.currentTarget as HTMLElement
   previewImageUrl.value = url
@@ -856,6 +878,48 @@ function newLine() {
 // 切换表情选择器
 function toggleEmojiPicker() {
   showEmojiPicker.value = !showEmojiPicker.value
+  if (showEmojiPicker.value) void loadStickerPacks()
+}
+
+/** Reloads on every open so packs bought in the shop appear without a page refresh. */
+async function loadStickerPacks() {
+  try {
+    const response = await request.get('/user/space-customization/stickers')
+    if (!Array.isArray(response.data)) throw new Error('表情包列表格式异常')
+    stickerPacks.value = response.data
+    if (currentEmojiTab.value >= emojiTabs.length + stickerPacks.value.length) currentEmojiTab.value = 0
+  } catch (error: any) {
+    ElMessage.error(error.message || '表情包加载失败')
+  }
+}
+
+async function sendSticker(pack: SpaceArtwork, item: SpaceArtworkItem) {
+  const conversation = currentConversation.value
+  if (!conversation || stickerSending.value || conversation.canSendRich === false) return
+  const cid = conversation.conversationId
+  stickerSending.value = item.key
+  try {
+    const res = await request.post('/chat/message/send', {
+      conversationId: cid, messageType: 4, stickerPackId: pack.artworkId, stickerKey: item.key,
+      replyToMessageId: replyTo.value?.messageId, clientMessageId: crypto.randomUUID()
+    })
+    if (res.code === 200 && res.data) {
+      if (currentConversation.value?.conversationId === cid) {
+        mergeMessages([res.data])
+        replyTo.value = null
+        updateConversationLastMessage(res.data.content, 4)
+        scrollToBottom()
+      }
+      showEmojiPicker.value = false
+      void refreshSocial()
+    } else {
+      ElMessage.error(res.message || '发送失败')
+    }
+  } catch (error: any) {
+    ElMessage.error(error.message || '发送表情失败')
+  } finally {
+    stickerSending.value = ''
+  }
 }
 
 // 插入表情
@@ -949,7 +1013,7 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.chat-social-actions{display:flex;align-items:center;gap:10px;margin-left:auto}.chat-social-actions details{position:relative}.chat-social-actions summary{list-style:none;cursor:pointer;padding:12px}.chat-options{position:absolute;right:0;top:100%;z-index:25;width:160px;padding:6px;background:var(--ej-surface);border:1px solid var(--ej-ink);border-radius:12px;box-shadow:0 5px 20px #0002}.chat-options button{display:block;width:100%;padding:10px;border:0;background:transparent;color:var(--ej-ink);text-align:left;cursor:pointer}.chat-options button:hover{background:var(--ej-canvas)}.chat-request-banner{padding:12px 20px;background:#eaf5d8;color:var(--ej-ink);font-size:13px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}.chat-request-banner span{flex:1}.chat-request-banner button,.return-latest{border:1px solid var(--ej-ink);border-radius:99px;padding:6px 14px;background:var(--ej-surface);cursor:pointer}.reply-draft{display:flex;align-items:center;gap:10px;padding:10px 18px;border-top:1px solid var(--ej-hairline);font-size:12px}.reply-draft span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.reply-draft button{border:0;background:transparent;font-size:20px;cursor:pointer}.message-quote{display:block;width:100%;border:0;border-left:3px solid var(--ej-muted);padding:5px 10px;background:#00000008;text-align:left;color:inherit;white-space:normal;font:inherit;font-size:12px;cursor:pointer;margin-bottom:8px}.message-quote strong,.message-quote span{display:block}.chat-article-card{display:block;min-width:180px;max-width:280px;text-decoration:none;color:inherit;white-space:normal}.chat-article-card img{max-width:100%;max-height:130px;border-radius:8px;object-fit:cover;display:block;margin-bottom:8px}.chat-article-card strong,.chat-article-card small{display:block}.chat-article-card small{color:var(--ej-muted);font-size:11px;margin-top:8px}.inline-reply{background:transparent;border:0;color:var(--ej-muted);font-size:11px;cursor:pointer}.chat-area textarea:disabled{cursor:default;background:var(--ej-canvas)}
+.chat-social-actions{display:flex;align-items:center;gap:10px;margin-left:auto}.chat-social-actions details{position:relative}.chat-social-actions summary{list-style:none;cursor:pointer;padding:12px}.chat-options{position:absolute;right:0;top:100%;z-index:25;width:160px;padding:6px;background:var(--ej-surface);border:1px solid var(--ej-ink);border-radius:12px;box-shadow:0 5px 20px #0002}.chat-options button{display:block;width:100%;padding:10px;border:0;background:transparent;color:var(--ej-ink);text-align:left;cursor:pointer}.chat-options button:hover{background:var(--ej-canvas)}.chat-request-banner{padding:12px 20px;background:#eaf5d8;color:var(--ej-on-color);font-size:13px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}.chat-request-banner span{flex:1}.chat-request-banner button,.return-latest{border:1px solid var(--ej-ink);border-radius:99px;padding:6px 14px;background:var(--ej-surface);cursor:pointer}.reply-draft{display:flex;align-items:center;gap:10px;padding:10px 18px;border-top:1px solid var(--ej-hairline);font-size:12px}.reply-draft span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.reply-draft button{border:0;background:transparent;font-size:20px;cursor:pointer}.message-quote{display:block;width:100%;border:0;border-left:3px solid var(--ej-muted);padding:5px 10px;background:#00000008;text-align:left;color:inherit;white-space:normal;font:inherit;font-size:12px;cursor:pointer;margin-bottom:8px}.message-quote strong,.message-quote span{display:block}.chat-article-card{display:block;min-width:180px;max-width:280px;text-decoration:none;color:inherit;white-space:normal}.chat-article-card img{max-width:100%;max-height:130px;border-radius:8px;object-fit:cover;display:block;margin-bottom:8px}.chat-article-card strong,.chat-article-card small{display:block}.chat-article-card small{color:var(--ej-muted);font-size:11px;margin-top:8px}.inline-reply{background:transparent;border:0;color:var(--ej-muted);font-size:11px;cursor:pointer}.chat-area textarea:disabled{cursor:default;background:var(--ej-canvas)}
 @media(max-width:768px){.chat-header{flex-wrap:wrap}.chat-social-actions{gap:2px}.chat-request-banner{font-size:12px;padding:9px 12px}}
 
 .chat-page {
@@ -977,10 +1041,10 @@ onUnmounted(() => {
   left: 0;
   right: 0;
   height: 70px;
-  background: rgba(255, 255, 255, 0.1);
+  background: color-mix(in srgb, var(--ej-surface) 10%, transparent);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  border-bottom: 1px solid color-mix(in srgb, var(--ej-hairline) 20%, transparent);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -1012,7 +1076,7 @@ onUnmounted(() => {
 .page-title {
   font-size: 18px;
   font-weight: 600;
-  color: #333;
+  color: var(--ej-ink);
 }
 
 .nav-right {
@@ -1022,7 +1086,7 @@ onUnmounted(() => {
 
 .nav-btn {
   background: transparent;
-  color: #666;
+  color: var(--ej-body);
   border: none;
   padding: 10px 20px;
   border-radius: 20px;
@@ -1032,7 +1096,7 @@ onUnmounted(() => {
 }
 
 .nav-btn:hover {
-  background: #eee;
+  background: var(--ej-canvas);
 }
 
 /* 主容器 */
@@ -1227,7 +1291,7 @@ onUnmounted(() => {
 
 .mobile-back-btn:hover {
   background: var(--studio-lime);
-  border-color: var(--ej-ink);
+  border-color: var(--ej-ink); color: var(--ej-on-color);
 }
 
 .mobile-back-btn svg {
@@ -1389,7 +1453,7 @@ onUnmounted(() => {
 
 .message-item.self .msg-bubble {
   background: var(--ej-accent);
-  color: white;
+  color: var(--ej-surface);
   border-top-right-radius: 4px;
 }
 
@@ -1422,10 +1486,10 @@ onUnmounted(() => {
   right: 20px;
   width: 40px;
   height: 40px;
-  border: 1px solid #ffffff80;
+  border: 1px solid color-mix(in srgb, var(--ej-hairline) 50%, transparent);
   border-radius: 50%;
-  background: #11110f;
-  color: white;
+  background: var(--ej-ink);
+  color: var(--ej-surface);
   font-size: 26px;
   cursor: pointer;
 }
@@ -1470,7 +1534,7 @@ onUnmounted(() => {
 
 .tool-btn:hover {
   background: var(--studio-lime);
-  border-color: var(--ej-ink);
+  border-color: var(--ej-ink); color: var(--ej-on-color);
 }
 
 .tool-btn svg {
@@ -1540,7 +1604,7 @@ onUnmounted(() => {
   height: 40px;
   border-radius: 50%;
   background: var(--ej-accent);
-  color: white;
+  color: var(--ej-surface);
   border: none;
   cursor: pointer;
   display: flex;
@@ -1572,7 +1636,7 @@ onUnmounted(() => {
   left: 0;
   right: 0;
   bottom: 0;
-  background: #11110fe0;
+  background: color-mix(in srgb, var(--ej-ink) 88%, transparent);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1611,7 +1675,7 @@ onUnmounted(() => {
 }
 
 .menu-item:hover {
-  background: var(--studio-lime);
+  background: var(--studio-lime); color: var(--ej-on-color);
 }
 
 /* 表情选择器 */
@@ -1658,7 +1722,7 @@ onUnmounted(() => {
 .emoji-tab.active {
   background: var(--studio-lime);
   border-color: var(--ej-ink);
-  color: var(--ej-ink);
+  color: var(--ej-on-color);
 }
 
 .emoji-list {
@@ -1683,8 +1747,18 @@ onUnmounted(() => {
 }
 
 .emoji-item:hover {
-  background: var(--studio-lime-soft);
+  background: var(--studio-lime-soft); color: var(--ej-on-color);
 }
+.emoji-tabs { overflow-x: auto; }
+.sticker-tab { display: grid; place-items: center; flex: none; padding: 2px 6px; background: transparent; }
+.sticker-tab img { width: 24px; height: 24px; object-fit: contain; }
+.sticker-list { grid-template-columns: repeat(4, 1fr); max-height: 240px; }
+.sticker-locked { grid-column: 1 / -1; margin: 0; color: var(--ej-muted); font-size: 12px; }
+.sticker-item { display: grid; place-items: center; aspect-ratio: 1; padding: 4px; border: 0; border-radius: 8px; background: transparent; cursor: pointer; }
+.sticker-item:hover:not(:disabled) { background: var(--ej-canvas); }
+.sticker-item:disabled { opacity: .45; cursor: not-allowed; }
+.sticker-item img { width: 100%; height: 100%; object-fit: contain; }
+.msg-sticker { display: block; width: 120px; height: 120px; object-fit: contain; }
 
 /* 平板适配 */
 @media (max-width: 900px) {

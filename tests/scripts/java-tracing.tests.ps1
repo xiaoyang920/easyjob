@@ -25,7 +25,7 @@ function New-TraceFixture([string]$Name, [switch]$MissingAgent, [switch]$Missing
     if (!$MissingConfig) {
         [IO.File]::WriteAllText((Join-Path $assets 'otel-java.properties'), 'fixture-only')
     }
-    $authJar = Join-Path $directory 'auth-service\target\easyjob-auth-0.0.1-SNAPSHOT.jar'
+    $authJar = Join-Path $directory 'services\auth-service\target\easyjob-auth-0.0.1-SNAPSHOT.jar'
     New-Item -ItemType Directory -Path (Split-Path -Parent $authJar) -Force | Out-Null
     [IO.File]::WriteAllText($authJar, 'fixture-only')
     foreach ($name in @('restart-java.ps1', 'restart-gateway.ps1', 'restart-auth.ps1')) {
@@ -50,9 +50,9 @@ $missingAgentRoot = New-TraceFixture -Name 'missing agent' -MissingAgent
 $missingConfigRoot = New-TraceFixture -Name 'missing config' -MissingConfig
 
 $cases = @(
-    @{ Script = 'restart-java.ps1'; Service = 'easyjob-blog'; Port = 8080; Jar = 'target\easyjob-0.0.1-SNAPSHOT.jar'; Runtime = 'application-runtime.yml' }
-    @{ Script = 'restart-gateway.ps1'; Service = 'easyjob-gateway'; Port = 8090; Jar = 'gateway\target\easyjob-gateway-0.0.1-SNAPSHOT.jar'; Runtime = 'gateway-runtime.yml' }
-    @{ Script = 'restart-auth.ps1'; Service = 'easyjob-auth'; Port = 8081; Jar = 'auth-service\target\easyjob-auth-0.0.1-SNAPSHOT.jar'; Runtime = 'auth-runtime.yml' }
+    @{ Script = 'restart-java.ps1'; Service = 'easyjob-blog'; Port = 8080; Jar = 'services\blog-service\target\easyjob-0.0.1-SNAPSHOT.jar'; Runtime = 'application-runtime.yml' }
+    @{ Script = 'restart-gateway.ps1'; Service = 'easyjob-gateway'; Port = 8090; Jar = 'services\gateway\target\easyjob-gateway-0.0.1-SNAPSHOT.jar'; Runtime = 'gateway-runtime.yml' }
+    @{ Script = 'restart-auth.ps1'; Service = 'easyjob-auth'; Port = 8081; Jar = 'services\auth-service\target\easyjob-auth-0.0.1-SNAPSHOT.jar'; Runtime = 'auth-runtime.yml' }
 )
 
 function Invoke-TraceRestartCheck($Case, [string]$Directory, [switch]$ExpectFailure) {

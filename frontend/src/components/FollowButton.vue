@@ -25,5 +25,5 @@ async function primary(){
 async function unfollow(){const target=id.value;try{await ElMessageBox.confirm('确定取消关注该用户吗？已有聊天记录会保留。','取消关注',{confirmButtonText:'确定',cancelButtonText:'取消'});await apply(false,target)}catch{/* cancelled */}}
 </script>
 <style scoped>
-.relationship-control{display:inline-flex;align-items:center}.follow-btn{border:1px solid var(--ej-ink);border-radius:999px;padding:8px 16px;background:var(--studio-lime,#c5ff45);color:var(--ej-ink);font:inherit;white-space:nowrap;cursor:pointer}.follow-btn.following{background:var(--ej-surface)}.follow-btn:disabled{opacity:.6;cursor:wait}
+.relationship-control{display:inline-flex;align-items:center}.follow-btn{border:1px solid var(--ej-ink);border-radius:999px;padding:8px 16px;background:var(--studio-lime,#c5ff45);color:var(--ej-on-color);font:inherit;white-space:nowrap;cursor:pointer}.follow-btn.following{background:var(--ej-surface)}.follow-btn:disabled{opacity:.6;cursor:wait}
 </style>

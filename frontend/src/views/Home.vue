@@ -50,7 +50,7 @@
       
       <!-- 主内容区域 -->
       <div class="main-content">
-        <!-- 左侧：文章列表 -->
+        <!-- 文章列表 -->
         <div class="articles-section">
           <div class="section-header">
             <h2 class="section-title">精选文章</h2>
@@ -68,65 +68,88 @@
           </div>
           <div class="reading-filter">
             <label><input v-model="readableOnly" type="checkbox" @change="changeReadableFilter">只看可读</label>
-            <span>{{ readableOnly ? (isLogin ? '仅展示你现在可以阅读全文的文章' : '仅展示游客可读的文章') : (currentSort === 'recommend' ? '优先推荐可读文章，兼顾关注领域、近期互动与新内容' : '文章卡片会标明阅读等级') }}</span>
+            <span>{{ readableOnly ? (isLogin ? '仅展示你现在可以阅读全文的文章' : '仅展示游客可读的文章') : (currentSort === 'recommend' ? (isLogin ? '优先推荐可读文章，兼顾关注领域、近期互动与新内容' : '优先推荐游客可读的文章，兼顾社区热度和新内容') : '文章卡片会标明阅读等级') }}</span>
             <RouterLink v-if="isLogin && currentSort === 'recommend'" to="/ai-memory">调整关注领域 ↗</RouterLink><button v-if="isLogin && currentSort==='recommend'" class="recommend-preferences" @click="showRecommendationPreferences=true">推荐偏好</button>
           </div>
-          <div v-if="loading" class="loading">加载中...</div>
-          <div v-else-if="articles.length === 0" class="empty-state">
-            <p>{{ readableOnly ? '当前筛选下暂无可读文章' : '暂无文章' }}</p>
-            <button v-if="readableOnly" class="sort-tab" @click="readableOnly = false; changeReadableFilter()">查看全部文章</button>
-          </div>
-          <div v-else class="article-grid">
-            <div 
-              v-for="(article, articleIndex) in articles"
-              :key="article.articleId || article.id"
-              class="article-card"
-              :class="{ 'is-menu-open': feedbackMenuId === String(article.articleId || article.id) }"
-              tabindex="0"
-              role="link"
-              @keydown.enter="viewArticle(article.articleId || article.id)"
-              @click="viewArticle(article.articleId || article.id)"
+          <div class="article-feed" :class="{ 'article-feed--recommend': currentSort === 'recommend' }">
+            <button
+              v-if="currentSort === 'recommend'"
+              type="button"
+              class="recommend-refresh"
+              :disabled="loading"
+              :aria-busy="refreshingRecommendation"
+              @click="refreshRecommendation"
             >
-              <div class="cover-wrapper">
-                <img 
-                  v-if="getImageUrl(article.coverImage || article.cover) && getImageUrl(article.coverImage || article.cover) !== '/images/default-cover.jpg'"
-                  v-lazyload="{
-                    src: getThumbUrl(getImageUrl(article.coverImage || article.cover)) || getImageUrl(article.coverImage || article.cover),
-                    fallback: getImageUrl(article.coverImage || article.cover)
-                  }"
-                  :alt="article.title" 
-                  class="article-cover"
-                  @error="handleCoverError($event, article.coverImage || article.cover)"
-                >
-                <CoverPlaceholder v-else class="no-cover-placeholder" :title="stripHtmlTags(article.title)" :label="categoryLabel(article)" />
-              </div>
-
-              <div class="article-info">
-                <div class="studio-card-index">
-                  <span class="card-kicker"><span class="card-dot" aria-hidden="true"></span><span class="card-number">{{ String(articleIndex + 1).padStart(2, '0') }}</span><span class="card-kicker-text">{{ cardKicker(article) }}</span></span>
-                  <span class="card-actions">
-                    <span v-if="isLogin && currentSort === 'recommend'" class="card-menu" @click.stop @keydown.stop>
-                      <el-dropdown trigger="click" @command="(kind: string) => recommendationFeedback(article.articleId || article.id, kind)" @visible-change="(open: boolean) => { feedbackMenuId = open ? String(article.articleId || article.id) : '' }">
-                        <button type="button" class="card-more" :disabled="!!feedbackBusy" :aria-label="`调整《${article.title}》的推荐`">⋯</button>
-                        <template #dropdown><el-dropdown-menu><el-dropdown-item command="not_interested">不感兴趣</el-dropdown-item><el-dropdown-item command="hide_author">不再推荐该作者</el-dropdown-item></el-dropdown-menu></template>
-                      </el-dropdown>
-                    </span>
-                    <span class="card-arrow" aria-hidden="true">↗</span>
-                  </span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M20 7v5h-5M4 17v-5h5M5.5 8a7.5 7.5 0 0 1 12.4-2L20 12M4 12l2.1 6A7.5 7.5 0 0 0 18.5 16" />
+              </svg>
+              <span>换一换</span>
+            </button>
+            <div v-if="loading && !refreshingRecommendation" class="loading">加载中...</div>
+            <div v-else-if="articleLoadFailed" class="empty-state" role="status">
+              <p>文章加载失败，请重试</p>
+              <button type="button" class="sort-tab" @click="loadArticles()">重新加载</button>
+            </div>
+            <div v-else-if="articles.length === 0" class="empty-state">
+              <p>{{ readableOnly ? '当前筛选下暂无可读文章' : '暂无文章' }}</p>
+              <button v-if="readableOnly" class="sort-tab" @click="readableOnly = false; changeReadableFilter()">查看全部文章</button>
+            </div>
+            <div v-else class="article-grid">
+              <div
+                v-for="(article, articleIndex) in articles"
+                :key="article.articleId || article.id"
+                class="article-card"
+                :class="{ 'is-menu-open': feedbackMenuId === String(article.articleId || article.id) }"
+                tabindex="0"
+                role="link"
+                @keydown.enter="viewArticle(article.articleId || article.id)"
+                @click="viewArticle(article.articleId || article.id)"
+              >
+                <div class="cover-wrapper">
+                  <img
+                    v-if="getImageUrl(article.coverImage || article.cover) && getImageUrl(article.coverImage || article.cover) !== '/images/default-cover.jpg'"
+                    v-lazyload="{
+                      src: getThumbUrl(getImageUrl(article.coverImage || article.cover)) || getImageUrl(article.coverImage || article.cover),
+                      fallback: getImageUrl(article.coverImage || article.cover)
+                    }"
+                    :alt="article.title"
+                    class="article-cover"
+                    @error="handleCoverError($event, article.coverImage || article.cover)"
+                  >
+                  <CoverPlaceholder v-else class="no-cover-placeholder" :title="stripHtmlTags(article.title)" :label="categoryLabel(article)" />
                 </div>
-                <span v-if="article.requiredLevel > 0" class="reading-level-badge">{{ article.readableNow === false ? `需 L${article.requiredLevel} 解锁` : `L${article.requiredLevel} · 可读` }}</span>
-                <div class="article-title">{{ article.title }}</div>
-                <p v-if="article.summary" class="article-deck">{{ stripHtmlTags(article.summary) }}</p>
-                <div class="article-byline">
-                  <span class="byline-author"><img :src="avatarUrl(article.authorAvatar, cardAuthor(article))" alt="" class="byline-avatar" @error="onAvatarError($event, cardAuthor(article))">{{ cardAuthor(article) }}</span>
-                  <span>{{ formatNumber(article.viewCount || 0) }} 次阅读</span>
+
+                <div class="article-info">
+                  <div class="studio-card-index">
+                    <span class="card-kicker"><span class="card-dot" aria-hidden="true"></span><span class="card-number">{{ String(articleIndex + 1).padStart(2, '0') }}</span><span class="card-kicker-text">{{ cardKicker(article) }}</span></span>
+                    <span class="card-actions">
+                      <span v-if="isLogin && currentSort === 'recommend'" class="card-menu" @click.stop @keydown.stop>
+                        <el-dropdown trigger="click" @command="(kind: string) => recommendationFeedback(article.articleId || article.id, kind)" @visible-change="(open: boolean) => { feedbackMenuId = open ? String(article.articleId || article.id) : '' }">
+                          <button type="button" class="card-more" :disabled="!!feedbackBusy" :aria-label="`调整《${article.title}》的推荐`">⋯</button>
+                          <template #dropdown><el-dropdown-menu><el-dropdown-item command="not_interested">不感兴趣</el-dropdown-item><el-dropdown-item command="hide_author">不再推荐该作者</el-dropdown-item></el-dropdown-menu></template>
+                        </el-dropdown>
+                      </span>
+                      <span class="card-arrow" aria-hidden="true" style="--space-icon-size: 20px"><SpaceIcon site name="link">↗</SpaceIcon></span>
+                    </span>
+                  </div>
+                  <span v-if="article.requiredLevel > 0" class="reading-level-badge">{{ article.readableNow === false ? `需 L${article.requiredLevel} 解锁` : `L${article.requiredLevel} · 可读` }}</span>
+                  <div class="article-title">{{ article.title }}</div>
+                  <p v-if="article.summary" class="article-deck">{{ stripHtmlTags(article.summary) }}</p>
+                  <div class="article-byline">
+                    <span class="byline-author">
+                      <SpaceAvatar :src="article.authorAvatar" :name="cardAuthor(article)" :user-id="article.userId ?? article.authorId" class="byline-avatar" />
+                      <span class="byline-name">{{ cardAuthor(article) }}</span>
+                    </span>
+                    <span>{{ formatNumber(article.viewCount || 0) }} 次阅读</span>
+                  </div>
                 </div>
               </div>
             </div>
+
           </div>
 
           <!-- 分页 -->
-          <div v-if="totalPages > 0" class="pagination">
+          <div v-if="currentSort !== 'recommend' && totalPages > 0" class="pagination">
             <button 
               class="page-btn" 
               :disabled="currentPage === 1"
@@ -145,45 +168,6 @@
           </div>
         </div>
 
-        <!-- 右侧：功能卡片 -->
-        <div class="sidebar">
-          <div class="features">
-            <div class="feature-card" @click="goToCreate">
-              <div class="feature-icon">
-                <svg viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
-                </svg>
-              </div>
-              <div class="feature-title">创作文章</div>
-              <div class="feature-desc">把实践和新想法，写成下一篇文章。</div>
-            </div>
-            <div class="feature-card" @click="goToSpace">
-              <div class="feature-icon">
-                <svg viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
-                </svg>
-              </div>
-              <div class="feature-title">个人空间</div>
-              <div class="feature-desc">管理你的文章、草稿，查看粉丝和关注</div>
-            </div>
-            <div class="feature-card" @click="goToDrafts">
-              <div class="feature-icon">
-                <svg viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
-                </svg>
-              </div>
-              <div class="feature-title">草稿箱</div>
-              <div class="feature-desc">保存未完成的文章，随时继续创作</div>
-            </div>
-            <div class="feature-card ai-card" @click="goToAiChat">
-              <div class="feature-icon">
-                <svg viewBox="0 0 24 24" fill="currentColor"><path d="m14 4 6 6-9 9-7 1 1-7 9-9Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="m12 6 6 6M5 19l4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-              </div>
-              <div class="feature-title">AI 助手</div>
-              <div class="feature-desc">写作灵感，文章优化，内容润色</div>
-            </div>
-          </div>
-        </div>
       </div>
     </div>
   </div>
@@ -201,8 +185,10 @@ import RegisterForm from '@/components/RegisterForm.vue'
 import HomeStudio from '@/components/HomeStudio.vue'
 import CoverPlaceholder from '@/components/CoverPlaceholder.vue'
 import request from '@/utils/request'
+import { latestRequest } from '@/utils/latestRequest'
 import { getThumbUrl, onThumbError } from '@/utils/image'
-import { avatarUrl, onAvatarError } from '@/utils/avatar'
+import SpaceAvatar from '@/components/SpaceAvatar.vue'
+import SpaceIcon from '@/components/SpaceIcon.vue'
 import { eventBus, EVENT_AUTH_EXPIRED, EVENT_AUTH_CHANGED } from '@/utils/eventBus'
 import {
   notifyUnreadCount,
@@ -245,12 +231,16 @@ onUnmounted(() => {
   closeNotifyStream()
   // 移除登录过期事件监听
   eventBus.off(EVENT_AUTH_EXPIRED, handleAuthExpired)
-  eventBus.off(EVENT_AUTH_CHANGED, init)
+  eventBus.off(EVENT_AUTH_CHANGED, handleAuthChanged)
+  articleRequests.cancel()
   window.removeEventListener('resize', updateDialogWidth)
 })
 
 // 状态
 const loading = ref(false)
+const refreshingRecommendation = ref(false)
+const articleLoadFailed = ref(false)
+const articleRequests = latestRequest()
 const articles = ref<any[]>([])
 const currentSort = ref('recommend')
 const showRecommendationPreferences=ref(false),feedbackBusy=ref('')
@@ -348,12 +338,14 @@ function getImageUrl(url: string | undefined): string {
 }
 
 // 初始化
+let articleAccount: string | null = null
 function init() {
   const token = localStorage.getItem('token')
   const storedNickName = localStorage.getItem('nickName')
   const storedAvatar = localStorage.getItem('avatar')
   
   isLogin.value = !!token
+  articleAccount = token ? localStorage.getItem('userId') : null
   
   if (isLogin.value) {
     nickName.value = storedNickName || '用户'
@@ -369,16 +361,18 @@ function init() {
   }
 }
 
+function handleAuthChanged() {
+  const previousAccount = articleAccount
+  const wasLoggedIn = isLogin.value
+  init()
+  if (articleAccount === previousAccount && isLogin.value === wasLoggedIn) return
+  currentPage.value = 1
+  void loadArticles()
+}
+
 // 401登录过期处理回调
 function handleAuthExpired() {
-  isLogin.value = false
-  nickName.value = '用户'
-  avatar.value = ''
-  totalUnreadCount.value = 0
-  if (unreadTimer) {
-    clearInterval(unreadTimer)
-    unreadTimer = null
-  }
+  handleAuthChanged()
   // 断开通知 SSE，清空通知状态
   closeNotifyStream()
   resetNotifyState()
@@ -405,7 +399,7 @@ onMounted(() => {
   init()
   // 监听登录过期事件
   eventBus.on(EVENT_AUTH_EXPIRED, handleAuthExpired)
-  eventBus.on(EVENT_AUTH_CHANGED, init)
+  eventBus.on(EVENT_AUTH_CHANGED, handleAuthChanged)
   loadCategories()  // 获取分类列表
   loadArticles()
   if (isLogin.value) {
@@ -427,26 +421,51 @@ onMounted(() => {
   window.addEventListener('resize', updateDialogWidth)
 })
 
-// Ignore results from an obsolete sort/category request.
-let articleLoadSequence = 0
-async function loadArticles() {
-  const sequence = ++articleLoadSequence
+async function loadArticles(page = currentPage.value, refresh = false) {
+  const run = articleRequests.begin()
   loading.value = true
-  const params: any = { page: currentPage.value, size: 12, sort: currentSort.value, readableOnly: readableOnly.value }
+  refreshingRecommendation.value = refresh
+  if (!refresh) articleLoadFailed.value = false
+  const recommend = currentSort.value === 'recommend'
+  const endpoint = recommend ? '/article/recommend' : '/article/list'
+  const params: any = { page, size: 12, sort: currentSort.value, readableOnly: readableOnly.value }
   if (selectedCategoryId.value) params.categoryId = selectedCategoryId.value
   if (selectedTagIds.value.length) params.tagIds = selectedTagIds.value.join(',')
   try {
-    const response = await request.get(currentSort.value === 'recommend' ? '/article/recommend' : '/article/list', { params })
-    if (sequence !== articleLoadSequence) return
-    if (response.status === 'success' && response.data) {
-      articles.value = response.data.records || []
-      totalPages.value = response.data.pages || 1
+    let response = await request.get(endpoint, { params, signal: run.signal })
+    if (!run.isCurrent()) return
+    if (recommend && page > 1 && response.data?.records?.length === 0) {
+      // The result pool can shrink while the user is browsing it.
+      params.page = 1
+      response = await request.get(endpoint, { params, signal: run.signal })
+      if (!run.isCurrent()) return
     }
-  } catch (error) {
-    if (sequence === articleLoadSequence) { articles.value = []; totalPages.value = 1; console.error('加载文章失败:', error) }
+    if (!Array.isArray(response.data?.records)) throw new Error('文章列表响应格式不正确')
+    articles.value = response.data.records
+    currentPage.value = params.page
+    totalPages.value = response.data.pages || 1
+    articleLoadFailed.value = false
+  } catch {
+    if (run.isCurrent()) {
+      if (refresh && articles.value.length) {
+        ElMessage.warning('换一批失败，请重试')
+      } else {
+        articleLoadFailed.value = true
+        totalPages.value = 0
+      }
+    }
   } finally {
-    if (sequence === articleLoadSequence) loading.value = false
+    if (run.isCurrent()) {
+      loading.value = false
+      refreshingRecommendation.value = false
+    }
   }
+}
+
+function refreshRecommendation() {
+  if (loading.value) return
+  const nextPage = currentPage.value < totalPages.value ? currentPage.value + 1 : 1
+  void loadArticles(nextPage, true)
 }
 
 function changeReadableFilter() {
@@ -573,24 +592,6 @@ function goToCreate() {
   router.push('/create-article?new=true')
 }
 
-function goToSpace() {
-  if (!isLogin.value) {
-    redirectPath.value = '/user-space'
-    showLoginDialog.value = true
-    return
-  }
-  router.push('/user-space')
-}
-
-function goToDrafts() {
-  if (!isLogin.value) {
-    redirectPath.value = '/draft-box'
-    showLoginDialog.value = true
-    return
-  }
-  router.push('/draft-box')
-}
-
 function goToChat() {
   if (!isLogin.value) {
     redirectPath.value = '/chat'
@@ -666,8 +667,6 @@ function logout() {
 // 登录成功处理
 function handleLoginSuccess(message = '登录成功') {
   showLoginDialog.value = false
-  init()
-  loadArticles()
   if (isLogin.value) {
     loadUserInfo()
     loadUnreadCount()
@@ -739,7 +738,7 @@ function stripHtmlTags(str: string): string {
 /* 复选框样式见 styles/theme.css 的表单控件部分 */
 .reading-filter { display:flex; align-items:center; flex-wrap:wrap; gap:10px 18px; margin:0 0 24px; font-size:12px; color:var(--ej-muted); }
 .reading-filter label { display:flex; align-items:center; gap:8px; color:var(--ej-ink); cursor:pointer; white-space:nowrap; }
-.reading-filter a { color:#4e5d35; text-decoration:none; margin-left:auto; }
+.reading-filter a { color:color-mix(in srgb, #4e5d35 var(--ej-shade), var(--ej-ink)); text-decoration:none; margin-left:auto; }
 .home-page {
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   min-height: 100vh;
@@ -766,10 +765,10 @@ function stripHtmlTags(str: string): string {
   left: 0;
   right: 0;
   height: 70px;
-  background: rgba(255, 255, 255, 0.1);
+  background: color-mix(in srgb, var(--ej-surface) 10%, transparent);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  border-bottom: 1px solid color-mix(in srgb, var(--ej-hairline) 20%, transparent);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -816,17 +815,17 @@ function stripHtmlTags(str: string): string {
   width: 100%;
   height: 40px;
   padding: 0 45px 0 18px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--ej-line);
   border-radius: 20px;
   font-size: 14px;
   outline: none;
   transition: all 0.3s;
-  background: white;
-  color: #333;
+  background: var(--ej-surface);
+  color: var(--ej-ink);
 }
 
 .search-box input::placeholder {
-  color: #999;
+  color: var(--ej-muted);
 }
 
 /* 隐藏原生搜索清除按钮 */
@@ -837,7 +836,7 @@ function stripHtmlTags(str: string): string {
 
 .search-box input:focus {
   border-color: var(--ej-accent);
-  background: white;
+  background: var(--ej-surface);
 }
 
 .search-btn {
@@ -850,7 +849,7 @@ function stripHtmlTags(str: string): string {
   background: var(--ej-accent);
   border: none;
   border-radius: 50%;
-  color: white;
+  color: var(--ej-surface);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -878,11 +877,11 @@ function stripHtmlTags(str: string): string {
   padding: 8px 12px;
   border-radius: 8px;
   transition: all 0.3s;
-  color: #666;
+  color: var(--ej-body);
 }
 
 .nav-icon-btn:hover {
-  background: #eee;
+  background: var(--ej-canvas);
   color: var(--ej-accent);
 }
 
@@ -898,7 +897,7 @@ function stripHtmlTags(str: string): string {
 
 /* AI 助手按钮特殊样式 */
 .nav-icon-btn.ai-btn {
-  color: #666;
+  color: var(--ej-body);
 }
 
 .nav-icon-btn.ai-btn:hover {
@@ -919,7 +918,7 @@ function stripHtmlTags(str: string): string {
 
 .nav-btn {
   background: transparent;
-  color: #666;
+  color: var(--ej-body);
   border: none;
   padding: 10px 20px;
   border-radius: 20px;
@@ -929,13 +928,13 @@ function stripHtmlTags(str: string): string {
 }
 
 .nav-btn:hover {
-  background: #eee;
+  background: var(--ej-canvas);
   transform: translateY(-2px);
 }
 
 .nav-btn.primary {
   background: var(--ej-accent);
-  color: white;
+  color: var(--ej-surface);
   font-weight: 600;
 }
 
@@ -948,7 +947,7 @@ function stripHtmlTags(str: string): string {
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  border: 2px solid #ddd;
+  border: 2px solid var(--ej-line);
   cursor: pointer;
   transition: all 0.3s;
   object-fit: cover;
@@ -979,7 +978,7 @@ function stripHtmlTags(str: string): string {
 
 .user-dropdown:hover .dropdown-trigger .user-avatar {
   transform: scale(2);
-  border-color: white;
+  border-color: var(--ej-hairline);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
 }
 
@@ -990,7 +989,7 @@ function stripHtmlTags(str: string): string {
   transform: translateX(-50%) translateY(10px);
   width: 300px;
   padding-top: 45px;
-  background: white;
+  background: var(--ej-surface);
   border-radius: 16px;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.18);
   opacity: 0;
@@ -1020,7 +1019,7 @@ function stripHtmlTags(str: string): string {
 .dropdown-user-name {
   font-size: 18px;
   font-weight: 600;
-  color: #333;
+  color: var(--ej-ink);
   text-align: center;
   padding: 15px 20px 15px;
 }
@@ -1029,9 +1028,9 @@ function stripHtmlTags(str: string): string {
   display: flex;
   justify-content: space-around;
   padding: 15px 20px;
-  background: #f8f9fa;
-  border-top: 1px solid #f0f0f0;
-  border-bottom: 1px solid #f0f0f0;
+  background: var(--ej-canvas);
+  border-top: 1px solid var(--ej-hairline);
+  border-bottom: 1px solid var(--ej-hairline);
 }
 
 .dropdown-stats .stat-item {
@@ -1043,19 +1042,19 @@ function stripHtmlTags(str: string): string {
 }
 
 .dropdown-stats .stat-item:hover {
-  background: white;
+  background: var(--ej-surface);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
 .dropdown-stats .stat-value {
   font-size: 20px;
   font-weight: 700;
-  color: #333;
+  color: var(--ej-ink);
 }
 
 .dropdown-stats .stat-label {
   font-size: 12px;
-  color: #999;
+  color: var(--ej-muted);
   margin-top: 3px;
 }
 
@@ -1068,20 +1067,20 @@ function stripHtmlTags(str: string): string {
   align-items: center;
   gap: 14px;
   padding: 14px 20px;
-  color: #333;
+  color: var(--ej-ink);
   font-size: 14px;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .dropdown-item:hover {
-  background: #f5f5f5;
+  background: var(--ej-canvas);
 }
 
 .dropdown-item svg {
   width: 20px;
   height: 20px;
-  fill: #666;
+  fill: var(--ej-body);
   flex-shrink: 0;
 }
 
@@ -1092,11 +1091,11 @@ function stripHtmlTags(str: string): string {
 .dropdown-item svg.arrow {
   width: 18px;
   height: 18px;
-  fill: #ccc;
+  fill: var(--ej-muted);
 }
 
 .dropdown-footer {
-  border-top: 1px solid #f0f0f0;
+  border-top: 1px solid var(--ej-hairline);
   padding: 10px 0;
 }
 
@@ -1109,7 +1108,7 @@ function stripHtmlTags(str: string): string {
 }
 
 .dropdown-item.logout:hover {
-  background: #fff2f0;
+  background: var(--ej-canvas);
 }
 
 /* 下拉菜单中的未读消息badge */
@@ -1147,8 +1146,8 @@ function stripHtmlTags(str: string): string {
   gap: 8px;
   margin-bottom: 24px;
   padding: 10px 14px;
-  background: white;
-  border: 1px solid #edf0f3;
+  background: var(--ej-surface);
+  border: 1px solid var(--ej-hairline);
   border-radius: 14px;
   box-shadow: 0 2px 8px rgba(15, 23, 42, 0.03);
   overflow-x: auto;
@@ -1161,7 +1160,7 @@ function stripHtmlTags(str: string): string {
 }
 
 .category-nav::-webkit-scrollbar-thumb {
-  background: #e0e0e0;
+  background: var(--ej-soft);
   border-radius: 3px;
 }
 
@@ -1171,14 +1170,14 @@ function stripHtmlTags(str: string): string {
   font-size: 13px;
   cursor: pointer;
   transition: background 0.2s ease, color 0.2s ease;
-  color: #6b7280;
+  color: var(--ej-body);
   background: transparent;
   flex-shrink: 0;
 }
 
 .category-item:hover {
-  background: #f4f6fa;
-  color: #1f2937;
+  background: var(--ej-canvas);
+  color: color-mix(in srgb, #1f2937 var(--ej-shade), var(--ej-ink));
 }
 
 .category-item.active {
@@ -1195,7 +1194,7 @@ function stripHtmlTags(str: string): string {
 
 .welcome-title {
   font-size: 36px;
-  color: #1f2937;
+  color: color-mix(in srgb, #1f2937 var(--ej-shade), var(--ej-ink));
   margin-bottom: 12px;
   font-weight: 600;
   letter-spacing: -0.02em;
@@ -1204,7 +1203,7 @@ function stripHtmlTags(str: string): string {
 
 .welcome-subtitle {
   font-size: 15px;
-  color: #6b7280;
+  color: var(--ej-body);
   letter-spacing: 0.01em;
 }
 
@@ -1212,10 +1211,10 @@ function stripHtmlTags(str: string): string {
 .mobile-login-tip {
   display: none;
   font-size: 13px;
-  color: #999;
+  color: var(--ej-muted);
   margin-top: 12px;
   padding: 8px 16px;
-  background: rgba(17, 17, 15, 0.08);
+  background: color-mix(in srgb, var(--ej-ink) 8%, transparent);
   border-radius: 20px;
   width: fit-content;
   margin-left: auto;
@@ -1241,8 +1240,8 @@ function stripHtmlTags(str: string): string {
 
 .articles-section {
   flex: 1;
-  background: white;
-  border: 1px solid #edf0f3;
+  background: var(--ej-surface);
+  border: 1px solid var(--ej-hairline);
   border-radius: 16px;
   padding: 32px 32px 28px;
   box-shadow: 0 2px 12px rgba(15, 23, 42, 0.04);
@@ -1258,7 +1257,7 @@ function stripHtmlTags(str: string): string {
 .section-title {
   font-size: 22px;
   font-weight: 600;
-  color: #1f2937;
+  color: color-mix(in srgb, #1f2937 var(--ej-shade), var(--ej-ink));
   letter-spacing: -0.01em;
   margin: 0;
 }
@@ -1266,16 +1265,66 @@ function stripHtmlTags(str: string): string {
 .sort-tabs {
   display: flex;
   gap: 4px;
-  background: #f4f6fa;
+  background: var(--ej-canvas);
   padding: 4px;
   border-radius: 10px;
+}
+
+.article-feed--recommend {
+  --recommend-rail-width: 44px;
+  --recommend-rail-gap: 12px;
+  position: relative;
+  margin-inline-end: calc(var(--recommend-rail-width) + var(--recommend-rail-gap));
+}
+
+.recommend-refresh {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: calc(100% + var(--recommend-rail-gap));
+  width: var(--recommend-rail-width);
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 0;
+  border: 1px solid var(--ej-line);
+  border-radius: 12px;
+  background: var(--ej-surface);
+  color: var(--ej-ink);
+  font: inherit;
+  font-size: 14px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.recommend-refresh span { writing-mode: vertical-rl; text-orientation: upright; letter-spacing: .14em; }
+
+.recommend-refresh:hover:not(:disabled) {
+  border-color: var(--ej-ink);
+  background: var(--studio-lime-soft); color: var(--ej-on-color);
+}
+
+.recommend-refresh:disabled { opacity: .6; cursor: wait; }
+.recommend-refresh svg { width: 18px; height: 18px; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .recommend-refresh[aria-busy="true"] svg { animation: studio-spin .85s linear infinite; }
+}
+
+@media (min-width: 1400px) {
+  .article-feed--recommend { margin-inline-end: 0; }
+}
+
+@media (max-width: 600px) {
+  .article-feed--recommend { --recommend-rail-width: 34px; --recommend-rail-gap: 8px; }
+  .recommend-refresh { font-size: 13px; }
 }
 
 .sort-tab {
   padding: 6px 14px;
   border: none;
   background: transparent;
-  color: #6b7280;
+  color: var(--ej-body);
   font-size: 13px;
   cursor: pointer;
   border-radius: 7px;
@@ -1284,12 +1333,12 @@ function stripHtmlTags(str: string): string {
 }
 
 .sort-tab:hover {
-  color: #1f2937;
+  color: color-mix(in srgb, #1f2937 var(--ej-shade), var(--ej-ink));
 }
 
 .sort-tab.active {
-  background: white;
-  color: #1f2937;
+  background: var(--ej-surface);
+  color: color-mix(in srgb, #1f2937 var(--ej-shade), var(--ej-ink));
   font-weight: 500;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
 }
@@ -1301,7 +1350,7 @@ function stripHtmlTags(str: string): string {
 }
 
 .article-card {
-  background: white;
+  background: var(--ej-surface);
   border-radius: 12px;
   overflow: hidden;
   cursor: pointer;
@@ -1322,7 +1371,7 @@ function stripHtmlTags(str: string): string {
   width: 100%;
   height: 180px;
   object-fit: cover;
-  background: #e8e8e8;
+  background: var(--ej-canvas);
   display: block;
   transform: translateZ(0);
   backface-visibility: hidden;
@@ -1360,7 +1409,7 @@ function stripHtmlTags(str: string): string {
 .article-title {
   font-size: 14px;
   font-weight: 500;
-  color: #18191c;
+  color: var(--ej-ink);
   margin-bottom: 8px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1377,7 +1426,7 @@ function stripHtmlTags(str: string): string {
   align-items: center;
   gap: 8px;
   font-size: 12px;
-  color: #999;
+  color: var(--ej-muted);
 }
 
 .author-name {
@@ -1398,7 +1447,7 @@ function stripHtmlTags(str: string): string {
   display: inline-flex;
   align-items: center;
   padding: 3px 10px;
-  background: #ecf5ff;
+  background: var(--ej-canvas);
   color: var(--ej-accent);
   border-radius: 6px;
   font-size: 11px;
@@ -1410,8 +1459,8 @@ function stripHtmlTags(str: string): string {
   display: inline-flex;
   align-items: center;
   padding: 3px 10px;
-  background: #f4f6fa;
-  color: #6b7280;
+  background: var(--ej-canvas);
+  color: var(--ej-body);
   border-radius: 6px;
   font-size: 11px;
   cursor: pointer;
@@ -1419,7 +1468,7 @@ function stripHtmlTags(str: string): string {
 }
 
 .tag-badge:hover {
-  background: #ecf5ff;
+  background: var(--ej-canvas);
   color: var(--ej-accent);
 }
 
@@ -1428,80 +1477,13 @@ function stripHtmlTags(str: string): string {
   justify-content: space-between;
   align-items: center;
   font-size: 14px;
-  color: #999;
+  color: var(--ej-muted);
 }
 
 .meta-item {
   display: flex;
   align-items: center;
   gap: 5px;
-}
-
-.sidebar {
-  width: 320px;
-  flex-shrink: 0;
-}
-
-.features {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.feature-card {
-  background: white;
-  border: 1px solid #edf0f3;
-  border-radius: 14px;
-  padding: 18px 20px;
-  text-align: left;
-  cursor: pointer;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
-  will-change: transform;
-}
-
-.feature-card:hover {
-  transform: translateY(-2px);
-  border-color: var(--ej-ink);
-  box-shadow: 0 8px 24px rgba(17, 17, 15, 0.1);
-}
-
-/* AI 助手卡片特殊样式 */
-.feature-card.ai-card .feature-icon {
-  color: var(--ej-accent);
-}
-
-.feature-card.ai-card:hover {
-  border-color: var(--ej-ink);
-}
-
-.feature-icon {
-  width: 28px;
-  height: 28px;
-  margin: 0 0 10px 0;
-  color: #6b7280;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.feature-icon svg {
-  width: 100%;
-  height: 100%;
-}
-
-.feature-title {
-  font-size: 15px;
-  font-weight: 600;
-  color: #1f2937;
-  margin-bottom: 4px;
-  letter-spacing: -0.01em;
-}
-
-.feature-desc {
-  font-size: 12px;
-  color: #6b7280;
-  line-height: 1.55;
 }
 
 .loading {
@@ -1514,7 +1496,7 @@ function stripHtmlTags(str: string): string {
 .empty-state {
   text-align: center;
   padding: 60px 20px;
-  color: #999;
+  color: var(--ej-muted);
 }
 
 /* 分页 */
@@ -1528,19 +1510,19 @@ function stripHtmlTags(str: string): string {
 
 .page-btn {
   padding: 10px 24px;
-  background: #f7f9fc;
-  border: 1px solid #ddd;
+  background: var(--ej-canvas);
+  border: 1px solid var(--ej-line);
   border-radius: 20px;
-  color: #666;
+  color: var(--ej-body);
   cursor: pointer;
   font-size: 14px;
   transition: all 0.3s;
 }
 
 .page-btn:hover:not(:disabled) {
-  border-color: #333;
-  color: #333;
-  background: #f0f0f0;
+  border-color: var(--ej-ink);
+  color: var(--ej-ink);
+  background: var(--ej-canvas);
 }
 
 .page-btn:disabled {
@@ -1549,18 +1531,8 @@ function stripHtmlTags(str: string): string {
 }
 
 .page-info {
-  color: #666;
+  color: var(--ej-body);
   font-size: 14px;
-}
-
-@media (max-width: 1200px) {
-  .main-content {
-    flex-direction: column;
-  }
-
-  .sidebar {
-    width: 100%;
-  }
 }
 
 /* 平板适配 */
@@ -1683,10 +1655,6 @@ function stripHtmlTags(str: string): string {
   .article-title {
     font-size: 14px;
     min-height: 40px;
-  }
-  
-  .sidebar {
-    display: none;
   }
   
   /* 下拉菜单 */
@@ -1864,10 +1832,6 @@ function stripHtmlTags(str: string): string {
     font-size: 12px;
   }
   
-  .sidebar {
-    display: none;
-  }
-  
   /* 下拉菜单 - 移动端往左展开 */
   .dropdown-menu {
     right: 0;
@@ -1927,11 +1891,11 @@ function stripHtmlTags(str: string): string {
 }
 
 .modern-dialog .el-dialog__headerbtn .el-dialog__close {
-  color: #666;
+  color: var(--ej-body);
 }
 
 .modern-dialog .el-dialog__headerbtn:hover .el-dialog__close {
-  color: #333;
+  color: var(--ej-ink);
 }
 
 /* 移动端弹窗宽度适配 */

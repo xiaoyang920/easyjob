@@ -72,7 +72,7 @@ test('sidebar supports sending pictures, viewing them above the panel, replies, 
   await composer.getByRole('button',{name:'发布',exact:true}).click()
   const comment=panel.locator('.comment-item').first()
   await expect(comment.getByText('图文评论',{exact:true})).toBeVisible()
-  expect(state.writes[0]).toMatchObject({content:'图文评论',imgPath:imageUrl})
+  expect(state.writes[0]).toMatchObject({content:'图文评论',imgPaths:[imageUrl]})
   await comment.getByRole('button',{name:'查看评论图片'}).click();await expect(page.locator('.el-image-viewer__wrapper')).toBeVisible()
   await page.keyboard.press('Escape');await expect(page.locator('.el-image-viewer__wrapper')).toHaveCount(0);await expect(panel).toBeVisible()
   await comment.locator('.reply-btn').first().click()

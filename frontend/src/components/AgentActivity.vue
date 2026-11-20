@@ -7,35 +7,41 @@
       <svg :class="{ open: isExpanded }" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m8 10 4 4 4-4"/></svg>
     </button>
     <div class="activity-reveal" :class="{ open: isExpanded }" :inert="!isExpanded" :aria-hidden="!isExpanded">
-    <div class="activity-body">
-      <div v-for="(text, index) in state.commentary" :key="index" class="activity-commentary">{{ text }}</div>
-      <div v-if="state.plan.length" class="task-plan">
-        <div class="section-label">任务计划</div>
-        <div v-for="(task, index) in planRows" :key="task.id" class="plan-item">
-          <span class="item-mark" :class="task.status">{{ task.status === 'done' ? '✓' : task.status === 'error' ? '!' : '·' }}</span>
-          <div class="plan-content">
-            <div :id="`${planId}-${index}`" class="plan-text">{{ expandedPlans.has(task.id) ? task.label : task.preview }}</div>
-            <button v-if="task.hasMore" type="button" class="plan-toggle"
-              :aria-expanded="expandedPlans.has(task.id)" :aria-controls="`${planId}-${index}`"
-              @click="togglePlan(task.id)">{{ expandedPlans.has(task.id) ? '收起' : '展开完整计划' }}</button>
+      <div class="activity-body">
+        <TransitionGroup name="activity-row" tag="div" class="activity-list">
+          <div v-for="entry in timeline" :key="`${entry.kind}:${entry.id}`">
+            <div v-if="entry.kind === 'commentary'" class="activity-commentary">{{ entry.text }}</div>
+            <div v-else-if="entry.kind === 'result'" class="activity-result">
+              <div class="result-label">{{ entry.label ? `${entry.label} · 结果` : '任务结果' }}</div>
+              <div>{{ entry.text }}</div>
+            </div>
+            <div v-else-if="entry.kind === 'plan'" class="task-plan">
+              <div class="section-label">任务计划</div>
+              <div v-for="task in entry.tasks" :key="task.id" class="plan-item">
+                <span class="item-mark" :class="task.status">{{ task.status === 'done' ? '✓' : task.status === 'error' ? '!' : '·' }}</span>
+                <div class="plan-content">
+                  <div :id="`${planId}-${task.id}`" class="plan-text">{{ expandedPlans.has(task.id) ? task.label : task.preview }}</div>
+                  <button v-if="task.hasMore" type="button" class="plan-toggle"
+                    :aria-expanded="expandedPlans.has(task.id)" :aria-controls="`${planId}-${task.id}`"
+                    @click="togglePlan(task.id)">{{ expandedPlans.has(task.id) ? '收起' : '展开完整计划' }}</button>
+                </div>
+                <span class="task-type">{{ roleLabels[task.role] || '处理' }}</span>
+              </div>
+            </div>
+            <div v-else-if="entry.kind === 'activity' && entry.item" class="activity-item">
+              <span class="item-mark" :class="entry.item.status">{{ entry.item.status === 'done' ? '✓' : entry.item.status === 'error' ? '!' : entry.item.status === 'paused' ? 'Ⅱ' : '·' }}</span>
+              <div class="item-content">
+                <div class="item-title">{{ entry.item.label }} <span v-if="entry.item.actor === 'subagent'" class="agent-badge">子任务</span></div>
+                <div v-if="entry.item.detail" class="item-detail">{{ entry.item.detail }}</div>
+              </div>
+              <span v-if="entry.item.finishedAt && entry.item.startedAt" class="item-duration">{{ ((entry.item.finishedAt - entry.item.startedAt) / 1000).toFixed(1) }}s</span>
+            </div>
           </div>
-          <span class="task-type">{{ roleLabels[task.role] || '处理' }}</span>
+        </TransitionGroup>
+        <div v-if="!timeline.length" class="waiting-copy">
+          {{ state.status === 'working' ? '正在准备处理请求…' : '该回复未保留处理明细。' }}
         </div>
       </div>
-      <TransitionGroup name="activity-row" tag="div" class="activity-list">
-        <div v-for="item in state.activities" :key="item.id" class="activity-item">
-          <span class="item-mark" :class="item.status">{{ item.status === 'done' ? '✓' : item.status === 'error' ? '!' : item.status === 'paused' ? 'Ⅱ' : '·' }}</span>
-          <div class="item-content">
-            <div class="item-title">{{ item.label }} <span v-if="item.actor === 'subagent'" class="agent-badge">子任务</span></div>
-            <div v-if="item.detail" class="item-detail">{{ item.detail }}</div>
-          </div>
-          <span v-if="item.finishedAt && item.startedAt" class="item-duration">{{ ((item.finishedAt - item.startedAt) / 1000).toFixed(1) }}s</span>
-        </div>
-      </TransitionGroup>
-      <div v-if="!state.activities.length && !state.plan.length && !state.commentary.length" class="waiting-copy">
-        {{ state.status === 'working' ? '正在准备处理请求…' : '该回复未保留处理明细。' }}
-      </div>
-    </div>
     </div>
   </section>
 </template>
@@ -49,11 +55,26 @@ const props = defineProps<{ state: AgentStreamState }>()
 const expanded = ref<boolean | null>(null)
 const planId = `agent-plan-${useId()}`
 const expandedPlans = ref(new Set<string>())
-const planRows = computed(() => props.state.plan.map(task => {
-  const chars = Array.from(task.label)
-  return { ...task, hasMore: chars.length > 160,
-    preview: chars.length > 160 ? chars.slice(0, 160).join('') + '…' : task.label }
-}))
+const timeline = computed(() => {
+  const activities = new Map(props.state.activities.map(item => [item.id, item]))
+  const tasks = new Map(props.state.plan.map(task => {
+    const chars = Array.from(task.label)
+    return [task.id, { ...task, hasMore: chars.length > 160,
+      preview: chars.length > 160 ? chars.slice(0, 160).join('') + '…' : task.label }] as const
+  }))
+  const entries = props.state.timeline.length ? props.state.timeline
+    : props.state.activities.map(item => ({ kind: 'activity' as const, id: item.id }))
+  return entries.map(entry => {
+    if (entry.kind === 'activity') return { ...entry, item: activities.get(entry.id) }
+    if (entry.kind === 'plan') return { ...entry, tasks: entry.taskIds.flatMap(id => {
+      const task = tasks.get(id)
+      return task ? [task] : []
+    }) }
+    if (entry.kind === 'result') return { ...entry,
+      label: entry.taskId ? activities.get(`${entry.taskId}/task`)?.label : undefined }
+    return entry
+  })
+})
 function togglePlan(id: string) {
   const next = new Set(expandedPlans.value)
   if (next.has(id)) next.delete(id)
@@ -88,44 +109,46 @@ const summary = computed(() => {
 </script>
 
 <style scoped>
-.agent-activity { margin: 0 0 14px; width: min(100%, 660px); color: #71796c; font-size: 12px; }
+.agent-activity { margin: 0 0 14px; width: min(100%, 660px); color: var(--ej-body); font-size: 12px; }
 .activity-header { display: flex; align-items: center; gap: 9px; width: 100%; padding: 10px 0; border: 0; background: transparent; color: inherit; cursor: pointer; text-align: left; }
 .activity-summary { flex: 1; font-weight: 500; }
-.activity-duration, .item-duration { font-size: 11px; color: #9b9fa5; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.activity-duration, .item-duration { font-size: 11px; color: var(--ej-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .activity-header svg { transition: transform .2s; }
 .activity-header svg.open { transform: rotate(180deg); }
 .status-indicator { width: 14px; height: 14px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 11px; }
-.status-indicator.working { border: 2px solid #e3e5e8; border-top-color: #69717d; animation: activity-spin .9s linear infinite; }
-.status-indicator.complete { color: #47846c; background: #eef6f1; }
-.status-indicator.error { color: #bd6a53; background: #fcf0eb; }
-.status-indicator.warning { color: #947226; background: #fff4d8; }
-.status-indicator.awaiting { background: #d6b775; width: 7px; height: 7px; margin: 3px; }
+.status-indicator.working { border: 2px solid var(--ej-line); border-top-color: var(--ej-line); animation: activity-spin .9s linear infinite; }
+.status-indicator.complete { color: color-mix(in srgb, #47846c var(--ej-shade), var(--ej-ink)); background: var(--ej-canvas); }
+.status-indicator.error { color: #bd6a53; background: var(--ej-canvas); }
+.status-indicator.warning { color: color-mix(in srgb, #947226 var(--ej-shade), var(--ej-ink)); background: color-mix(in srgb, #fff4d8 var(--ej-tint), var(--ej-surface)); }
+.status-indicator.awaiting { background: #d6b775; width: 7px; height: 7px; margin: 3px; color: var(--ej-on-color); }
 .status-indicator.cancelled { background: #a5a9af; width: 7px; height: 7px; margin: 3px; }
 .activity-reveal { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows 350ms cubic-bezier(.22, 1, .36, 1), opacity 200ms ease; }
 .activity-reveal.open { grid-template-rows: 1fr; opacity: 1; }
-.activity-body { min-height: 0; overflow: hidden; margin-left: 6px; padding: 0 0 0 17px; border-left: 1px solid #dfe4d9; }
-.activity-commentary { color: #474b52; line-height: 1.75; margin: 0 0 12px; }
+.activity-body { min-height: 0; overflow: hidden; margin-left: 6px; padding: 0 0 0 17px; border-left: 1px solid var(--ej-line); }
+.activity-commentary { color: var(--ej-body); line-height: 1.75; margin: 0 0 12px; }
+.activity-result { color: var(--ej-body); line-height: 1.65; margin: 0 0 10px 23px; overflow-wrap: anywhere; }
+.result-label { color: var(--ej-body); font-size: 11px; }
 .task-plan { margin: 0 0 13px; padding: 8px 0; background: transparent; border: 0; border-radius: 0; }
-.section-label { color: #92969d; font-size: 11px; margin-bottom: 8px; }
+.section-label { color: var(--ej-muted); font-size: 11px; margin-bottom: 8px; }
 .plan-item { display: flex; align-items: flex-start; gap: 8px; padding: 4px 0; line-height: 1.6; }
 .plan-content { flex: 1; min-width: 0; }
 .plan-text { overflow-wrap: anywhere; white-space: pre-wrap; }
-.plan-toggle { display: block; margin-top: 3px; padding: 3px 0; border: 0; background: transparent; color: #60765a; font: inherit; font-size: 11px; cursor: pointer; }
+.plan-toggle { display: block; margin-top: 3px; padding: 3px 0; border: 0; background: transparent; color: var(--ej-body); font: inherit; font-size: 11px; cursor: pointer; }
 .plan-toggle:hover { text-decoration: underline; }
-.plan-toggle:focus-visible { outline: 2px solid #78876d; outline-offset: 3px; border-radius: 2px; }
+.plan-toggle:focus-visible { outline: 2px solid var(--ej-line); outline-offset: 3px; border-radius: 2px; }
 .plan-item > .task-type { flex-shrink: 0; }
-.task-type, .agent-badge { border: 0; border-radius: 3px; background: #eaf0e5; padding: 0 5px; font-size: 10px; color: #78876d; white-space: nowrap; font-weight: 400; }
+.task-type, .agent-badge { border: 0; border-radius: 3px; background: var(--ej-canvas); padding: 0 5px; font-size: 10px; color: var(--ej-body); white-space: nowrap; font-weight: 400; }
 .activity-item { display: flex; align-items: flex-start; gap: 9px; padding: 6px 0; }
-.item-mark { display: inline-flex; width: 13px; flex-shrink: 0; justify-content: center; color: #a3a8af; line-height: 20px; }
-.item-mark.active { color: #566577; animation: activity-pulse 1.2s ease-in-out infinite; }
+.item-mark { display: inline-flex; width: 13px; flex-shrink: 0; justify-content: center; color: var(--ej-muted); line-height: 20px; }
+.item-mark.active { color: color-mix(in srgb, #566577 var(--ej-shade), var(--ej-ink)); animation: activity-pulse 1.2s ease-in-out infinite; }
 .item-mark.done { color: #6b947d; }
 .item-mark.error { color: #bb6a54; }
 .item-mark.paused { color: #b39a65; }
 .item-content { flex: 1; min-width: 0; }
 .item-title { line-height: 20px; }
 .agent-badge { margin-left: 5px; }
-.item-detail { color: #9499a1; font-size: 12px; line-height: 1.6; margin-top: 2px; }
-.waiting-copy { color: #989da5; padding: 4px 0; }
+.item-detail { color: var(--ej-muted); font-size: 12px; line-height: 1.6; margin-top: 2px; }
+.waiting-copy { color: var(--ej-muted); padding: 4px 0; }
 .activity-row-enter-active, .activity-row-leave-active, .activity-row-move { transition: opacity 220ms ease, transform 300ms cubic-bezier(.22, 1, .36, 1); }
 .activity-row-enter-from, .activity-row-leave-to { opacity: 0; transform: translateY(5px); }
 @keyframes activity-spin { to { transform: rotate(360deg); } }

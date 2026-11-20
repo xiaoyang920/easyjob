@@ -42,9 +42,9 @@ Python 尚未订阅 RabbitMQ 账号变更事件，因此密码修改/封禁等�
 
 - Python 62 项测试通过：公开 API 身份、参数/返回兼容、SSE 撤销、RPC 委托及执行仓储等。真实聊天联调还发现并修复了 `RunService.config` 缺少 settings 导入的问题，并新增执行身份恢复回归。
 - Gateway 26 项测试通过并完成打包，包含真实 RSA 签名验证和路由顺序检查。
-- `scripts/agent-direct-smoke.py`：27 项真实服务检查通过。创建临时账号，检查资源归属、历史/记忆/会话编辑、伪造身份拒绝与 SSE；隔离网关将 Java HTTP 目标设为不可达地址，Agent 查询仍返回成功，Java 路径返回 503。此检查不调用模型、不发邮件。
+- `scripts/checks/agent-direct-smoke.py`：27 项真实服务检查通过。创建临时账号，检查资源归属、历史/记忆/会话编辑、伪造身份拒绝与 SSE；隔离网关将 Java HTTP 目标设为不可达地址，Agent 查询仍返回成功，Java 路径返回 503。此检查不调用模型、不发邮件。
 - 本次真实单设备退出使 Python SSE 在约 375 毫秒关闭，SQL 中执行仍为 running；重新连接返回 401。这是一次实测值，不是性能承诺。
-- `scripts/agent-direct-chat-smoke.py` 已通过一次真实模型流式回复、运行会话绑定和历史落库验证；此次短回复耗时 2688 毫秒。结果保存在忽略目录 `temp/agent-direct-chat-report.json`；临时账号、会话和运行数据在检查后清理。
+- `scripts/checks/agent-direct-chat-smoke.py` 已通过一次真实模型流式回复、运行会话绑定和历史落库验证；此次短回复耗时 2688 毫秒。结果保存在忽略目录 `temp/agent-direct-chat-report.json`；临时账号、会话和运行数据在检查后清理。
 - Compose 配置校验通过；本地前端、Gateway、Auth、Blog、Agent 就绪检查均返回 200。没有执行生产或容器发布。
 
 这些检查没有覆盖所有模型工具和管理操作，没有进行吞吐压测，不能据此宣称整体响应速度提升了固定比例。

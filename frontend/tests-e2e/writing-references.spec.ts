@@ -291,7 +291,7 @@ test('server conflict restores the unsent question and attached reference', asyn
   await expect(panel.locator('.pending-writing-reference')).toHaveCount(2)
   await panel.getByRole('button', { name: '发送消息', exact: true }).click()
   await expect.poll(() => sent.length).toBe(2)
-  await expect(input).toHaveValue('解释')
+  await expect(input).toHaveValue('解释 ')
   await expect(input).toBeEnabled()
   await expect(panel.locator('.pending-writing-reference')).toHaveCount(2)
   await expect(panel.locator('.pending-writing-reference').nth(0)).toContainText('需要讨论的选中文字。')

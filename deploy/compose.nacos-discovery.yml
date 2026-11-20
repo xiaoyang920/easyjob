@@ -1,0 +1,19 @@
+x-nacos-client: &nacos-client
+  EASYJOB_NACOS_ENABLED: "true"
+  EASYJOB_NACOS_SERVER_URL: http://nacos:8848
+  EASYJOB_NACOS_NAMESPACE: ${EASYJOB_NACOS_NAMESPACE:-public}
+  EASYJOB_NACOS_GROUP: ${EASYJOB_NACOS_GROUP:-EASYJOB}
+  EASYJOB_NACOS_USERNAME: ${EASYJOB_NACOS_USERNAME:-nacos}
+  EASYJOB_NACOS_PASSWORD: ${EASYJOB_NACOS_PASSWORD:?Set EASYJOB_NACOS_PASSWORD after initializing Nacos}
+
+services:
+  blog:
+    environment:
+      <<: *nacos-client
+      EASYJOB_NACOS_ADVERTISE_HOST: ""
+    depends_on:
+      nacos:
+        condition: service_healthy
+  search-index:
+    environment:
+      <<: *nacos-client

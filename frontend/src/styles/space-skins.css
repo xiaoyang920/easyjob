@@ -1,0 +1,76 @@
+/* Default banner colours, used when a space has no reviewed banner photo. */
+:root, [data-pendant-preview="day"] {
+  --space-banner-start: #dbd0b7;
+  --space-banner-end: #aca1d8;
+}
+
+html.dark, [data-pendant-preview="night"] {
+  --space-banner-start: #534b3b;
+  --space-banner-end: #4a446a;
+}
+
+#app .space-header .space-profile-card {
+  max-width: 1160px; margin: 0 auto; background: var(--ej-surface);
+  border: 1.5px solid var(--ej-ink); border-radius: 22px; overflow: hidden; box-shadow: var(--ej-shadow);
+}
+
+#app .space-header .space-profile-card .header-content {
+  position: relative; align-items: flex-start; padding: 20px 32px 28px; background: transparent; border: 0; border-radius: 0; box-shadow: none;
+}
+
+#app .space-header .space-profile-card .user-avatar {
+  margin-top: -68px; flex-shrink: 0; border: 3px solid var(--ej-surface);
+}
+
+#app .space-header .space-profile-card .header-actions { align-self: flex-end; flex-wrap: wrap; }
+#app .user-space-page :is(.filter-btn, .tab-item).active,
+#app .user-space-page .tab-item.active .tab-badge { color: var(--ej-on-color); }
+#app .user-space-page :is(.filter-btn, .tab-item).active { background: var(--studio-lime); }
+#app .space-header .space-profile-card .user-badge { background: var(--studio-lime); text-shadow: none; color: var(--ej-on-color); }
+#app .space-header .space-profile-card .header-actions .action-btn:hover:not(:disabled) { background: var(--studio-lime); color: var(--ej-on-color); }
+#app .space-header .space-profile-card .user-intro { color: var(--ej-muted); }
+
+/* A pendant replaces the portrait border; its artwork overhang needs room around the avatar. */
+#app .space-avatar.with-pendant { box-sizing: border-box; border: 0; box-shadow: none; overflow: visible; }
+#app .space-header .space-profile-card .user-avatar.with-pendant { width: 120px; height: 120px; border: 0; }
+#app .space-profile-card .header-content:has(.with-pendant) { padding-inline: 48px; }
+#app .space-profile-card .with-pendant + .user-info { margin-inline-start: 48px; }
+
+@media (max-width: 768px) {
+  #app .space-header .space-profile-card .user-avatar.with-pendant { width: 80px; height: 80px; }
+  #app .space-profile-card .with-pendant + .user-info { margin-inline-start: 0; margin-block-start: 22px; }
+}
+
+@media (max-width: 760px) {
+  #app .space-header .space-profile-card .header-content { align-items: center; padding: 13px 18px 20px; }
+  #app .space-header .space-profile-card .user-avatar { margin-top: -51px; }
+  #app .space-header .space-profile-card .header-actions { align-self: center; }
+}
+
+@media (max-width: 480px) {
+  #app .space-header .space-profile-card .user-avatar.with-pendant { width: 70px; height: 70px; }
+}
+
+/*
+ * Chat bubble artwork (variables come from chatBubbleStyle in utils/spaceSkins.ts).
+ * Artwork sits on a pseudo-element so mirroring it never mirrors the text.
+ * The chat selector outranks the default bubble styles in theme.css and Chat.vue.
+ */
+.decoration-bubble,
+#app .chat-page .message-item .msg-bubble.decoration-bubble {
+  position: relative; isolation: isolate; box-sizing: border-box;
+  display: grid; align-content: center; min-block-size: var(--bubble-min-height);
+  padding-block: 11px 15px; padding-inline: var(--bubble-padding-inline);
+  border: 0; border-radius: 0; box-shadow: none;
+  background: transparent; color: var(--bubble-text);
+}
+/* Sticker messages show the artwork alone, without the default bubble frame from theme.css. */
+#app .chat-page .message-item .msg-bubble.sticker-bubble {
+  padding: 0; border: 0; border-radius: 0; box-shadow: none; background: transparent;
+}
+.decoration-bubble::before {
+  content: ''; position: absolute; inset: 0; z-index: -1; box-sizing: border-box; pointer-events: none;
+  border-style: solid; border-color: transparent; border-width: var(--bubble-width);
+  border-image: var(--bubble-image) var(--bubble-slice) fill / var(--bubble-width) stretch;
+  transform: scaleX(var(--bubble-flip));
+}

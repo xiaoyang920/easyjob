@@ -158,10 +158,10 @@ function quoteDraft() {
 .writing-ai-resizer{position:absolute;z-index:2;left:0;top:20px;bottom:20px;width:12px;cursor:col-resize;touch-action:none;outline:none}
 .writing-ai-resizer::after{content:'';position:absolute;left:3px;top:50%;width:3px;height:44px;transform:translateY(-50%);border-radius:99px;background:var(--ej-line);transition:background .15s}
 .writing-ai-resizer:hover::after,.writing-ai-resizer:focus-visible::after,.is-resizing .writing-ai-resizer::after{width:4px;background:var(--ej-ink)}
-.writing-ai-resizer:focus-visible{background:var(--studio-lime,#cbff46);border-radius:8px}
+.writing-ai-resizer:focus-visible{background:var(--studio-lime,#cbff46);border-radius:8px; color: var(--ej-on-color);}
 .is-resizing{pointer-events:auto;cursor:col-resize}
 :global(html.writing-ai-resizing),:global(html.writing-ai-resizing *){cursor:col-resize!important;user-select:none!important}
-.writing-ai-backdrop{position:absolute;inset:72px 0 0;background:#11110f26;pointer-events:auto}
+.writing-ai-backdrop{position:absolute;inset:72px 0 0;background:color-mix(in srgb, var(--ej-ink) 15%, transparent);pointer-events:auto}
 .writing-context-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 16px;border-bottom:1px solid var(--ej-line);font-size:10px;color:var(--ej-muted);flex-shrink:0}.writing-context-bar button{border:0;background:transparent;color:var(--ej-ink);font:inherit;cursor:pointer;white-space:nowrap;padding:4px}
 .in-fullscreen .writing-ai-panel{top:64px;bottom:16px}
 .in-fullscreen .writing-ai-backdrop{inset:64px 0 0}

@@ -25,7 +25,7 @@ test('autosave preserves edits made while the previous save is waiting and reuse
  release();await expect(page.getByPlaceholder('请输入文章标题...')).toHaveValue('保存期间继续输入')
  await expect.poll(()=>saves.length,{timeout:12000}).toBe(2)
  expect(saves.map(v=>v.expectedRevisionId)).toEqual(['10','10']);expect(saves[1].expectedLockVersion).toBe(1);expect(saves.every(v=>v.status===0)).toBe(true)
- await expect(page.locator('.autosave-status')).toContainText('草稿已保存')
+ await expect(page.locator('.autosave-status')).toContainText('已保存到服务端')
 })
 test('a conflict pauses autosave and retains a recoverable local copy',async({page})=>{
  let saves=0

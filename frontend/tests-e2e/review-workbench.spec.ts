@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises'
 
 // Synthetic UI fixture only; these labels never enter the real evaluation output.
 test('offline review requires explicit labels and rejects stale imports', async ({ page }) => {
-  const template = await readFile('../python-agent/evaluation/review_workbench.html', 'utf8')
+  const template = await readFile('../services/python-agent/evaluation/review_workbench.html', 'utf8')
   const bundle = { mode:'live', expected:1, hash:'ui-test-only', items:[{
     id:'ui-fixture-only', category:'UI contract', query:'仅供界面回归的合成问题', sources:[{content:'<script>window.injected=true</script>'}],
     candidate:'合成候选', final:'合成回答', candidate_hash:'candidate-fixture', final_hash:'final-fixture', audit:{},

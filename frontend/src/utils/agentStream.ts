@@ -1,3 +1,5 @@
+import { traceErrorMessage, traceIdFrom } from './traceId.ts'
+
 export type ActivityStatus = 'pending' | 'active' | 'done' | 'paused' | 'error'
 export type RunStatus = 'working' | 'complete' | 'awaiting' | 'cancelled' | 'error'
 
@@ -20,6 +22,12 @@ export interface AgentPlanTask {
   status: ActivityStatus
 }
 
+type AgentTimelineEntry =
+  | { kind: 'activity'; id: string }
+  | { kind: 'plan'; id: string; taskIds: string[] }
+  | { kind: 'commentary'; id: string; text: string }
+  | { kind: 'result'; id: string; text: string; taskId?: string }
+
 export interface AgentStreamState {
   status: RunStatus
   startedAt?: number
@@ -28,13 +36,14 @@ export interface AgentStreamState {
   commentary: string[]
   activities: AgentActivityItem[]
   plan: AgentPlanTask[]
+  timeline: AgentTimelineEntry[]
   answerSequence: number
   answerReceiving: boolean
 }
 
 export function createAgentState(): AgentStreamState {
   return { status: 'working', startedAt: Date.now(), richEvents: false, commentary: [],
-    activities: [], plan: [], answerSequence: 0, answerReceiving: false }
+    activities: [], plan: [], timeline: [], answerSequence: 0, answerReceiving: false }
 }
 
 export function deliveryReviewWarning(state: AgentStreamState): string | undefined {
@@ -65,8 +74,19 @@ export function applyAgentEvent(state: AgentStreamState, event: Record<string, a
   if (event.version !== 1 || event.kind === 'context_usage') return
   if (!state.richEvents) state.activities = [] // Replace legacy progress once rich events arrive.
   state.richEvents = true
-  if (event.kind === 'commentary' && typeof event.text === 'string') {
-    if (state.commentary.at(-1) !== event.text) state.commentary.push(event.text.slice(0, 500))
+  if ((event.kind === 'commentary' || event.kind === 'result') && typeof event.text === 'string') {
+    const text = event.text.trim().slice(0, 500)
+    if (!text) return
+    const last = state.timeline.at(-1)
+    const id = typeof event.id === 'string' ? event.id : `note/${state.timeline.length}`
+    if (state.timeline.some(entry => entry.kind === event.kind && entry.id === id)
+      || (typeof event.id !== 'string' && last && 'text' in last && last.kind === event.kind && last.text === text)) return
+    if (event.kind === 'commentary') {
+      state.timeline.push({ kind: 'commentary', id, text })
+      state.commentary.push(text)
+    } else {
+      state.timeline.push({ kind: 'result', id, text, taskId: typeof event.taskId === 'string' ? event.taskId : undefined })
+    }
   } else if (event.kind === 'plan' && Array.isArray(event.tasks)) {
     const previous = new Map(state.plan.map(task => [task.id, task]))
     // The server task contract allows 4000 Unicode characters. Retain the
@@ -76,6 +96,9 @@ export function applyAgentEvent(state: AgentStreamState, event: Record<string, a
     // Incremental plans retain already completed work in the activity panel.
     const ids = new Set(next.map((task: AgentPlanTask) => task.id))
     state.plan = [...state.plan.filter(task => !ids.has(task.id)), ...next]
+    const newTasks = next.filter((task: AgentPlanTask) => !previous.has(task.id))
+    if (newTasks.length) state.timeline.push({ kind: 'plan', id: newTasks[0].id,
+      taskIds: newTasks.map((task: AgentPlanTask) => task.id) })
   } else if (event.kind === 'activity' && typeof event.id === 'string' && typeof event.label === 'string') {
     if (!['active', 'done', 'paused', 'error'].includes(event.status)) return
     const timestamp = typeof event.timestamp === 'string' ? Date.parse(event.timestamp) : NaN
@@ -84,6 +107,7 @@ export function applyAgentEvent(state: AgentStreamState, event: Record<string, a
     if (!item) {
       item = { id: event.id, label: event.label, status: event.status, startedAt: now }
       state.activities.push(item)
+      state.timeline.push({ kind: 'activity', id: item.id })
     }
     if (event.status === 'active' && item.status !== 'active') {
       item.startedAt = now
@@ -168,9 +192,10 @@ export async function* readSse(response: Response): AsyncGenerator<string> {
       if (typeof body.message === 'string' && body.message.trim()) message = body.message
       else if (typeof body.detail === 'string' && body.detail.trim()) message = body.detail
     } catch { /* A proxy may return an empty or non-JSON error body. */ }
-    throw Object.assign(new Error(message), { status: response.status })
+    const traceId = traceIdFrom(response.headers)
+    throw Object.assign(new Error(traceErrorMessage(message, traceId)), { status: response.status, traceId })
   }
-  if (!response.body) throw new Error('没有收到响应内容')
+  if (!response.body) throw new Error(traceErrorMessage('没有收到响应内容', traceIdFrom(response.headers)))
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   const frames = new SseDecoder()

@@ -93,7 +93,7 @@ function onCommand(command: string) {
 :global(.ai-conversation-menu .conversation-action-copy) { display: flex; flex-direction: column; gap: 4px; }
 :global(.ai-conversation-menu .conversation-action-copy strong) { font-size: 13px; font-weight: 600; }
 :global(.ai-conversation-menu .conversation-action-copy small) { font-size: 11px; color: var(--ej-muted); }
-:global(.ai-conversation-menu .conversation-action-delete:not(.is-disabled)) { color: #a43b2c; }
-:global(.ai-conversation-menu .conversation-action-delete:not(.is-disabled):focus) { background: #ffede7; color: #a43b2c; }
+:global(.ai-conversation-menu .conversation-action-delete:not(.is-disabled)) { color: color-mix(in srgb, #a43b2c var(--ej-shade), var(--ej-ink)); }
+:global(.ai-conversation-menu .conversation-action-delete:not(.is-disabled):focus) { background: color-mix(in srgb, #ffede7 var(--ej-tint), var(--ej-surface)); color: color-mix(in srgb, #a43b2c var(--ej-shade), var(--ej-ink)); }
 :global(.ai-conversation-menu .el-dropdown-menu__item.is-disabled) { opacity: .6; }
 </style>

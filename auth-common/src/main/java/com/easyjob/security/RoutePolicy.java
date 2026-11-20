@@ -9,6 +9,7 @@ public final class RoutePolicy {
     public static Access access(String method,String path){
         if(path.startsWith("/internal")||path.startsWith("/actuator")||path.startsWith("/error"))return Access.INTERNAL;
         if("GET".equals(method)&&path.equals("/api/auth/jwks"))return Access.PUBLIC;
+        if("GET".equals(method)&&path.equals("/api/agent/browser/ws"))return Access.PUBLIC;
         if("POST".equals(method)&&Set.of("/api/auth/login","/api/auth/register","/api/auth/login-by-email","/api/auth/send-code","/api/auth/refresh","/api/auth/logout","/api/auth/password/code","/api/auth/password/reset").contains(path))return Access.PUBLIC;
         if("GET".equals(method)&&(Set.of("/api/article/list","/api/article/recommend","/api/category/list","/api/comment/list","/api/comment/replies","/api/comment/quotes","/api/comment/quote-markers","/api/search").contains(path)||path.startsWith("/api/article/detail/")||path.matches("/api/article/user/[0-9]+")||path.startsWith("/api/user/space/")||path.startsWith("/api/search/")))return Access.OPTIONAL;
         if("POST".equals(method)&&path.matches("/api/article/[0-9]+/view"))return Access.OPTIONAL;

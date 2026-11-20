@@ -40,8 +40,11 @@ def init_env():
     values={'MYSQL_ROOT_PASSWORD':secrets.token_urlsafe(32),'MYSQL_PASSWORD':secrets.token_urlsafe(32),
             'AUTH_DB_PASSWORD':secrets.token_urlsafe(32),'BLOG_DB_PASSWORD':secrets.token_urlsafe(32),'AGENT_DB_PASSWORD':secrets.token_urlsafe(32),
             'EXCEL_DB_PASSWORD':secrets.token_urlsafe(32),'EASYJOB_EXCEL_SERVICE_KEY':secrets.token_urlsafe(48),
+            'INDEX_DB_PASSWORD':secrets.token_urlsafe(32),'SEARCH_INDEX_SERVICE_KEY':secrets.token_urlsafe(48),
             'RABBITMQ_PASSWORD':secrets.token_urlsafe(32),'AGENT_SERVICE_KEY':secrets.token_urlsafe(48),
-            'JWT_SECRET_KEY':base64.b64encode(secrets.token_bytes(64)).decode(),'AUTH_SERVICE_KEY':secrets.token_urlsafe(48)}
+            'JWT_SECRET_KEY':base64.b64encode(secrets.token_bytes(64)).decode(),'AUTH_SERVICE_KEY':secrets.token_urlsafe(48),
+            'NACOS_AUTH_TOKEN':base64.b64encode(secrets.token_bytes(48)).decode(),
+            'NACOS_AUTH_IDENTITY_KEY':'easyjob-'+secrets.token_hex(8),'NACOS_AUTH_IDENTITY_VALUE':secrets.token_urlsafe(32)}
     text=(DEPLOY/'.env.example').read_text(encoding='utf-8')
     for key,value in values.items():text=text.replace(key+'=\n',key+'='+value+'\n')
     with target.open('x',encoding='utf-8') as stream:stream.write(text)
@@ -54,8 +57,15 @@ def init_env():
 def validate():
     # Validate the complete graph without loading or printing local credentials.
     env={**os.environ,**{key:'validation-placeholder-not-a-real-secret' for key in
-        ['MYSQL_ROOT_PASSWORD','MYSQL_PASSWORD','AUTH_DB_PASSWORD','BLOG_DB_PASSWORD','AGENT_DB_PASSWORD','EXCEL_DB_PASSWORD','EASYJOB_EXCEL_SERVICE_KEY','RABBITMQ_PASSWORD','JWT_SECRET_KEY','AUTH_SERVICE_KEY','AGENT_SERVICE_KEY','DEEPSEEK_API_KEY','ZHIPUAI_API_KEY']}}
-    subprocess.run([docker(),'compose','--env-file',str(DEPLOY/'.env.example'),'-f',str(DEPLOY/'compose.yml'),'--profile','tools','config','--quiet'],env=env,check=True)
+        ['MYSQL_ROOT_PASSWORD','MYSQL_PASSWORD','AUTH_DB_PASSWORD','BLOG_DB_PASSWORD','AGENT_DB_PASSWORD','EXCEL_DB_PASSWORD','EASYJOB_EXCEL_SERVICE_KEY','INDEX_DB_PASSWORD','SEARCH_INDEX_SERVICE_KEY','RABBITMQ_PASSWORD','JWT_SECRET_KEY','AUTH_SERVICE_KEY','AGENT_SERVICE_KEY','DEEPSEEK_API_KEY','ZHIPUAI_API_KEY',
+         'NACOS_AUTH_TOKEN','NACOS_AUTH_IDENTITY_KEY','NACOS_AUTH_IDENTITY_VALUE','EASYJOB_NACOS_PASSWORD']}}
+    compose = [docker(),'compose','--env-file',str(DEPLOY/'.env.example')]
+    base = ['-f',str(DEPLOY/'compose.yml')]
+    nacos = ['-f',str(DEPLOY/'compose.nacos.yml')]
+    discovery = ['-f',str(DEPLOY/'compose.nacos-discovery.yml')]
+    tracing = ['-f',str(DEPLOY/'compose.tracing.yml')]
+    for files in (base, nacos, base + nacos + discovery, base + tracing, base + nacos + discovery + tracing):
+        subprocess.run(compose + files + ['--profile','tools','config','--quiet'],env=env,check=True)
     print('Compose configuration is valid; no services were started.')
 
 def es(project, method, path, body=None):
@@ -66,7 +76,7 @@ def es(project, method, path, body=None):
 def backup(project, output):
     directory=Path(output).resolve();directory.mkdir(parents=True,exist_ok=False)
     running=run(project,'ps','--status','running','--services').stdout.decode().split()
-    writers=[s for s in ('web','gateway','excel','blog','agent','auth') if s in running]
+    writers=[s for s in ('web','gateway','excel','search-index','blog','agent','auth') if s in running]
     if not {'mysql','redis-stack','elasticsearch'}.issubset(running):raise RuntimeError('Backup requires healthy MySQL, Redis Stack and ES')
     locks=ROOT/'backups';locks.mkdir(exist_ok=True)
     lock=locks/('.'+project+'.backup.lock')

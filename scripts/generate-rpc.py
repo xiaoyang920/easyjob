@@ -5,7 +5,7 @@ import sys
 import tempfile
 
 root = Path(__file__).resolve().parents[1]
-committed = root / 'python-agent/app/rpc/generated'
+committed = root / 'services/python-agent/app/rpc/generated'
 temporary = tempfile.TemporaryDirectory() if '--check' in sys.argv else None
 output = Path(temporary.name) if temporary else committed
 output.mkdir(parents=True, exist_ok=True)

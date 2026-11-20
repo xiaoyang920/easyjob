@@ -1,6 +1,7 @@
 # 业务功能
 
 - [后台管理](admin/README.md)
+- [个人空间原创装扮与挂件交稿规格](space-artwork.md)
 - [文章与审核](articles/README.md)
 - [编辑器](editor/README.md)
 - [硬币、秒杀与阅读成长](growth/README.md)

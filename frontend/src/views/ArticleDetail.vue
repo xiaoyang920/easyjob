@@ -65,12 +65,10 @@
             
             <div class="article-meta">
               <div class="meta-item">
-                <img 
-                  :src="avatarUrl(article.authorAvatar, article.authorName)"
+                <SpaceAvatar
+                  :src="article.authorAvatar" :name="article.authorName" :user-id="article.authorId || article.userId"
                   alt="作者头像" 
-                  class="author-avatar"
-                  @error="onAvatarError($event, article.authorName)"
-                >
+                  class="author-avatar" />
                 <span class="author-name" @click="goToUserSpace(article.authorId)">
                   {{ article.authorName }}
                 </span>
@@ -141,14 +139,17 @@
               :class="['action-btn like-btn', { active: article.hasLiked }]" 
               :disabled="likePending"
               :aria-busy="likePending"
+              :aria-pressed="!!article.hasLiked" aria-label="点赞"
               @click="toggleLike"
             >
-              <svg class="action-icon" viewBox="0 0 1024 1024">
-                <path d="M939.358251 423.424662c-23.01825-37.252439-62.924121-60.779272-107.019409-63.209624-2.755764-0.38681-5.510504-0.579191-8.347109-0.579191l-152.202471-0.121773c6.649444-28.975938 10.015098-58.653865 10.015098-88.657202 0-28.223808-3.213181-57.139372-9.556657-85.952604-0.447185-2.043542-1.098008-4.006244-1.932002-5.866614-15.820314-57.302077-67.37755-96.841605-127.282918-96.841605-72.827679 0-132.081201 59.254545-132.081201 132.081201 0 3.334955 0.132006 6.66991 0.406253 10.015098-2.196015 57.211003-32.108279 109.947088-80.269162 141.363611-14.447037 9.42465-18.524912 28.773324-9.099239 43.220361 9.414417 14.437827 28.752858 18.535145 43.220361 9.099239 65.811892-42.925648 106.429984-115.325585 108.656699-193.684234 0.030699-1.332345-0.010233-2.663666-0.14224-3.996011-0.203638-2.012843-0.304945-4.016477-0.304945-6.019087 0-38.381146 31.233352-69.614497 69.614497-69.614497 32.57593 0 60.474326 22.204721 67.824735 53.997821 0.356111 1.534959 0.823761 3.019777 1.402953 4.453429 4.696975 22.814612 7.076162 45.579081 7.076162 67.743894 0 37.485753-6.222725 74.352405-18.494213 109.592001-3.324722 9.546424-1.819438 20.111037 4.02671 28.345582 5.856381 8.245801 15.332197 13.146415 25.448602 13.156648l193.226816 0.101307c1.423419 0.264013 2.857071 0.426719 4.300956 0.477884 24.116257 0.9967 45.935192 13.614066 58.603723 34.090423 7.838525 12.31242 11.438517 26.800389 10.431583 41.939181-0.080841 0.945535-0.121773 1.911536-0.11154 2.877537 0 0.854461 0.040932 1.697665 0.11154 2.53166 0.010233 0.335644-0.030699 0.661056-0.11154 0.976234-0.101307 0.376577-0.193405 0.772596-0.284479 1.159406l-74.972529 330.391802c-0.914836 1.281179-1.738597 2.6432-2.449795 4.046153-5.937223 11.762905-14.660908 21.48329-25.346271 28.172643-10.746762 6.812149-23.059182 10.614755-35.757388 11.06194-0.854461-0.061398-513.766226-0.224104-513.766226-0.224104-0.467651-0.020466-0.935302-0.030699-1.402953-0.030699 0 0-111.01542 0.172939-112.718201 0.457418-1.932002 0-3.446495-1.50426-3.446495-3.415796l0.299829-416.334173c0-1.901303 1.545192-3.446495 3.01466-3.456728l1.245364 0.121773c1.174756 0.132006 2.653433 0.284479 3.52836 0.193405l83.82822-0.222057 0 339.367221c0 17.253966 13.979386 31.233352 31.233352 31.233352s31.233352-13.979386 31.233352-31.233352L281.009092 435.350273c0-1.778506 0-8.631588 0-10.411117 0-17.253966-13.979386-30.928407-31.233352-30.928407-1.50426 0-117.547183 0.304945-119.402437 0.304945-36.34272 0-65.913199 29.566386-65.913199 65.893756l-0.299829 416.334173c0 36.337603 29.571503 65.902966 65.913199 65.902966 2.541893 0 111.406323-0.457418 111.406323-0.457418 0.457418 0.020466 0.925069 0.030699 1.382487 0.030699 0 0 511.458671 0.274246 512.505513 0.274246 25.469068 0 50.296523-7.197936 71.647807-20.73116 19.612687-12.281721 35.777855-29.881564 46.839795-50.967812 3.660366-5.622044 6.435573-11.875468 8.256034-18.615986 0.11154-0.416486 0.213871-0.823761 0.304945-1.240247l74.881454-330.340637c1.596358-6.212492 2.257413-12.586666 2.00261-18.992563C960.892707 473.366098 953.948551 446.331371 939.358251 423.424662z" :fill="article.hasLiked ? 'currentColor' : '#999999'"/>
-                <path d="M450.027553 518.650467c-17.253966 0-31.233352 13.979386-31.233352 31.233352l0 30.470989c0 17.253966 13.979386 31.233352 31.233352 31.233352 17.253966 0 31.233352-13.979386 31.233352-31.233352l0-30.470989C481.260905 532.629853 467.281519 518.650467 450.027553 518.650467z" :fill="article.hasLiked ? 'currentColor' : '#999999'"/>
-                <path d="M693.805696 518.650467c-17.253966 0-31.233352 13.979386-31.233352 31.233352l0 30.470989c0 17.253966 13.979386 31.233352 31.233352 31.233352 17.253966 0 31.233352-13.979386 31.233352-31.233352l0-30.470989C725.039048 532.629853 711.058638 518.650467 693.805696 518.650467z" :fill="article.hasLiked ? 'currentColor' : '#999999'"/>
-                <path d="M648.940882 660.09492c-14.304797-9.393951-33.592073-5.398964-43.159986 8.763594-0.132006 0.193405-13.614066 19.754926-34.171264 19.754926-19.98824 0-32.423457-18.09717-33.266661-19.368116-9.17087-14.427594-28.254507-18.809391-42.834574-9.770528-14.650675 9.109472-19.155269 28.366048-10.055007 43.016723 11.214413 18.047028 41.96988 48.588625 86.156242 48.588625 43.962258 0 75.104535-30.318516 86.572728-48.222281C667.404396 688.461991 663.216004 669.500127 648.940882 660.09492z" :fill="article.hasLiked ? 'currentColor' : '#999999'"/>
-              </svg>
+              <SpaceIcon site name="like" :active="article.hasLiked">
+                <svg class="action-icon" viewBox="0 0 1024 1024">
+                  <path d="M939.358251 423.424662c-23.01825-37.252439-62.924121-60.779272-107.019409-63.209624-2.755764-0.38681-5.510504-0.579191-8.347109-0.579191l-152.202471-0.121773c6.649444-28.975938 10.015098-58.653865 10.015098-88.657202 0-28.223808-3.213181-57.139372-9.556657-85.952604-0.447185-2.043542-1.098008-4.006244-1.932002-5.866614-15.820314-57.302077-67.37755-96.841605-127.282918-96.841605-72.827679 0-132.081201 59.254545-132.081201 132.081201 0 3.334955 0.132006 6.66991 0.406253 10.015098-2.196015 57.211003-32.108279 109.947088-80.269162 141.363611-14.447037 9.42465-18.524912 28.773324-9.099239 43.220361 9.414417 14.437827 28.752858 18.535145 43.220361 9.099239 65.811892-42.925648 106.429984-115.325585 108.656699-193.684234 0.030699-1.332345-0.010233-2.663666-0.14224-3.996011-0.203638-2.012843-0.304945-4.016477-0.304945-6.019087 0-38.381146 31.233352-69.614497 69.614497-69.614497 32.57593 0 60.474326 22.204721 67.824735 53.997821 0.356111 1.534959 0.823761 3.019777 1.402953 4.453429 4.696975 22.814612 7.076162 45.579081 7.076162 67.743894 0 37.485753-6.222725 74.352405-18.494213 109.592001-3.324722 9.546424-1.819438 20.111037 4.02671 28.345582 5.856381 8.245801 15.332197 13.146415 25.448602 13.156648l193.226816 0.101307c1.423419 0.264013 2.857071 0.426719 4.300956 0.477884 24.116257 0.9967 45.935192 13.614066 58.603723 34.090423 7.838525 12.31242 11.438517 26.800389 10.431583 41.939181-0.080841 0.945535-0.121773 1.911536-0.11154 2.877537 0 0.854461 0.040932 1.697665 0.11154 2.53166 0.010233 0.335644-0.030699 0.661056-0.11154 0.976234-0.101307 0.376577-0.193405 0.772596-0.284479 1.159406l-74.972529 330.391802c-0.914836 1.281179-1.738597 2.6432-2.449795 4.046153-5.937223 11.762905-14.660908 21.48329-25.346271 28.172643-10.746762 6.812149-23.059182 10.614755-35.757388 11.06194-0.854461-0.061398-513.766226-0.224104-513.766226-0.224104-0.467651-0.020466-0.935302-0.030699-1.402953-0.030699 0 0-111.01542 0.172939-112.718201 0.457418-1.932002 0-3.446495-1.50426-3.446495-3.415796l0.299829-416.334173c0-1.901303 1.545192-3.446495 3.01466-3.456728l1.245364 0.121773c1.174756 0.132006 2.653433 0.284479 3.52836 0.193405l83.82822-0.222057 0 339.367221c0 17.253966 13.979386 31.233352 31.233352 31.233352s31.233352-13.979386 31.233352-31.233352L281.009092 435.350273c0-1.778506 0-8.631588 0-10.411117 0-17.253966-13.979386-30.928407-31.233352-30.928407-1.50426 0-117.547183 0.304945-119.402437 0.304945-36.34272 0-65.913199 29.566386-65.913199 65.893756l-0.299829 416.334173c0 36.337603 29.571503 65.902966 65.913199 65.902966 2.541893 0 111.406323-0.457418 111.406323-0.457418 0.457418 0.020466 0.925069 0.030699 1.382487 0.030699 0 0 511.458671 0.274246 512.505513 0.274246 25.469068 0 50.296523-7.197936 71.647807-20.73116 19.612687-12.281721 35.777855-29.881564 46.839795-50.967812 3.660366-5.622044 6.435573-11.875468 8.256034-18.615986 0.11154-0.416486 0.213871-0.823761 0.304945-1.240247l74.881454-330.340637c1.596358-6.212492 2.257413-12.586666 2.00261-18.992563C960.892707 473.366098 953.948551 446.331371 939.358251 423.424662z" :fill="article.hasLiked ? 'currentColor' : '#999999'"/>
+                  <path d="M450.027553 518.650467c-17.253966 0-31.233352 13.979386-31.233352 31.233352l0 30.470989c0 17.253966 13.979386 31.233352 31.233352 31.233352 17.253966 0 31.233352-13.979386 31.233352-31.233352l0-30.470989C481.260905 532.629853 467.281519 518.650467 450.027553 518.650467z" :fill="article.hasLiked ? 'currentColor' : '#999999'"/>
+                  <path d="M693.805696 518.650467c-17.253966 0-31.233352 13.979386-31.233352 31.233352l0 30.470989c0 17.253966 13.979386 31.233352 31.233352 31.233352 17.253966 0 31.233352-13.979386 31.233352-31.233352l0-30.470989C725.039048 532.629853 711.058638 518.650467 693.805696 518.650467z" :fill="article.hasLiked ? 'currentColor' : '#999999'"/>
+                  <path d="M648.940882 660.09492c-14.304797-9.393951-33.592073-5.398964-43.159986 8.763594-0.132006 0.193405-13.614066 19.754926-34.171264 19.754926-19.98824 0-32.423457-18.09717-33.266661-19.368116-9.17087-14.427594-28.254507-18.809391-42.834574-9.770528-14.650675 9.109472-19.155269 28.366048-10.055007 43.016723 11.214413 18.047028 41.96988 48.588625 86.156242 48.588625 43.962258 0 75.104535-30.318516 86.572728-48.222281C667.404396 688.461991 663.216004 669.500127 648.940882 660.09492z" :fill="article.hasLiked ? 'currentColor' : '#999999'"/>
+                </svg>
+              </SpaceIcon>
               <span class="count">{{ article.likeCount || 0 }}</span>
             </button>
             <button class="action-btn coin-btn" @click="toggleCoin">
@@ -157,10 +158,12 @@
               </svg>
               <span class="count">{{ article.coinCount || 0 }}</span>
             </button>
-            <button :class="['action-btn collect-btn', { active: article.hasCollected }]" :disabled="collectPending" :aria-busy="collectPending" @click="toggleCollect">
-              <svg class="action-icon" viewBox="0 0 1059 1024">
-                <path d="M253.488042 1024c-16.9 0-33.2875-5.1125-47.6125-15.3625-26.625-18.425-39.425-49.6625-34.3125-81.925l40.9625-251.9c1.5375-10.2375-1.5375-20.475-8.7-27.65L28.213042 466.4375c-22.0125-22.525-29.1875-55.3-19.45-84.9875 9.725-29.7 35.325-51.2 66.05-55.8125l237.575-36.35c10.75-1.5375 19.4625-8.1875 24.0625-17.925L441.388042 48.125c13.825-29.7 42.5-48.125 75.2625-48.125s61.4375 18.4375 75.2625 48.125l104.45 223.2375c4.6125 9.725 13.825 16.375 24.0625 17.925L958.000542 325.625a82.355 82.355 0 0 1 66.05 55.8125c10.2375 29.7 2.5625 62.4625-19.45 84.9875l-175.625 180.7375c-7.1625 7.175-10.2375 17.925-8.7 27.65l40.9625 251.9c5.125 31.75-8.1875 63.4875-34.3 81.925-26.1125 18.4375-59.9 20.4875-88.0625 4.6125l-206.85-114.6875c-9.725-5.1125-20.9875-5.1125-30.7125 0l-207.3625 115.2c-12.8125 6.65-26.6375 10.2375-40.4625 10.2375zM516.650542 51.2c-12.8 0-23.55 7.1625-29.1875 18.4375L383.525542 292.875c-11.775 25.0875-35.325 43.0125-62.975 47.1l-237.575 36.35c-12.2875 2.05-21.5 9.7375-25.6 21.5-4.1 11.775-1.025 24.0625 7.675 32.775L240.688042 611.325c18.4375 18.95 26.625 45.5625 22.525 71.675L222.250542 934.9125c-2.05 12.8 3.075 24.575 13.3125 31.7375 10.2375 7.175 23.0375 7.6875 33.7875 1.5375l207.3625-115.2c25.0875-13.825 55.3-13.825 80.3875 0l207.3625 115.2c10.75 6.1375 23.55 5.625 33.8-1.5375 10.2375-7.1625 15.3625-18.95 13.3125-31.7375L770.625542 683.0125c-4.1-26.1125 4.1-52.7375 22.525-71.675l175.625-180.7375c8.7-8.7 11.2625-20.9875 7.675-32.775-4.0875-11.775-13.3125-19.9625-25.6-21.5l-237.5625-36.35c-27.65-4.0875-51.2-22.0125-62.975-47.1L545.838042 69.6375c-5.625-11.2625-16.375-18.4375-29.1875-18.4375z m0 0" :fill="article.hasCollected ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="30"/>
-              </svg>
+            <button :class="['action-btn collect-btn', { active: article.hasCollected }]" :disabled="collectPending" :aria-busy="collectPending" :aria-pressed="!!article.hasCollected" aria-label="收藏" @click="toggleCollect">
+              <SpaceIcon site name="collect" :active="article.hasCollected">
+                <svg class="action-icon" viewBox="0 0 1059 1024">
+                  <path d="M253.488042 1024c-16.9 0-33.2875-5.1125-47.6125-15.3625-26.625-18.425-39.425-49.6625-34.3125-81.925l40.9625-251.9c1.5375-10.2375-1.5375-20.475-8.7-27.65L28.213042 466.4375c-22.0125-22.525-29.1875-55.3-19.45-84.9875 9.725-29.7 35.325-51.2 66.05-55.8125l237.575-36.35c10.75-1.5375 19.4625-8.1875 24.0625-17.925L441.388042 48.125c13.825-29.7 42.5-48.125 75.2625-48.125s61.4375 18.4375 75.2625 48.125l104.45 223.2375c4.6125 9.725 13.825 16.375 24.0625 17.925L958.000542 325.625a82.355 82.355 0 0 1 66.05 55.8125c10.2375 29.7 2.5625 62.4625-19.45 84.9875l-175.625 180.7375c-7.1625 7.175-10.2375 17.925-8.7 27.65l40.9625 251.9c5.125 31.75-8.1875 63.4875-34.3 81.925-26.1125 18.4375-59.9 20.4875-88.0625 4.6125l-206.85-114.6875c-9.725-5.1125-20.9875-5.1125-30.7125 0l-207.3625 115.2c-12.8125 6.65-26.6375 10.2375-40.4625 10.2375zM516.650542 51.2c-12.8 0-23.55 7.1625-29.1875 18.4375L383.525542 292.875c-11.775 25.0875-35.325 43.0125-62.975 47.1l-237.575 36.35c-12.2875 2.05-21.5 9.7375-25.6 21.5-4.1 11.775-1.025 24.0625 7.675 32.775L240.688042 611.325c18.4375 18.95 26.625 45.5625 22.525 71.675L222.250542 934.9125c-2.05 12.8 3.075 24.575 13.3125 31.7375 10.2375 7.175 23.0375 7.6875 33.7875 1.5375l207.3625-115.2c25.0875-13.825 55.3-13.825 80.3875 0l207.3625 115.2c10.75 6.1375 23.55 5.625 33.8-1.5375 10.2375-7.1625 15.3625-18.95 13.3125-31.7375L770.625542 683.0125c-4.1-26.1125 4.1-52.7375 22.525-71.675l175.625-180.7375c8.7-8.7 11.2625-20.9875 7.675-32.775-4.0875-11.775-13.3125-19.9625-25.6-21.5l-237.5625-36.35c-27.65-4.0875-51.2-22.0125-62.975-47.1L545.838042 69.6375c-5.625-11.2625-16.375-18.4375-29.1875-18.4375z m0 0" :fill="article.hasCollected ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="30"/>
+                </svg>
+              </SpaceIcon>
               <span class="count">{{ article.collectCount || 0 }}</span>
             </button>
             <button type="button" class="action-btn share-btn" aria-label="分享文章" aria-haspopup="dialog" :aria-expanded="shareFriendOpen" @click="shareArticle">
@@ -204,12 +207,10 @@
             :title="user.nickName"
             @click="goToUserSpace(user.userId)"
           >
-            <img 
-              :src="avatarUrl(user.avatar, user.nickName)"
+            <SpaceAvatar
+              :src="user.avatar" :name="user.nickName" :user-id="user.userId"
               :alt="user.nickName"
-              class="online-user-avatar"
-              @error="onAvatarError($event, user.nickName)"
-            >
+              class="online-user-avatar" />
             <span class="online-user-name">{{ user.nickName }}</span>
           </div>
           <div v-if="onlineUsers.length === 0" class="online-empty">
@@ -271,14 +272,12 @@
             :key="msg.timestamp"
             :class="['chatroom-message', { self: msg.userId === myUserId }]"
           >
-            <img 
+            <SpaceAvatar
               v-if="msg.userId !== myUserId"
-              :src="avatarUrl(msg.avatar, msg.nickName)"
+              :src="msg.avatar" :name="msg.nickName" :user-id="msg.userId"
               :alt="`${msg.nickName || '用户'}的头像`"
               class="chatroom-msg-avatar clickable"
-              @click="goToUserSpace(msg.userId)"
-              @error="onAvatarError($event, msg.nickName)"
-            >
+              @click="goToUserSpace(msg.userId)" />
             <div class="chatroom-msg-content">
               <div v-if="msg.userId !== myUserId" class="chatroom-msg-name clickable" @click="goToUserSpace(msg.userId)">{{ msg.nickName }}</div>
               <div class="chatroom-msg-bubble">{{ msg.content }}</div>
@@ -341,7 +340,8 @@ import RegisterForm from '../components/RegisterForm.vue'
 import request from '../utils/request'
 import { ensureAccessToken } from '../utils/authSession'
 import { eventBus, EVENT_AUTH_EXPIRED } from '../utils/eventBus'
-import { avatarUrl, onAvatarError } from '../utils/avatar'
+import SpaceAvatar from '@/components/SpaceAvatar.vue'
+import SpaceIcon from '@/components/SpaceIcon.vue'
 // 只用 highlight.js 打 token 标记；配色在 styles/theme.css 中与编辑器共用
 import { decorateCodeBlocks, clickedCode } from '@/utils/codeTools'
 import { safeHtml } from '@/utils/safeHtml'
@@ -1173,7 +1173,7 @@ html .article-chatroom-dialog .el-dialog__headerbtn .el-icon { font-size:20px; f
 </style>
 <style scoped>
 .mobile-article-outline .toc-item a { display:block; white-space:normal; overflow-wrap:anywhere; color:var(--ej-muted); }
-.mobile-article-outline .toc-item.active a { background:var(--studio-lime-soft); color:var(--ej-ink); border-left-color:var(--ej-ink); }
+.mobile-article-outline .toc-item.active a { background:var(--studio-lime-soft); color:var(--ej-on-color); border-left-color:var(--ej-ink); }
 .article-detail-page {
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   min-height: 100vh;
@@ -1200,10 +1200,10 @@ html .article-chatroom-dialog .el-dialog__headerbtn .el-icon { font-size:20px; f
   left: 0;
   right: 0;
   height: 70px;
-  background: rgba(255, 255, 255, 0.1);
+  background: color-mix(in srgb, var(--ej-surface) 10%, transparent);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  border-bottom: 1px solid color-mix(in srgb, var(--ej-hairline) 20%, transparent);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -1246,7 +1246,7 @@ html .article-chatroom-dialog .el-dialog__headerbtn .el-icon { font-size:20px; f
 
 .nav-btn {
   background: transparent;
-  color: #666;
+  color: var(--ej-muted);
   border: none;
   padding: 10px 20px;
   border-radius: 20px;
@@ -1256,13 +1256,13 @@ html .article-chatroom-dialog .el-dialog__headerbtn .el-icon { font-size:20px; f
 }
 
 .nav-btn:hover {
-  background: #eee;
+  background: var(--ej-canvas);
   transform: translateY(-2px);
 }
 
 .nav-btn.primary {
   background: var(--ej-accent);
-  color: white;
+  color: var(--ej-surface);
 }
 
 .nav-btn.danger {
@@ -1289,9 +1289,9 @@ html .article-chatroom-dialog .el-dialog__headerbtn .el-icon { font-size:20px; f
   position: sticky;
   top: 100px;
   width: 280px;
-  background: rgba(255, 255, 255, 0.9);
+  background: color-mix(in srgb, var(--ej-surface) 90%, transparent);
   backdrop-filter: blur(10px);
-  border: 1px solid rgba(0, 0, 0, 0.1);
+  border: 1px solid color-mix(in srgb, var(--ej-ink) 10%, transparent);
   border-radius: 15px;
   padding: 20px;
   max-height: calc(100vh - 150px);
@@ -1304,10 +1304,10 @@ html .article-chatroom-dialog .el-dialog__headerbtn .el-icon { font-size:20px; f
   flex-shrink: 0;
   font-size: 16px;
   font-weight: 600;
-  color: #1a1a1a;
+  color: var(--ej-ink);
   margin-bottom: 15px;
   padding-bottom: 10px;
-  border-bottom: 2px solid #f0f0f0;
+  border-bottom: 2px solid var(--ej-hairline);
 }
 
 .toc-list {
@@ -1330,7 +1330,7 @@ html .article-chatroom-dialog .el-dialog__headerbtn .el-icon { font-size:20px; f
 
 .toc-item a {
   display: block;
-  color: #666;
+  color: var(--ej-muted);
   text-decoration: none;
   padding: 6px 10px;
   border-radius: 6px;
@@ -1341,13 +1341,13 @@ html .article-chatroom-dialog .el-dialog__headerbtn .el-icon { font-size:20px; f
 }
 
 .toc-item a:hover {
-  background: rgba(17, 17, 15, 0.1);
+  background: color-mix(in srgb, var(--ej-ink) 10%, transparent);
   color: var(--ej-accent);
   border-left-color: var(--ej-accent);
 }
 
 .toc-item.active a {
-  background: rgba(17, 17, 15, 0.15);
+  background: color-mix(in srgb, var(--ej-ink) 15%, transparent);
   color: var(--ej-accent);
   border-left-color: var(--ej-accent);
   font-weight: 600;
@@ -1361,7 +1361,7 @@ html .article-chatroom-dialog .el-dialog__headerbtn .el-icon { font-size:20px; f
 .toc-item.level-6 { padding-left: 40px; }
 
 .toc-empty {
-  color: #999;
+  color: var(--ej-muted);
   font-size: 14px;
   text-align: center;
   padding: 20px 10px;
@@ -1375,8 +1375,8 @@ html .article-chatroom-dialog .el-dialog__headerbtn .el-icon { font-size:20px; f
 
 /* 文章卡片 */
 .article-card {
-  background: white;
-  border: 1px solid rgba(0, 0, 0, 0.1);
+  background: var(--ej-surface);
+  border: 1px solid color-mix(in srgb, var(--ej-ink) 10%, transparent);
   border-radius: 20px;
   padding: 40px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
@@ -1386,13 +1386,13 @@ html .article-chatroom-dialog .el-dialog__headerbtn .el-icon { font-size:20px; f
 /* 文章头部 */
 .article-header {
   margin-bottom: 30px;
-  border-bottom: 2px solid #f0f0f0;
+  border-bottom: 2px solid var(--ej-hairline);
   padding-bottom: 25px;
 }
 
 .article-title {
   font-size: 32px;
-  color: #1a1a1a;
+  color: var(--ej-ink);
   font-weight: 600;
   margin-bottom: 20px;
   line-height: 1.4;
@@ -1412,7 +1412,7 @@ html .article-chatroom-dialog .el-dialog__headerbtn .el-icon { font-size:20px; f
   gap: 6px;
   padding: 6px 16px;
   background: linear-gradient(135deg, var(--ej-accent) 0%, #53664b 100%);
-  color: white;
+  color: var(--ej-surface);
   border-radius: 20px;
   font-size: 13px;
   font-weight: 600;
@@ -1422,7 +1422,7 @@ html .article-chatroom-dialog .el-dialog__headerbtn .el-icon { font-size:20px; f
   display: inline-flex;
   align-items: center;
   padding: 6px 16px;
-  background: rgba(17, 17, 15, 0.1);
+  background: color-mix(in srgb, var(--ej-ink) 10%, transparent);
   color: var(--ej-accent);
   border-radius: 20px;
   font-size: 13px;
@@ -1431,7 +1431,7 @@ html .article-chatroom-dialog .el-dialog__headerbtn .el-icon { font-size:20px; f
 }
 
 .tag-badge:hover {
-  background: rgba(17, 17, 15, 0.2);
+  background: color-mix(in srgb, var(--ej-ink) 20%, transparent);
   transform: translateY(-2px);
 }
 
@@ -1439,7 +1439,7 @@ html .article-chatroom-dialog .el-dialog__headerbtn .el-icon { font-size:20px; f
   display: flex;
   align-items: center;
   gap: 20px;
-  color: #666;
+  color: var(--ej-muted);
   font-size: 14px;
   flex-wrap: wrap;
 }
@@ -1454,7 +1454,7 @@ html .article-chatroom-dialog .el-dialog__headerbtn .el-icon { font-size:20px; f
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  border: 2px solid rgba(17, 17, 15, 0.3);
+  border: 2px solid color-mix(in srgb, var(--ej-ink) 30%, transparent);
   cursor: pointer;
   object-fit: cover;
 }
@@ -1497,19 +1497,19 @@ html .article-chatroom-dialog .el-dialog__headerbtn .el-icon { font-size:20px; f
 
 /* 文章摘要 */
 .article-summary {
-  color: #666;
+  color: var(--ej-muted);
   font-size: 16px;
   line-height: 1.8;
   margin-bottom: 30px;
   padding: 20px;
-  background: #f7f9fc;
+  background: var(--ej-canvas);
   border-left: 4px solid var(--ej-accent);
   border-radius: 5px;
 }
 
 /* 文章内容 */
 .article-content {
-  color: #333;
+  color: var(--ej-ink);
   font-size: 16px;
   line-height: 2;
   word-wrap: break-word;
@@ -1548,7 +1548,7 @@ html .article-chatroom-dialog .el-dialog__headerbtn .el-icon { font-size:20px; f
 .action-bar {
   padding: 16px 0;
   margin-bottom: 20px;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--ej-hairline);
 }
 
 .action-btn-group {
@@ -1558,6 +1558,7 @@ html .article-chatroom-dialog .el-dialog__headerbtn .el-icon { font-size:20px; f
 }
 
 .action-btn {
+  --space-icon-size: 26px;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -1566,7 +1567,7 @@ html .article-chatroom-dialog .el-dialog__headerbtn .el-icon { font-size:20px; f
   background: transparent;
   cursor: pointer;
   font-size: 14px;
-  color: #666;
+  color: var(--ej-muted);
   transition: color 0.2s;
   white-space: nowrap;
 }
@@ -1613,8 +1614,8 @@ html .article-chatroom-dialog .el-dialog__headerbtn .el-icon { font-size:20px; f
 }
 
 .action-icon {
-  width: 26px;
-  height: 26px;
+  width: var(--space-icon-size);
+  height: var(--space-icon-size);
   flex-shrink: 0;
 }
 
@@ -1640,7 +1641,7 @@ html .article-chatroom-dialog .el-dialog__headerbtn .el-icon { font-size:20px; f
   height: 56px;
   border-radius: 50%;
   background: var(--ej-accent);
-  color: white;
+  color: var(--ej-surface);
   border: none;
   cursor: pointer;
   display: flex;
@@ -1669,8 +1670,8 @@ html .article-chatroom-dialog .el-dialog__headerbtn .el-icon { font-size:20px; f
   height: 12px;
   background: #ff4d4f;
   border-radius: 50%;
-  border: 2px solid white;
-  animation: pulse 1.5s infinite;
+  border: 2px solid var(--ej-hairline);
+  animation: pulse 1.5s infinite; color: var(--ej-on-color);
 }
 
 .float-online-count {
@@ -1892,11 +1893,8 @@ html .article-chatroom-dialog .el-dialog__headerbtn .el-icon { font-size:20px; f
     font-size: 12px;
   }
   
-  .action-icon {
-    width: 22px;
-    height: 22px;
-  }
-  
+  .action-btn { --space-icon-size: 22px; }
+
   /* 聊天室弹窗手机适配 */
   
   .chatroom-notice {
@@ -1957,8 +1955,8 @@ html .article-chatroom-dialog .el-dialog__headerbtn .el-icon { font-size:20px; f
 /* 右侧在线用户侧边栏 */
 .online-sidebar {
   width: 260px;
-  background: white;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: var(--ej-surface);
+  border: 1px solid color-mix(in srgb, var(--ej-ink) 8%, transparent);
   border-radius: 16px;
   padding: 20px;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
@@ -1976,18 +1974,18 @@ html .article-chatroom-dialog .el-dialog__headerbtn .el-icon { font-size:20px; f
   align-items: center;
   margin-bottom: 15px;
   padding-bottom: 12px;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--ej-hairline);
 }
 
 .online-header h3 {
   margin: 0;
   font-size: 16px;
-  color: #333;
+  color: var(--ej-ink);
 }
 
 .online-count {
   background: var(--ej-accent);
-  color: white;
+  color: var(--ej-surface);
   padding: 2px 10px;
   border-radius: 12px;
   font-size: 12px;
@@ -2010,7 +2008,7 @@ html .article-chatroom-dialog .el-dialog__headerbtn .el-icon { font-size:20px; f
 }
 
 .online-user-item:hover {
-  background: #f5f5f5;
+  background: var(--ej-canvas);
 }
 
 .online-user-avatar {
@@ -2024,7 +2022,7 @@ html .article-chatroom-dialog .el-dialog__headerbtn .el-icon { font-size:20px; f
 
 .online-user-name {
   font-size: 14px;
-  color: #333;
+  color: var(--ej-ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2038,7 +2036,7 @@ html .article-chatroom-dialog .el-dialog__headerbtn .el-icon { font-size:20px; f
 .online-empty {
   text-align: center;
   padding: 40px 0;
-  color: #999;
+  color: var(--ej-muted);
   font-size: 13px;
 }
 
@@ -2046,7 +2044,7 @@ html .article-chatroom-dialog .el-dialog__headerbtn .el-icon { font-size:20px; f
   width: 100%;
   padding: 12px;
   background: var(--ej-accent);
-  color: white;
+  color: var(--ej-surface);
   border: none;
   border-radius: 8px;
   cursor: pointer;
@@ -2077,7 +2075,7 @@ html .article-chatroom-dialog .el-dialog__headerbtn .el-icon { font-size:20px; f
   height: 10px;
   background: #ff4d4f;
   border-radius: 50%;
-  animation: pulse 1.5s infinite;
+  animation: pulse 1.5s infinite; color: var(--ej-on-color);
 }
 
 @keyframes pulse {
@@ -2101,9 +2099,9 @@ html .article-chatroom-dialog .el-dialog__headerbtn .el-icon { font-size:20px; f
   align-items: center;
   gap: 6px;
   padding: 10px 20px;
-  background: #fff7e6;
+  background: color-mix(in srgb, #fff7e6 var(--ej-tint), var(--ej-surface));
   border-bottom: 1px solid #ffe7ba;
-  color: #d48806;
+  color: color-mix(in srgb, #d48806 var(--ej-shade), var(--ej-ink));
   font-size: 12px;
   flex-shrink:0;
   border-radius:10px;
@@ -2162,7 +2160,7 @@ html .article-chatroom-dialog .el-dialog__headerbtn .el-icon { font-size:20px; f
 
 .chatroom-msg-name {
   font-size: 12px;
-  color: #999;
+  color: var(--ej-muted);
   margin-bottom: 4px;
 }
 
@@ -2177,7 +2175,7 @@ html .article-chatroom-dialog .el-dialog__headerbtn .el-icon { font-size:20px; f
 .chatroom-msg-bubble {
   padding: 10px 15px;
   border-radius: 12px;
-  background: white;
+  background: var(--ej-surface);
   font-size: 14px;
   line-height: 1.5;
   word-break: break-word;
@@ -2185,7 +2183,7 @@ html .article-chatroom-dialog .el-dialog__headerbtn .el-icon { font-size:20px; f
 
 .chatroom-message.self .chatroom-msg-bubble {
   background: var(--ej-accent);
-  color: white;
+  color: var(--ej-surface);
 }
 
 .chatroom-input {
@@ -2225,7 +2223,7 @@ html .article-chatroom-dialog .el-dialog__headerbtn .el-icon { font-size:20px; f
 
 .chatroom-send-btn:hover:not(:disabled) {
   background: var(--studio-lime);
-  color:var(--ej-ink);
+  color:var(--ej-on-color);
 }
 
 .chatroom-send-btn:disabled {
@@ -2264,8 +2262,8 @@ html .article-chatroom-dialog .el-dialog__headerbtn .el-icon { font-size:20px; f
   right: 30px;
   width: 40px;
   height: 40px;
-  background: rgba(255, 255, 255, 0.2);
-  color: white;
+  background: color-mix(in srgb, var(--ej-surface) 20%, transparent);
+  color: var(--ej-surface);
   border-radius: 50%;
   font-size: 28px;
   line-height: 40px;
@@ -2275,7 +2273,7 @@ html .article-chatroom-dialog .el-dialog__headerbtn .el-icon { font-size:20px; f
 }
 
 .preview-close-btn:hover {
-  background: rgba(255, 255, 255, 0.4);
+  background: color-mix(in srgb, var(--ej-surface) 40%, transparent);
   transform: rotate(90deg);
 }
 
@@ -2313,7 +2311,7 @@ html .article-chatroom-dialog .el-dialog__headerbtn .el-icon { font-size:20px; f
     height: 36px;
     font-size: 24px;
     line-height: 36px;
-    background: rgba(255, 255, 255, 0.3);
+    background: color-mix(in srgb, var(--ej-surface) 30%, transparent);
   }
   
   /* 移动端取消悬停效果 */
@@ -2321,14 +2319,14 @@ html .article-chatroom-dialog .el-dialog__headerbtn .el-icon { font-size:20px; f
     transform: none;
   }
 }
-.ask-article-ai-btn { display: flex; align-items: center; justify-content: center; gap: 9px; width: 100%; margin-bottom: 10px; padding: 11px 14px; background: var(--ej-lime, #caff4d); border: 1px solid var(--ej-ink); border-radius: 999px; font-size: 14px; color: var(--ej-ink); cursor: pointer; transition: transform .18s ease, box-shadow .18s ease; }
+.ask-article-ai-btn { display: flex; align-items: center; justify-content: center; gap: 9px; width: 100%; margin-bottom: 10px; padding: 11px 14px; background: var(--ej-lime, #caff4d); border: 1px solid var(--ej-ink); border-radius: 999px; font-size: 14px; color: var(--ej-on-color); cursor: pointer; transition: transform .18s ease, box-shadow .18s ease; }
 .ask-article-ai-btn:hover { transform: translateY(-2px); box-shadow: 0 3px 0 #11110f1a; }
 .ask-article-ai-btn:disabled { opacity: .5; cursor: default; }
 .ask-ai-mark { font-size: 18px; }
 .ask-ai-arrow { margin-left: auto; }
 .article-ai-drawer { position: fixed; z-index: 2000; top: 96px; bottom: 20px; right: 20px; width: min(480px, calc(100% - 40px)); max-width:min(800px,calc(100% - 16px)); overflow: hidden; background: var(--ej-surface); border: 1.5px solid var(--ej-ink); border-radius: 20px; box-shadow: 0 5px 0 #11110f12; }
-.article-ai-backdrop { position: fixed; inset: 72px 0 0; z-index: 1900; background: #11110f20; }
-.article-ai-reference-lines{position:absolute;left:0;top:0;width:100%;height:0;z-index:21;pointer-events:none}.article-ai-reference-lines span{position:absolute;height:2px;background:#8da623;border-radius:2px;box-shadow:0 1px 0 #cbff4680}
+.article-ai-backdrop { position: fixed; inset: 72px 0 0; z-index: 1900; background: color-mix(in srgb, var(--ej-ink) 13%, transparent); }
+.article-ai-reference-lines{position:absolute;left:0;top:0;width:100%;height:0;z-index:21;pointer-events:none}.article-ai-reference-lines span{position:absolute;height:2px;background:#8da623;border-radius:2px;box-shadow:0 1px 0 #cbff4680; color: var(--ej-on-color);}
 :global(#app .article-detail-page.ai-question-open .main-container) { z-index: auto; }
 :global(#app .article-detail-page .online-sidebar.ai-rail-reserved) { visibility: hidden; pointer-events: none; }
 @media(min-width:1201px){
@@ -2339,7 +2337,7 @@ html .article-chatroom-dialog .el-dialog__headerbtn .el-icon { font-size:20px; f
 .article-ai-enter-from, .article-ai-leave-to { opacity: 0; transform: translateX(14px); }
 @media (max-width: 1050px) {
   .article-ai-drawer { position: fixed; z-index: 2000; top: 84px; bottom: 14px; right: 14px; width: min(480px, calc(100% - 28px)); height: auto; }
-  .article-ai-backdrop { display: block; position: fixed; inset: 70px 0 0; z-index: 1900; background: #11110f20; }
+  .article-ai-backdrop { display: block; position: fixed; inset: 70px 0 0; z-index: 1900; background: color-mix(in srgb, var(--ej-ink) 13%, transparent); }
 }
 @media (max-width: 480px) {
   .article-ai-drawer { top: 78px; right: 8px; bottom: 8px; width: calc(100% - 16px); border-radius: 18px; }

@@ -48,7 +48,7 @@ html .code-viewer-dialog .el-dialog__footer { display:flex; align-items:center; 
 .code-viewer-language { font-size:12px; color:var(--ej-muted); margin-right:auto; text-transform:uppercase; }
 .code-viewer-size { display:flex; align-items:center; }
 .code-viewer-controls button,.code-viewer-close { font:inherit; font-size:12px; border:1px solid var(--ej-line); border-radius:99px; padding:8px 12px; background:var(--ej-surface); color:var(--ej-ink); cursor:pointer; }
-.code-viewer-controls button:hover:enabled,.code-viewer-controls button[aria-pressed=true] { background:var(--studio-lime-soft); border-color:var(--ej-ink); }
+.code-viewer-controls button:hover:enabled,.code-viewer-controls button[aria-pressed=true] { background:var(--studio-lime-soft); border-color:var(--ej-ink); color: var(--ej-on-color); }
 .code-viewer-controls button:disabled { opacity:.4; cursor:not-allowed; }
 .code-viewer-size button { border-radius:0; }
 .code-viewer-size button + button { margin-left:-1px; }

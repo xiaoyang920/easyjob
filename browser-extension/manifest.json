@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "EasyJob 浏览器助手",
+  "version": "1.0.0",
+  "minimum_chrome_version": "120",
+  "permissions": ["activeTab", "scripting", "storage", "tabGroups", "webNavigation"],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
+  "background": { "service_worker": "worker.js" },
+  "action": { "default_title": "在 EasyJob 聊天页连接浏览器" },
+  "options_ui": { "page": "options.html", "open_in_tab": true },
+  "externally_connectable": { "matches": ["http://localhost/*", "http://127.0.0.1/*"] }
+}

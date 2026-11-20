@@ -14,7 +14,13 @@ async function fixture(page:Page, own=false) {
   const user={userId:own?'7':'8',nickName:'示例用户',role:1,status:1,personIntroduction:'技术博客读者',readingSeconds:0,readingMillis:'0',readingLevel:0,rules:[{level:0,minSeconds:0}]}
   await page.route('**/api/**',async route=>{
     const url=new URL(route.request().url()),path=url.pathname,method=route.request().method();let data:any=[]
-    if(method==='PUT'){writes.push(route.request().postDataJSON());data=true}
+    if(method==='PUT'){
+      const body=route.request().postDataJSON()
+      writes.push(body)
+      if(path.endsWith('/security')) Object.assign(user, {role:body.role,status:body.status})
+      data=true
+    }
+    else if(path.endsWith('/security'))data={version:'fixture-security-version'}
     else if(path.endsWith('/admin/me'))data={userId:'7',permissions:['overview.read','users.read','users.write','articles.read','categories.read','metrics.read']}
     else if(path.endsWith('/admin/overview'))data={users:1,published:0,readingSeconds:0,rules:user.rules}
     else if(path.endsWith('/admin/users'))data={records:[user],total:1,pages:1}
@@ -47,9 +53,11 @@ test('admin dialog covers navigation, keeps title/actions in view and saves nume
   await page.getByRole('option',{name:'禁用',exact:true}).click()
   await dialog.getByLabel('修改原因',{exact:true}).fill('界面回归夹具')
   await page.screenshot({path:'../logs/admin-dialog-controls-desktop.png',animations:'disabled'})
-  await dialog.getByRole('button',{name:'保存修改',exact:true}).click()
+  await dialog.getByRole('button',{name:'单独保存角色与账号状态',exact:true}).click()
+  await expect(page.getByText('角色与账号状态已更新',{exact:true})).toBeVisible()
+  expect(writes.at(-1)).toMatchObject({role:4,status:0,expectedVersion:'fixture-security-version'})
+  await dialog.getByRole('button',{name:'取消',exact:true}).click()
   await expect(dialog).toHaveCount(0)
-  expect(writes.at(-1)).toMatchObject({role:4,status:0})
   expect(errors).toEqual([])
 })
 

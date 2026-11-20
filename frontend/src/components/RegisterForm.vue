@@ -318,7 +318,7 @@ async function handleRegister() {
 /* 按下时收起偏移阴影，形成“压下去”的反馈 */
 .register-form :deep(.el-button--primary:active) {
   background: var(--studio-lime);
-  color: var(--ej-ink);
+  color: var(--ej-on-color);
   box-shadow: 1px 1px 0 var(--ej-ink);
   transform: translateY(0);
 }
@@ -339,7 +339,7 @@ async function handleRegister() {
 .register-form :deep(.el-button--default:hover:not(.is-disabled)) {
   background: var(--studio-lime);
   border-color: var(--ej-ink);
-  color: var(--ej-ink);
+  color: var(--ej-on-color);
 }
 
 .register-form :deep(.el-button--default.is-disabled) {

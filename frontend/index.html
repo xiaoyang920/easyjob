@@ -5,6 +5,21 @@
     <link rel="icon" type="image/jpeg" href="/images/wangzhantouxiang.jpg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>EasyJob</title>
+    <script>
+      (() => {
+        let mode = 'system';
+        try {
+          const stored = localStorage.getItem('easyjob-display-mode');
+          if (stored === 'light' || stored === 'dark') mode = stored;
+        } catch {}
+        const root = document.documentElement;
+        root.dataset.displayMode = mode;
+        const dark = mode === 'dark' ||
+          (mode === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+        root.classList.toggle('dark', dark);
+        root.style.colorScheme = dark ? 'dark' : 'light';
+      })();
+    </script>
   </head>
   <body>
     <div id="app"></div>

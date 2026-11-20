@@ -66,9 +66,9 @@ for (const width of [1440, 390]) {
     const { errors } = await fixture(page, true)
     await expect(page.locator('[data-slate-editor]')).toContainText('工具栏保留独立样式')
     const fullscreenButton = page.locator('.article-rich-editor [data-menu-key="fullScreen"]')
-    // WangEditor's own toolbar uses 0 8px, rather than the product button's 8px 14px.
-    await expect(fullscreenButton).toHaveCSS('padding-left', '8px')
-    await expect(fullscreenButton).toHaveCSS('padding-top', '0px')
+    // The editor toolbar uses compact padding at phone widths.
+    await expect(fullscreenButton).toHaveCSS('padding-left', width < 768 ? '3px' : '8px')
+    await expect(fullscreenButton).toHaveCSS('padding-top', width < 768 ? '3px' : '0px')
     await fullscreenButton.click()
     const fullscreen = page.getByRole('dialog', { name: '全屏编辑正文', exact: true })
     await fullscreen.getByRole('button', { name: /问 AI/ }).click()

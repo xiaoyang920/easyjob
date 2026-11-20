@@ -20,11 +20,11 @@ const percent = computed(() => {
 })
 </script>
 <style scoped>
-.reading-progress { padding: 18px; background: #fffdf6; border: 1px solid #242420; border-radius: 18px; }
+.reading-progress { padding: 18px; background: var(--ej-surface); border: 1px solid var(--ej-ink); border-radius: 18px; }
 .reading-heading { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; font-size: 13px; }
-.reading-heading span, p, small { color: #777b6d; }
-.reading-meter { height: 6px; margin: 14px 0 10px; border-radius: 8px; background: #e7e5db; overflow: hidden; }
-.reading-meter i { display: block; height: 100%; background: #bdff39; transition: width .35s ease; }
+.reading-heading span, p, small { color: var(--ej-muted); }
+.reading-meter { height: 6px; margin: 14px 0 10px; border-radius: 8px; background: var(--ej-soft); overflow: hidden; }
+.reading-meter i { display: block; height: 100%; background: #bdff39; transition: width .35s ease; color: var(--ej-on-color); }
 p { margin: 0; font-size: 12px; line-height: 1.6; } small { display: block; margin-top: 8px; font-size: 11px; }
 @media (prefers-reduced-motion: reduce) { .reading-meter i { transition: none; } }
 </style>

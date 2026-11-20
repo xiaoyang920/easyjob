@@ -197,7 +197,7 @@ async function handleRegister() {
   left: -50%;
   width: 200%;
   height: 200%;
-  background: radial-gradient(circle, rgba(255, 255, 255, 0.1) 1px, transparent 1px);
+  background: radial-gradient(circle, color-mix(in srgb, var(--ej-surface) 10%, transparent) 1px, transparent 1px);
   background-size: 50px 50px;
   animation: backgroundMove 20s linear infinite;
 }
@@ -236,7 +236,7 @@ async function handleRegister() {
   border-radius: 20px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
   backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid color-mix(in srgb, var(--ej-hairline) 20%, transparent);
   overflow: hidden;
   transition: all 0.3s ease;
 }
@@ -247,14 +247,14 @@ async function handleRegister() {
 }
 
 .register-card :deep(.el-card__header) {
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.9) 100%);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--ej-surface) 95%, transparent) 0%, color-mix(in srgb, var(--ej-surface) 90%, transparent) 100%);
   border-bottom: none;
   padding: 30px 20px 20px;
 }
 
 .register-card :deep(.el-card__body) {
   padding: 30px;
-  background: rgba(255, 255, 255, 0.95);
+  background: color-mix(in srgb, var(--ej-surface) 95%, transparent);
 }
 
 .card-header {
@@ -274,7 +274,7 @@ async function handleRegister() {
 .card-header p {
   margin: 0;
   font-size: 14px;
-  color: #909399;
+  color: var(--ej-muted);
 }
 
 .register-card :deep(.el-form-item) {
@@ -316,7 +316,7 @@ async function handleRegister() {
 
 .register-card :deep(.el-form-item__label) {
   font-weight: 500;
-  color: #606266;
+  color: var(--ej-body);
 }
 
 .register-card :deep(.el-input__wrapper) {
@@ -359,8 +359,8 @@ async function handleRegister() {
   text-align: center;
   margin-top: 24px;
   padding-top: 24px;
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
-  color: #909399;
+  border-top: 1px solid color-mix(in srgb, var(--ej-ink) 6%, transparent);
+  color: var(--ej-muted);
   font-size: 14px;
 }
 
@@ -385,7 +385,7 @@ async function handleRegister() {
 }
 
 .register-footer a:hover {
-  color: #53664b;
+  color: var(--ej-body);
 }
 
 .register-footer a:hover::after {

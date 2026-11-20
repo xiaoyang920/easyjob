@@ -20,7 +20,7 @@
   [aria-label], [role="option"], [role="tab"], [role="menuitem"], .el-button,
   .w-e-bar *, .w-e-hover-bar *, .w-e-modal *, .w-e-select-list *, [data-slate-editor] *,
   .el-select *, .el-input *, .el-pagination *
-)):where(:hover:not(:disabled)) { background: var(--studio-lime-soft); border-color: var(--ej-ink); }
+)):where(:hover:not(:disabled)) { background: var(--studio-lime-soft); color: var(--ej-on-color); border-color: var(--ej-ink); }
 
 /* Explicit shared primitive; no dependency on the page's DOM ancestry. */
 .ej-button {
@@ -49,10 +49,10 @@
 .ej-button--small { min-height: 32px; padding: 6px 12px; font-size: 12px; }
 .ej-button--primary { background: var(--ej-ink); border-color: var(--ej-ink); color: var(--ej-surface); }
 .ej-button--quiet { background: transparent; border-color: transparent; color: var(--ej-muted); }
-.ej-button--danger { color: #a43b2e; }
-.ej-button:hover:not(:disabled) { background: var(--studio-lime-soft); border-color: var(--ej-ink); color: var(--ej-ink); }
-.ej-button--primary:hover:not(:disabled) { background: var(--studio-lime); }
-.ej-button--danger:hover:not(:disabled) { background: var(--studio-coral-soft); }
+.ej-button--danger { color: color-mix(in srgb, #a43b2e var(--ej-shade), var(--ej-ink)); }
+.ej-button:hover:not(:disabled) { background: var(--studio-lime-soft); border-color: var(--ej-ink); color: var(--ej-on-color); }
+.ej-button--primary:hover:not(:disabled) { background: var(--studio-lime); color: var(--ej-on-color); }
+.ej-button--danger:hover:not(:disabled) { background: var(--studio-coral-soft); color: var(--ej-on-color); }
 .ej-button:focus-visible { outline: 2px solid var(--ej-ink); outline-offset: 3px; }
 .ej-button:disabled { opacity: .45; cursor: not-allowed; }
 .ej-button > svg { width: 15px; height: 15px; flex-shrink: 0; }

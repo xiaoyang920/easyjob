@@ -42,13 +42,11 @@
           :key="user.userId" 
           class="user-card"
         >
-          <img 
-            :src="avatarUrl(user.avatar, user.nickName)"
+          <SpaceAvatar
+            :src="user.avatar" :name="user.nickName" :user-id="user.userId"
             :alt="`${user.nickName || '用户'}的头像`"
             class="user-avatar"
-            @click="goToUserSpace(user.userId)"
-            @error="onAvatarError($event, user.nickName)"
-          >
+            @click="goToUserSpace(user.userId)" />
           <div class="user-info" @click="goToUserSpace(user.userId)">
             <div class="user-name">{{ user.nickName }}</div>
             <div class="user-intro">{{ user.personIntroduction || '这个人很懒，什么都没有留下~' }}</div>
@@ -96,7 +94,7 @@ import LoginForm from '../components/LoginForm.vue'
 import RegisterForm from '../components/RegisterForm.vue'
 import request from '../utils/request'
 import { eventBus, EVENT_AUTH_EXPIRED } from '../utils/eventBus'
-import { avatarUrl, onAvatarError } from '../utils/avatar'
+import SpaceAvatar from '@/components/SpaceAvatar.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -275,7 +273,7 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.friends-entry{display:block;margin:16px 0;padding:14px 18px;border:1px solid var(--ej-ink);border-radius:12px;color:var(--ej-ink);background:var(--studio-lime,#c5ff45);text-decoration:none}
+.friends-entry{display:block;margin:16px 0;padding:14px 18px;border:1px solid var(--ej-ink);border-radius:12px;color:var(--ej-on-color);background:var(--studio-lime,#c5ff45);text-decoration:none}
 .follow-page {
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   min-height: 100vh;
@@ -299,9 +297,9 @@ onUnmounted(() => {
   left: 0;
   right: 0;
   height: 70px;
-  background: rgba(255, 255, 255, 0.1);
+  background: color-mix(in srgb, var(--ej-surface) 10%, transparent);
   backdrop-filter: blur(10px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  border-bottom: 1px solid color-mix(in srgb, var(--ej-hairline) 20%, transparent);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -323,7 +321,7 @@ onUnmounted(() => {
 
 .nav-btn {
   background: transparent;
-  color: #666;
+  color: var(--ej-body);
   border: none;
   padding: 10px 20px;
   border-radius: 20px;
@@ -333,7 +331,7 @@ onUnmounted(() => {
 }
 
 .nav-btn:hover {
-  background: #eee;
+  background: var(--ej-canvas);
 }
 
 .container {
@@ -379,7 +377,7 @@ onUnmounted(() => {
 }
 
 .tab-item.active .count {
-  color: var(--ej-ink);
+  color: var(--ej-on-color);
 }
 
 .loading-state,
@@ -460,19 +458,19 @@ onUnmounted(() => {
 
 .page-btn {
   padding: 10px 24px;
-  background: white;
-  border: 1px solid #ddd;
+  background: var(--ej-surface);
+  border: 1px solid var(--ej-line);
   border-radius: 20px;
-  color: #666;
+  color: var(--ej-body);
   cursor: pointer;
   font-size: 14px;
   transition: all 0.3s;
 }
 
 .page-btn:hover:not(:disabled) {
-  border-color: #333;
-  color: #333;
-  background: #fafafa;
+  border-color: var(--ej-ink);
+  color: var(--ej-ink);
+  background: var(--ej-canvas);
 }
 
 .page-btn:disabled {
@@ -481,7 +479,7 @@ onUnmounted(() => {
 }
 
 .page-info {
-  color: #666;
+  color: var(--ej-body);
   font-size: 14px;
 }
 

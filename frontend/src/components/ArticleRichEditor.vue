@@ -681,16 +681,16 @@ onUnmounted(() => {
 .article-rich-editor{position:relative}
 .writing-reference-lines{position:absolute;inset:0;pointer-events:none;z-index:2;overflow:hidden;border-radius:inherit}
 .writing-reference-lines span{position:absolute;height:0;border-bottom:2px solid #86a728;box-shadow:0 1px 0 #d0ff4550}
-.article-rich-editor{--w-e-toolbar-bg-color:var(--ej-surface,#fffdf7);--w-e-textarea-bg-color:var(--ej-surface,#fffdf7);--w-e-toolbar-color:#333;--w-e-toolbar-active-color:#111;--w-e-toolbar-active-bg-color:#e8f6be;--w-e-toolbar-border-color:#e5e3dc;border:1px solid var(--ej-line,#dedbd2);border-radius:14px;background:var(--ej-surface,#fffdf7);min-width:0}
+.article-rich-editor{--w-e-toolbar-bg-color:var(--ej-surface,#fffdf7);--w-e-textarea-bg-color:var(--ej-surface,#fffdf7);--w-e-toolbar-color:#333;--w-e-toolbar-active-color:#111;--w-e-toolbar-active-bg-color:#e8f6be;--w-e-toolbar-border-color:#e5e3dc;border:1px solid var(--ej-line,var(--ej-line));border-radius:14px;background:var(--ej-surface,var(--ej-canvas));min-width:0}
 /* The editor's own .w-e-scroll owns scrolling. Clipping its wrapper hides
    upward-opening selection menus behind the toolbar. */
-.toolbar{border-bottom:1px solid var(--ej-line,#dedbd2);border-radius:14px 14px 0 0}.editor{height:var(--article-editor-height);border-radius:0 0 14px 14px}
+.toolbar{border-bottom:1px solid var(--ej-line,var(--ej-line));border-radius:14px 14px 0 0}.editor{height:var(--article-editor-height);border-radius:0 0 14px 14px}
 :deep(.w-e-text-container),:deep(.w-e-scroll){border-radius:0 0 14px 14px}:deep(.w-e-hover-bar){z-index:550}
-:deep(.w-e-hover-bar [data-menu-key="articleAiReference"]){color:var(--ej-ink,#171714);font-weight:650;background:var(--studio-lime-soft,#edf8cb);white-space:nowrap}
-:deep(.w-e-hover-bar [data-menu-key="articleAiReference"]:hover){background:var(--studio-lime,#d0ff45)}
+:deep(.w-e-hover-bar [data-menu-key="articleAiReference"]){color:var(--ej-ink,var(--ej-on-color));font-weight:650;background:var(--studio-lime-soft,#edf8cb);white-space:nowrap}
+:deep(.w-e-hover-bar [data-menu-key="articleAiReference"]:hover){background:var(--studio-lime,#d0ff45); color: var(--ej-on-color);}
 @media(max-width:767px){:deep(.w-e-hover-bar){max-width:calc(100vw - 24px);flex-wrap:wrap}}
 :deep(.w-e-text-container){font-size:16px;line-height:1.8}:deep(.w-e-scroll){padding:8px}:deep(img){max-width:100%;height:auto}:deep(pre){max-width:100%;overflow-x:auto}
-.article-rich-editor.is-fullscreen{position:fixed;inset:0;z-index:4000;display:flex;flex-direction:column;width:100%;height:100dvh!important;max-height:none;max-width:none;margin:0;border:0;border-radius:0;box-sizing:border-box;isolation:isolate;background:var(--ej-surface,#fffdf7);color:var(--ej-ink,#171717)}
+.article-rich-editor.is-fullscreen{position:fixed;inset:0;z-index:4000;display:flex;flex-direction:column;width:100%;height:100dvh!important;max-height:none;max-width:none;margin:0;border:0;border-radius:0;box-sizing:border-box;isolation:isolate;background:var(--ej-surface,var(--ej-canvas));color:var(--ej-ink,var(--ej-ink))}
 .is-fullscreen .toolbar{flex:none;border-radius:0}.is-fullscreen .editor{flex:1;min-height:0;border-radius:0}.is-fullscreen :deep(.w-e-text-container),.is-fullscreen :deep(.w-e-scroll){border-radius:0}.is-fullscreen :deep([data-slate-editor]){max-width:none;margin:0;padding:0 16px 24px}
 /* The outline and writing surface occupy different grid cells. Neither scrolling
    nor the paragraph handle can turn the outline into part of the editable page. */
@@ -703,7 +703,7 @@ onUnmounted(() => {
   .is-fullscreen > .editor{grid-area:body;min-width:0;height:100%!important}
   .is-fullscreen > :deep(.block-handle-ui){position:absolute}
 }
-.fullscreen-bar{display:flex;flex:none;align-items:center;justify-content:space-between;gap:12px;padding:12px max(16px,env(safe-area-inset-right)) 12px max(16px,env(safe-area-inset-left));border-bottom:1px solid var(--ej-line,#dedbd2);background:var(--ej-surface,#fffdf7);font-size:14px;font-weight:700}.fullscreen-bar small{margin-left:10px;color:var(--ej-muted,#777);font-size:12px;font-weight:400}.fullscreen-bar button{display:flex;align-items:center;gap:10px;flex-shrink:0;padding:8px 16px;border:1px solid #171717;border-radius:999px;background:var(--studio-lime,#cbff46);color:#171717;font:inherit;font-size:13px;cursor:pointer}.fullscreen-bar button:focus-visible{outline:2px solid currentColor;outline-offset:3px}.fullscreen-bar kbd{font:inherit;font-size:11px;font-weight:400;opacity:.7}
+.fullscreen-bar{display:flex;flex:none;align-items:center;justify-content:space-between;gap:12px;padding:12px max(16px,env(safe-area-inset-right)) 12px max(16px,env(safe-area-inset-left));border-bottom:1px solid var(--ej-line,var(--ej-line));background:var(--ej-surface,var(--ej-canvas));font-size:14px;font-weight:700}.fullscreen-bar small{margin-left:10px;color:var(--ej-muted,var(--ej-body));font-size:12px;font-weight:400}.fullscreen-bar button{display:flex;align-items:center;gap:10px;flex-shrink:0;padding:8px 16px;border:1px solid var(--ej-ink);border-radius:999px;background:var(--studio-lime,#cbff46);color:var(--ej-on-color);font:inherit;font-size:13px;cursor:pointer}.fullscreen-bar button:focus-visible{outline:2px solid currentColor;outline-offset:3px}.fullscreen-bar kbd{font:inherit;font-size:11px;font-weight:400;opacity:.7}
 @media(max-width:600px){:deep(.w-e-bar){gap:0}:deep(.w-e-bar-item){padding:2px}:deep(.w-e-scroll){padding:4px}}
 .fullscreen-bar > span{margin-right:auto}
 @media(min-width:1600px){.article-rich-editor.is-fullscreen.has-side-panel{grid-template-columns:var(--fullscreen-toc-width) minmax(0,1fr) calc(var(--writing-ai-width,424px) + 32px);grid-template-areas:"header header header" "outline toolbar ." "outline body ."}}
@@ -714,17 +714,17 @@ onUnmounted(() => {
 @media(max-width:480px){.fullscreen-bar{gap:8px}.fullscreen-bar small{display:none}.fullscreen-bar button{padding:8px 12px}}
 
 .is-document:not(.is-fullscreen){border:0}
-.is-document:not(.is-fullscreen) .toolbar{position:sticky;top:var(--document-toolbar-top,136px);z-index:25;border:1px solid var(--ej-line,#dedbd2);border-radius:8px;background:var(--ej-surface,#fffdf7)}
+.is-document:not(.is-fullscreen) .toolbar{position:sticky;top:var(--document-toolbar-top,136px);z-index:25;border:1px solid var(--ej-line,var(--ej-line));border-radius:8px;background:var(--ej-surface,var(--ej-canvas))}
 .toolbar :deep(.w-e-bar){flex-wrap:nowrap;overflow:visible}
 .is-document:not(.is-fullscreen) .editor{height:auto!important;min-height:65vh}
 .is-document:not(.is-fullscreen) :deep(.w-e-scroll){height:auto!important;min-height:65vh;overflow:visible!important}
 .is-document:not(.is-fullscreen) :deep(.w-e-text-container){height:auto!important;overflow:visible!important}
 :deep([data-slate-editor]){scroll-margin-top:130px;padding-left:48px!important}
 :deep(.w-e-text-placeholder){left:48px}
-.slash-menu{position:fixed;z-index:4100;overflow:auto;padding:6px;border:1px solid var(--ej-line,#dedbd2);border-radius:12px;background:var(--ej-surface,#fffdf7);box-shadow:0 10px 36px #0002;box-sizing:border-box}
-.slash-menu button{display:block;width:100%;border:0;background:transparent;text-align:left;padding:8px 12px;border-radius:6px;color:var(--ej-ink,#171714);cursor:pointer}
-.slash-menu button.active,.slash-menu button:hover{background:var(--studio-lime-soft,#edf8cb)}
-.slash-menu-hint{padding:7px 10px;font-size:11px;color:var(--ej-muted,#777)}
+.slash-menu{position:fixed;z-index:4100;overflow:auto;padding:6px;border:1px solid var(--ej-line,var(--ej-line));border-radius:12px;background:var(--ej-surface,var(--ej-canvas));box-shadow:0 10px 36px #0002;box-sizing:border-box}
+.slash-menu button{display:block;width:100%;border:0;background:transparent;text-align:left;padding:8px 12px;border-radius:6px;color:var(--ej-ink,var(--ej-ink));cursor:pointer}
+.slash-menu button.active,.slash-menu button:hover{background:var(--studio-lime-soft,color-mix(in srgb, #edf8cb var(--ej-tint), var(--ej-surface))); color: var(--ej-on-color);}
+.slash-menu-hint{padding:7px 10px;font-size:11px;color:var(--ej-muted,var(--ej-body))}
 @media(max-width:767px){.is-document:not(.is-fullscreen) .toolbar{top:var(--document-toolbar-top,172px)}}
 
 @media(max-width:767px){.toolbar :deep(.w-e-bar-item){padding:0}.toolbar :deep(.w-e-bar-item button){min-width:24px;padding:3px}.toolbar :deep(.w-e-bar-item .select-button){width:66px}.toolbar :deep(.w-e-bar-item > button[data-menu-key="insertLink"]),.toolbar :deep(.w-e-bar-item > button[data-menu-key="italic"]),.toolbar :deep(.w-e-bar-item > button[data-menu-key="numberedList"]){display:none}}

@@ -404,7 +404,7 @@ async function handleCodeLogin() {
   left: -50%;
   width: 200%;
   height: 200%;
-  background: radial-gradient(circle, rgba(255, 255, 255, 0.1) 1px, transparent 1px);
+  background: radial-gradient(circle, color-mix(in srgb, var(--ej-surface) 10%, transparent) 1px, transparent 1px);
   background-size: 50px 50px;
   animation: backgroundMove 20s linear infinite;
 }
@@ -443,7 +443,7 @@ async function handleCodeLogin() {
   border-radius: 20px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
   backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid color-mix(in srgb, var(--ej-hairline) 20%, transparent);
   overflow: hidden;
   transition: all 0.3s ease;
 }
@@ -454,14 +454,14 @@ async function handleCodeLogin() {
 }
 
 .login-card :deep(.el-card__header) {
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.9) 100%);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--ej-surface) 95%, transparent) 0%, color-mix(in srgb, var(--ej-surface) 90%, transparent) 100%);
   border-bottom: none;
   padding: 30px 20px 20px;
 }
 
 .login-card :deep(.el-card__body) {
   padding: 30px;
-  background: rgba(255, 255, 255, 0.95);
+  background: color-mix(in srgb, var(--ej-surface) 95%, transparent);
 }
 
 .card-header {
@@ -560,7 +560,7 @@ async function handleCodeLogin() {
 }
 
 .captcha-success {
-  background: linear-gradient(135deg, #f0f9ff 0%, #e6f7ff 100%) !important;
+  background: linear-gradient(135deg, var(--ej-canvas) 0%, #e6f7ff 100%) !important;
   border-color: #67c23a !important;
   color: #67c23a !important;
   animation: successPulse 0.5s ease-out;
@@ -582,8 +582,8 @@ async function handleCodeLogin() {
   text-align: center;
   margin-top: 24px;
   padding-top: 24px;
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
-  color: #909399;
+  border-top: 1px solid color-mix(in srgb, var(--ej-ink) 6%, transparent);
+  color: var(--ej-muted);
   font-size: 14px;
 }
 
@@ -608,7 +608,7 @@ async function handleCodeLogin() {
 }
 
 .login-footer a:hover {
-  color: #53664b;
+  color: var(--ej-body);
 }
 
 .login-footer a:hover::after {

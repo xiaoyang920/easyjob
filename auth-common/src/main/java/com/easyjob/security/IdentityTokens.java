@@ -59,10 +59,14 @@ public final class IdentityTokens {
         return new Principal(uid,sid,n.longValue(),roles==null?List.of():roles);
     }
     public static String issue(JwtEncoder encoder,String kid,String issuer,String audience,String use,Principal principal,int seconds,String method,String path,String trace) {
+        return issue(encoder,kid,issuer,audience,use,principal,seconds,method,path,trace,null);
+    }
+    public static String issue(JwtEncoder encoder,String kid,String issuer,String audience,String use,Principal principal,int seconds,String method,String path,String trace,String approximateLocation) {
         Instant now=Instant.now();Builder claims=JwtClaimsSet.builder().issuer(issuer).audience(List.of(audience)).issuedAt(now).notBefore(now.minusSeconds(1)).expiresAt(now.plusSeconds(seconds)).id(UUID.randomUUID().toString()).claim("token_use",use);
         if(principal.anonymous())claims.claim("kind","anonymous");
         else claims.subject(principal.userId()).claim("kind","user").claim("sid",principal.sid()).claim("ver",principal.version()).claim("roles",principal.roles());
         if(method!=null)claims.claim("method",method).claim("path",path).claim("trace",trace);
+        if(approximateLocation!=null)claims.claim("approximate_location",approximateLocation);
         return encoder.encode(JwtEncoderParameters.from(JwsHeader.with(SignatureAlgorithm.RS256).keyId(kid).type("JWT").build(),claims.build())).getTokenValue();
     }
     public static Principal forRequest(JwtDecoder decoder,String token,String method,String path) {

@@ -28,15 +28,15 @@ const dockClass = computed(() => route.meta.aiRunDock ? `dock-${route.meta.aiRun
 .ai-run-panel { position: fixed; right: 24px; bottom: 24px; z-index: 110; max-width: calc(100vw - 32px); }
 .ai-run-toggle { display: flex; gap: 10px; align-items: center; border: 1px solid var(--ej-ink); background: var(--ej-surface); color: var(--ej-ink); border-radius: 24px; padding: 12px 16px; box-shadow: 3px 3px 0 #17171718; cursor: pointer; }
 .ai-run-toggle > span:last-child { font-size: 12px; }
-.ai-run-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--studio-lime); border: 1px solid var(--ej-ink); }
+.ai-run-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--studio-lime); border: 1px solid var(--ej-ink); color: var(--ej-on-color); }
 .ai-run-dot.working { animation: task-pulse 1.8s ease-in-out infinite; }
 .ai-run-menu { position: absolute; right: 0; bottom: calc(100% + 12px); width: 320px; max-width: calc(100vw - 32px); max-height: 55vh; overflow: auto; border: 1px solid var(--ej-ink); border-radius: 18px; background: var(--ej-surface); box-shadow: 4px 4px 0 #17171718; padding: 16px; }
 .ai-run-heading { display: flex; justify-content: space-between; align-items: center; font-weight: 600; }
 .ai-run-heading button { border: 0; background: none; font-size: 24px; cursor: pointer; }
-.ai-run-menu a { display: flex; flex-direction: column; gap: 6px; padding: 14px 0; border-bottom: 1px solid #17171718; color: inherit; text-decoration: none; }
+.ai-run-menu a { display: flex; flex-direction: column; gap: 6px; padding: 14px 0; border-bottom: 1px solid color-mix(in srgb, var(--ej-ink) 9%, transparent); color: inherit; text-decoration: none; }
 .ai-run-menu a > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .ai-run-menu small, .ai-run-menu p { color: var(--ej-muted); font-size: 12px; }
-.ai-run-category { display: inline-block; margin-right: 8px; padding: 2px 6px; border-radius: 5px; background: var(--studio-lime-soft); color: var(--ej-ink); }
+.ai-run-category { display: inline-block; margin-right: 8px; padding: 2px 6px; border-radius: 5px; background: var(--studio-lime-soft); color: var(--ej-on-color); }
 /* 私信页底部是输入区：停到会话标题栏右侧，菜单改为向下展开 */
 .ai-run-panel.dock-top { top: 104px; right: 40px; bottom: auto; }
 .ai-run-panel.dock-top .ai-run-menu { top: calc(100% + 12px); bottom: auto; }

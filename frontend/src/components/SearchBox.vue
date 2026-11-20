@@ -77,10 +77,10 @@ onUnmounted(() => {
 #app .search-history-panel { position: absolute; z-index: 30; left: 0; top: calc(100% + 10px); width: 100%; min-width: 230px; padding: 14px 10px 10px; background: var(--ej-surface); border: 1px solid var(--ej-ink); border-radius: 16px; box-shadow: var(--ej-shadow-lift); overflow: hidden; }
 #app .search-history-heading { display: flex; align-items: center; justify-content: space-between; padding: 0 8px 10px; font-size: 12px; font-weight: 650; color: var(--ej-muted); }
 #app .search-history-clear { padding: 4px 6px; background: transparent; border: 0; border-radius: 6px; font: inherit; font-weight: 400; color: var(--ej-muted); cursor: pointer; }
-#app .search-history-clear:hover { color: var(--ej-ink); background: var(--studio-lime-soft); }
+#app .search-history-clear:hover { color: var(--ej-on-color); background: var(--studio-lime-soft); }
 #app .search-history-list { max-height: min(360px,calc(100dvh - 150px)); margin: 0; padding: 0; overflow-y: auto; list-style: none; }
 #app .search-history-list li { display: flex; align-items: center; gap: 4px; border-radius: 10px; }
-#app .search-history-list li:hover, #app .search-history-list li:focus-within { background: var(--studio-lime-soft); }
+#app .search-history-list li:hover, #app .search-history-list li:focus-within { background: var(--studio-lime-soft); color: var(--ej-on-color); }
 #app .search-history-pick { display: flex; flex: 1; min-width: 0; align-items: center; gap: 10px; padding: 10px 8px; background: transparent; border: 0; border-radius: 10px; color: var(--ej-ink); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
 #app .search-history-pick svg { flex-shrink: 0; width: 15px; height: 15px; color: var(--ej-muted); }
 #app .search-history-pick span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
