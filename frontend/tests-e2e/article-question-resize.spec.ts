@@ -84,7 +84,10 @@ test('published article panel stays bounded on large screens and releases drag s
   const body = (await page.locator('.main-content').boundingBox())!
   expect(body.x + body.width).toBeLessThan((await panel.boundingBox())!.x)
   await page.getByRole('button', { name: '宽屏阅读', exact: true }).click()
-  expect((await page.locator('.main-content').boundingBox())!.x + (await page.locator('.main-content').boundingBox())!.width).toBeLessThan((await panel.boundingBox())!.x)
+  await expect.poll(async () => {
+    const [column, sidebar] = await Promise.all([page.locator('.main-content').boundingBox(), panel.boundingBox()])
+    return column && sidebar ? sidebar.x - column.x - column.width : -Infinity
+  }).toBeGreaterThan(0)
   const grip = (await handle.boundingBox())!
   await page.mouse.move(grip.x + 6, grip.y + grip.height / 2); await page.mouse.down()
   await expect(page.locator('html')).toHaveClass(/ej-panel-resizing/)

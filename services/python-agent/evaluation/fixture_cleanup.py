@@ -1,4 +1,6 @@
 """Remove only login sessions whose stored owner is an exact fixture user ID."""
+import json
+
 from app.config import settings
 from redis.asyncio import Redis
 
@@ -10,4 +12,12 @@ async def revoke_sessions(user_ids):
         async for key in client.scan_iter(match='auth:session:*',count=100):
             value=await client.get(key)
             if value and value.split(':',1)[0] in owners:await client.delete(key)
+        for owner in owners:
+            devices=f'auth:v2:devices:{owner}'
+            for sid in await client.zrange(devices,0,-1):
+                key=f'auth:v2:session:{sid}'
+                value=await client.get(key)
+                if value and str(json.loads(value).get('uid'))==owner:
+                    await client.delete(key)
+            await client.delete(devices)
     finally:await client.aclose()

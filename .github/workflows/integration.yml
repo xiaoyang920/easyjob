@@ -5,7 +5,7 @@ permissions:
 jobs:
   platform:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     services:
       mysql:
         image: mysql:8.4
@@ -28,6 +28,8 @@ jobs:
         ports: ['8500:8500']
     env:
       EASYJOB_CI: '1'
+      EASYJOB_TEST_API: http://127.0.0.1:8090
+      EASYJOB_TEST_UNIFIED_AUTH: '1'
       TZ: Asia/Shanghai
       MYSQL_HOST: 127.0.0.1
       MYSQL_USER: root
@@ -41,6 +43,8 @@ jobs:
       AGENT_SERVICE_KEY: ci-local-only-service-key-32-chars
       MAIL_HOST: 127.0.0.1
       MAIL_USERNAME: ci@example.invalid
+      MAIL_PASSWORD: ci-unused
+      MANAGEMENT_HEALTH_MAIL_ENABLED: 'false'
       LANGFUSE_TRACING_ENABLED: 'false'
       SERVICE_DISCOVERY_ENABLED: 'true'
       SEARCH_INDEX_SERVICE_KEY: ci-local-only-search-index-key-32-bytes
@@ -89,6 +93,45 @@ jobs:
         env:
           EASYJOB_INTERACTION_DB_TEST: '1'
         run: mvn -B -f services/blog-service/pom.xml -Dtest=ArticleInteractionMysqlTests test
+      - name: Configure the isolated Auth and Excel services
+        run: |
+          python scripts/generate-auth-keys.py temp/ci-auth-keys
+          python - <<'PY'
+          import base64, os, secrets
+          from pathlib import Path
+
+          folder = Path('temp/ci-auth-keys').resolve()
+          auth_key = secrets.token_urlsafe(48)
+          excel_key = secrets.token_urlsafe(48)
+          jwt_key = base64.b64encode(secrets.token_bytes(64)).decode()
+          for secret in (auth_key, excel_key, jwt_key):
+              print(f'::add-mask::{secret}')
+          values = {
+              'JWT_SECRET_KEY': jwt_key,
+              'REDIS_DB': '0',
+              'AUTH_PRIVATE_KEY_FILE': folder / 'auth-private.json',
+              'GATEWAY_PUBLIC_KEY_FILE': folder / 'gateway-public.json',
+              'AUTH_SERVICE_KEY': auth_key,
+              'EASYJOB_AUTH_ENABLED': 'true',
+              'EASYJOB_AUTH_BASE_URL': 'http://127.0.0.1:8081',
+              'EASYJOB_AUTH_JWKS_URI': 'http://127.0.0.1:8081/api/auth/jwks',
+              'EASYJOB_AUTH_SERVICE_KEY': auth_key,
+              'EASYJOB_AUTH_GATEWAY_PRIVATE_KEY_FILE': folder / 'gateway-private.json',
+              'EASYJOB_AUTH_GATEWAY_PUBLIC_KEY_FILE': folder / 'gateway-public.json',
+              'EASYJOB_AUTH_BLOG_PRIVATE_KEY_FILE': folder / 'blog-delegation-private.json',
+              'AUTH_DELEGATION_ENABLED': 'true',
+              'BLOG_DELEGATION_PUBLIC_KEY_FILE': folder / 'blog-delegation-public.json',
+              'AUTH_SERVICE_BASE_URL': 'http://127.0.0.1:8081',
+              'AUTH_SERVICE_CHECK_KEY': auth_key,
+              'EXCEL_DB_URL': os.environ['MYSQL_URL'],
+              'EXCEL_DB_USER': os.environ['MYSQL_USER'],
+              'EXCEL_DB_PASSWORD': os.environ['MYSQL_PASSWORD'],
+              'EASYJOB_EXCEL_SERVICE_KEY': excel_key,
+          }
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as env:
+              for name, value in values.items():
+                  env.write(f'{name}={value}\n')
+          PY
       - name: Start Agent-owned query service without model calls or workers
         run: |
           mkdir -p logs
@@ -107,43 +150,39 @@ jobs:
             echo 'EASYJOB_NACOS_ENABLED=true'
             echo "EASYJOB_NACOS_PASSWORD=$password"
           } >> "$GITHUB_ENV"
-      - name: Build and start Java with dummy credentials and model dispatch disabled
+      - name: Start Blog, Auth, Excel and Gateway with production routing
         run: |
           mkdir -p temp logs
           cp services/blog-service/src/main/resources/application-example.yml temp/application-ci.yml
-          export JWT_SECRET_KEY="$(python -c 'import base64,secrets; print(base64.b64encode(secrets.token_bytes(64)).decode())')"
-          mvn -B -f services/blog-service/pom.xml -DskipTests package
+          mvn -B -DskipTests package
+          java -jar services/auth-service/target/easyjob-auth-0.0.1-SNAPSHOT.jar > logs/integration-auth.log 2>&1 &
           java -jar services/blog-service/target/easyjob-0.0.1-SNAPSHOT.jar --spring.config.location=file:./temp/application-ci.yml --spring.rabbitmq.listener.simple.auto-startup=false > logs/integration-java.log 2>&1 &
-          python - <<'PY'
-          import json,time,urllib.request
-          from pathlib import Path
-          for _ in range(60):
-              try:
-                  with urllib.request.urlopen('http://127.0.0.1:8080/api/article/list',timeout=2) as response:
-                      body=json.load(response)
-                  if body.get('code')==200:
-                      break
-              except (OSError, ValueError):
-                  pass
-              time.sleep(2)
-          else:
-              print(Path('logs/integration-java.log').read_text(errors='replace')[-30000:])
-              raise RuntimeError('Java startup failed')
-          PY
-          mvn -B -f services/gateway/pom.xml -DskipTests package
+          java -jar services/excel-service/target/easyjob-excel-0.0.1-SNAPSHOT.jar > logs/integration-excel.log 2>&1 &
           java -jar services/gateway/target/easyjob-gateway-0.0.1-SNAPSHOT.jar > logs/integration-gateway.log 2>&1 &
           python - <<'PY'
-          import json,time,urllib.request
+          import json, time, urllib.request
           from pathlib import Path
-          for _ in range(45):
-              try:
-                  with urllib.request.urlopen('http://127.0.0.1:8090/api/article/list',timeout=3) as response:
-                      if json.load(response).get('code')==200: break
-              except (OSError,ValueError): pass
-              time.sleep(2)
-          else:
-              print(Path('logs/integration-gateway.log').read_text(errors='replace')[-20000:])
-              raise RuntimeError('Gateway startup failed')
+
+          for name, path, field, expected in [
+              ('auth', '8081/actuator/health', 'status', 'UP'),
+              ('java', '8080/actuator/health', 'status', 'UP'),
+              ('excel', '8083/actuator/health', 'status', 'UP'),
+              ('gateway', '8090/api/auth/jwks', 'keys', None),
+              ('gateway', '8090/api/article/list', 'code', 200),
+          ]:
+              deadline = time.monotonic() + 90
+              while time.monotonic() < deadline:
+                  try:
+                      with urllib.request.urlopen(f'http://127.0.0.1:{path}', timeout=3) as response:
+                          value = json.load(response).get(field)
+                          if (bool(value) if expected is None else value == expected):
+                              break
+                  except (OSError, ValueError):
+                      pass
+                  time.sleep(2)
+              else:
+                  print(Path(f'logs/integration-{name}.log').read_text(errors='replace')[-20000:])
+                  raise RuntimeError(f'{name} readiness failed at {path}')
           PY
       - name: Verify RabbitMQ article indexing with Nacos discovery
         env:
@@ -153,7 +192,6 @@ jobs:
           SEARCH_INDEX_LOCK_URL: jdbc:mysql://127.0.0.1:3306/?useSSL=false&allowPublicKeyRetrieval=true
           ZHIPUAI_BASE_URL: http://127.0.0.1:18084
         run: |
-          mvn -B -f services/search-index-service/pom.xml -DskipTests package
           python tests/integration/search-index-smoke.py --embedding-fixture > logs/index-embedding.log 2>&1 &
           java -jar services/search-index-service/target/easyjob-search-index-0.0.1-SNAPSHOT.jar > logs/integration-search-index.log 2>&1 &
           python tests/integration/search-index-smoke.py
@@ -192,7 +230,10 @@ jobs:
             temp/playwright-report/
             temp/playwright-results/
             logs/integration-java.log
+            logs/integration-auth.log
+            logs/integration-excel.log
             logs/integration-agent.log
             logs/integration-gateway.log
             logs/integration-elasticsearch.log
+            logs/integration-search-index.log
           retention-days: 7

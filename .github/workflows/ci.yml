@@ -15,6 +15,10 @@ jobs:
       - run: mvn -B -f services/gateway/pom.xml verify
   java:
     runs-on: ubuntu-latest
+    env:
+      MAVEN_OPTS: >-
+        -Daether.connector.http.retryHandler.count=6
+        -Daether.connector.http.retryHandler.interval=10000
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4

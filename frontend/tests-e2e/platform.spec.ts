@@ -5,7 +5,8 @@ const fixture=JSON.parse(fs.readFileSync(path.resolve('../temp/platform-browser-
 async function login(page:Page,key:string){
  const user=fixture.users.find((u:any)=>u.key===key)
  const response=await page.request.post('/api/auth/login',{data:{email:user.email,password:fixture.password}})
- const body=await response.json();expect(body.code).toBe(200)
+ const body=await response.json()
+ expect(body.code,`Login for ${key} failed with HTTP ${response.status()} (${body.message || 'no message'})`).toBe(200)
  await page.addInitScript(data=>{localStorage.setItem('token',data.token);localStorage.setItem('userId',String(data.userId));localStorage.setItem('nickName',data.nickName || '');localStorage.setItem('email',data.email || '')},body.data)
 }
 test('administrator exports a real workbook and changes statistical source',async({page},info)=>{

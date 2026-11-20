@@ -12,6 +12,7 @@ from evaluation.fixture_cleanup import revoke_sessions
 ROOT=Path(__file__).resolve().parents[3]
 MANIFEST=ROOT/'temp/platform-browser-fixture.json'
 API=os.getenv('EASYJOB_TEST_API','http://127.0.0.1:8080')
+UNIFIED_AUTH=os.getenv('EASYJOB_TEST_UNIFIED_AUTH')=='1'
 
 async def cleanup(f):
     ids=[str(u['id']) for u in f['users']]
@@ -143,12 +144,25 @@ async def run(args):
             if baseline['latencySamples']==0:assert report['activeP50Ms']==400 and report['activeP95Ms']==1000
             await call('GET','/api/admin/agent-metrics?days=365',operator,expected=400)
             checks.append('metrics source, terminal denominator, measured usage and duration samples match SQL fixtures')
-            # Change through the real admin editing endpoint; old access token must become unusable.
-            detail=await call('GET',f"/api/admin/users/{reader['id']}",admin)
-            expected={k:detail.get(k) for k in ['nickName','personIntroduction','role','status']}
-            await call('PUT',f"/api/admin/users/{reader['id']}",admin,{'expectedProfile':expected,'nickName':reader['name'],'personIntroduction':detail.get('personIntroduction'),'role':4,'status':1,'reason':'isolated role revocation test'})
+            # Change through the account owner of role/status in the selected local stack.
+            async def change_reader_role(role):
+                reason='isolated role revocation test'
+                if UNIFIED_AUTH:
+                    endpoint=f"/api/admin/accounts/{reader['id']}/security"
+                    current=await call('GET',endpoint,admin)
+                    await call('PUT',endpoint,admin,{'expectedVersion':int(current['version']),
+                        'role':role,'status':1,'commandId':str(uuid4()),'reason':reason})
+                else:
+                    endpoint=f"/api/admin/users/{reader['id']}"
+                    detail=await call('GET',endpoint,admin)
+                    expected={k:detail.get(k) for k in ['nickName','personIntroduction','role','status']}
+                    await call('PUT',endpoint,admin,{'expectedProfile':expected,'nickName':reader['name'],
+                        'personIntroduction':detail.get('personIntroduction'),'role':role,'status':1,'reason':reason})
+
+            await change_reader_role(4)
             await call('GET','/api/admin/me',reader,expected=401);await login(reader);assert 'metrics.read' in (await call('GET','/api/admin/me',reader))['permissions']
-            await db.execute('UPDATE user_info SET role=1,auth_version=auth_version+1 WHERE user_id=:id',{'id':reader['id']});await login(reader)
+            await change_reader_role(1)
+            await call('GET','/api/admin/me',reader,expected=401);await login(reader)
             checks.append('role grant revokes old login and takes effect only after reauthentication')
             if args.seed_browser:
                 MANIFEST.parent.mkdir(exist_ok=True);MANIFEST.write_text(json.dumps({**f,'users':[{k:v for k,v in u.items() if k!='token'} for u in f['users']]},ensure_ascii=False),encoding='utf-8')
