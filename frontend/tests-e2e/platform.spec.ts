@@ -14,10 +14,16 @@ test('administrator exports a real workbook and changes statistical source',asyn
  await expect(page.getByRole('heading',{name:'概览',exact:true})).toBeVisible()
  const scope=page.getByRole('combobox',{name:'统计数据来源'});await expect(page.locator('.statistics-controls > .ej-select')).toContainText('真实业务');await scope.click();await page.getByRole('option',{name:'评测样例',exact:true}).click()
  const button=page.getByRole('button',{name:'导出 Excel',exact:true});await expect(button).toBeEnabled()
- const [download]=await Promise.all([page.waitForEvent('download'),button.click()]);expect(download.suggestedFilename()).toContain('评测样例')
+ const [request,download]=await Promise.all([
+  page.waitForRequest(r=>r.method()==='POST' && new URL(r.url()).pathname==='/api/admin/statistics/export-jobs'),
+  page.waitForEvent('download'),
+  button.click(),
+ ])
+ expect(request.postDataJSON()).toMatchObject({days:30,source:'evaluation'})
+ expect(download.suggestedFilename()).toBe('EasyJob社区每日统计_近30天.xlsx')
  const filename=info.outputPath('statistics.xlsx');await download.saveAs(filename);expect(fs.readFileSync(filename).subarray(0,2).toString()).toBe('PK')
  await page.getByRole('button',{name:'Agent 指标',exact:false}).click();await expect(page.getByRole('heading',{name:'Agent 指标',exact:true})).toBeVisible()
- await expect(page.getByText('完成成功率',{exact:true})).toBeVisible()
+ await expect(page.getByText('交付完成率',{exact:true})).toBeVisible()
 })
 test('reviewer sees permitted modules and approves a real submitted revision',async({page})=>{
  await login(page,'reviewer');await page.goto('/admin?section=reviews')
@@ -51,7 +57,7 @@ test('reader can hide a recommendation and restore it without navigating into th
 
 test('operator metrics remain usable on a phone without horizontal overflow',async({page},info)=>{
  await page.setViewportSize({width:390,height:844});await login(page,'operator');await page.goto('/admin?section=agentMetrics')
- await expect(page.getByText('完成成功率',{exact:true})).toBeVisible()
+ await expect(page.getByText('交付完成率',{exact:true})).toBeVisible()
  expect(await page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth)).toBe(false)
  await page.screenshot({path:info.outputPath('metrics-mobile.png'),fullPage:true})
 })
